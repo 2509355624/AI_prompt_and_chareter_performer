@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 角色扮演 | 角色互动</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            /* Colors - Dark Nebula Theme */
+            --bg-dark: #0f172a;
+            --bg-card: rgba(30, 41, 59, 0.6);
+            --bg-input: rgba(15, 23, 42, 0.6);
+            --bg-hover: rgba(255, 255, 255, 0.05);
+            
+            --primary: #8b5cf6;
+            --primary-hover: #7c3aed;
+            --secondary: #3b82f6;
+            --accent: #f472b6;
+            
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: rgba(148, 163, 184, 0.1);
+            
+            --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+            --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+            
+            /* Spacing */
+            --radius-lg: 16px;
+            --radius-md: 8px;
+            --radius-sm: 4px;
+
+            /* Character Chat Theme */
+            --char-primary: #f472b6;
+            --char-primary-hover: #ec4899;
+            --char-bg: rgba(244, 114, 182, 0.1);
+        }
+
+        * { box-sizing: border-box; outline: none; }
+        
+        body {
+            margin: 0;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(244, 114, 182, 0.1) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Layout */
+        .app-container {
+            display: flex;
+            width: 100%;
+            max-width: 1440px;
+            height: 100vh;
+            padding: 20px;
+            gap: 20px;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            flex-shrink: 0;
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: var(--glass-border);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .brand {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: var(--glass-border);
+        }
+
+        .sidebar-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn-icon {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: var(--radius-sm);
+            transition: all 0.2s;
+        }
+        .btn-icon:hover { color: var(--text-main); background: var(--bg-hover); }
+
+        .presets-list {
+            flex: 1;
+            overflow-y: auto;
+            margin: 0 -10px; /* Expand scroll area */
+            padding: 0 10px;
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        .preset-item {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid transparent;
+            border-radius: var(--radius-md);
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            group: 'preset';
+        }
+        .preset-item:hover {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.1);
+            transform: translateY(-1px);
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-width: 0; /* Fix flex overflow */
+        }
+
+        /* Config Panel */
+        .config-panel {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: var(--glass-border);
+            border-radius: var(--radius-lg);
+            padding: 0 20px;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 0;
+            cursor: pointer;
+        }
+        .config-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .config-body {
+            padding-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            border-top: var(--glass-border);
+            padding-top: 20px;
+        }
+        .config-panel.collapsed .config-body { display: none; }
+        .config-panel.collapsed .config-header { padding-bottom: 16px; }
+
+        /* Forms */
+        .form-group { display: flex; flex-direction: column; gap: 8px; }
+        label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+        
+        input, select, textarea {
+            background: var(--bg-input);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-main);
+            padding: 10px 12px;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--primary);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-primary:hover {
+            box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+            transform: translateY(-1px);
+        }
+        .btn-primary:active { transform: translateY(0); }
+        .btn-primary:disabled { opacity: 0.7; cursor: wait; }
+
+        /* Chat Styles */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0,0,0,0.1);
+            height: 100%;
+        }
+        
+        .chat-history {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 14px;
+            position: relative;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .message.user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+        
+        .message.ai {
+            align-self: flex-start;
+            background: rgba(255,255,255,0.1);
+            color: var(--text-main);
+            border-bottom-left-radius: 2px;
+        }
+        .message.ai.thinking { opacity: 0.6; font-style: italic; }
+
+        .chat-input-wrapper {
+            padding: 20px;
+            background: var(--bg-card);
+            border-top: var(--glass-border);
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Utilities */
+        .hidden { display: none !important; }
+        .rotate-icon { transform: rotate(-90deg); }
+        
+    /* Toggle Switch */
+    .switch {
+        position: relative;
+        display: inline-block;
+        width: 34px;
+        height: 18px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: rgba(255,255,255,0.1);
+        transition: .4s;
+        border-radius: 18px;
+    }
+    .slider:before {
+        position: absolute;
+        content: "";
+        height: 14px;
+        width: 14px;
+        left: 2px;
+        bottom: 2px;
+        background-color: white;
+        transition: .4s;
+        border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--primary); }
+    input:checked + .slider:before { transform: translateX(16px); }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+                padding: 10px;
+                gap: 10px;
+            }
+            .sidebar {
+                width: 100%;
+                max-height: 200px;
+            }
+            .main-content {
+                height: calc(100vh - 240px);
+            }
+        }
+
+        /* Back to Home Button */
+        .back-home {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: var(--glass-border);
+            border-radius: var(--radius-lg);
+            padding: 10px 16px;
+            color: var(--text-main);
+            text-decoration: none;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+        .back-home:hover {
+            background: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        /* Character Item Styles */
+        .character-item {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid transparent;
+            border-radius: var(--radius-md);
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .character-item:hover {
+            background: var(--char-bg);
+            border-color: var(--char-primary);
+            transform: translateY(-1px);
+        }
+        .character-item.selected {
+            border-color: var(--char-primary);
+            background: var(--char-bg);
+        }
+        .character-avatar {
+            font-size: 28px;
+            margin-right: 12px;
+        }
+        .character-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .character-name {
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+        .character-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+<a href="index.html" class="back-home">
+    <span>🏠</span>
+    <span>返回主页</span>
+</a>
+
+<div class="app-container">
+    <!-- Character Sidebar -->
+    <aside class="sidebar">
+        <div class="brand">
+            <span>🎭</span>
+            <span>角色选择</span>
+        </div>
+        
+        <div class="sidebar-header">
+            <span class="sidebar-title">我的角色</span>
+            <div style="display:flex; gap:8px;">
+                <button class="btn-icon" onclick="createNewCharacter()" title="添加新角色">➕ 新建</button>
+            </div>
+        </div>
+        
+        <div id="charactersList" class="presets-list">
+            <div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">
+                加载中...
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="main-content">
+        <!-- Character Info Panel -->
+        <div class="config-panel" id="characterInfoPanel" style="margin-bottom: 20px;">
+            <div class="config-header" style="padding: 20px; cursor: default;">
+                <div class="config-title" style="font-size: 18px;">
+                    <span id="currentCharAvatar" style="font-size: 32px;">🎭</span>
+                    <div style="margin-left: 12px;">
+                        <div id="currentCharName" style="font-size: 20px; font-weight: 700;">选择角色</div>
+                        <div id="currentCharDesc" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">与喜欢的角色互动吧</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-icon" onclick="editCurrentCharacter()" title="编辑角色">✎</button>
+                    <button class="btn-icon" onclick="clearCurrentChat()" title="清空对话">🗑️</button>
+                    <button class="btn-icon" onclick="toggleSystemPrompt()" title="查看原始提示词">📝</button>
+                </div>
+            </div>
+            
+            <div class="config-body" style="padding: 20px;">
+                <!-- Model Selection -->
+                <div class="form-group">
+                    <label>AI Provider</label>
+                    <select id="provider" onchange="toggleProviderSettings()" style="width: 100%;">
+                        <option value="doubao" selected>Doubao (火山引擎)</option>
+                        <option value="ollama">Local Ollama</option>
+                        <option value="openai">OpenAI / Compatible</option>
+                    </select>
+                </div>
+
+                <!-- Doubao Specific -->
+                <div id="doubaoInfo" class="form-group">
+                    <label>Doubao Model</label>
+                    <select id="doubaoModel" style="width: 100%;">
+                        <option value="2.0" selected>Doubao 2.0 Pro</option>
+                        <option value="1.8">Doubao 1.8 Pro</option>
+                        <option value="1.6">Doubao 1.6 Flash (Vision Support)</option>
+                    </select>
+                </div>
+
+                <!-- Generic Settings -->
+                <div id="genericSettings" class="hidden" style="display: contents;">
+                    <div class="form-group" style="flex: 2;">
+                        <label>Base URL</label>
+                        <input type="text" id="baseUrl" value="http://localhost:11434" style="width: 100%;">
+                    </div>
+                    
+                    <div class="form-group" style="flex: 1;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <label>Model Name</label>
+                            <span id="refreshModelsBtn" class="hidden" onclick="fetchOllamaModels(true)" style="cursor: pointer; font-size: 10px; color: var(--primary);">🔄 Refresh</span>
+                        </div>
+                        <div id="modelInputContainer">
+                            <input type="text" id="model" placeholder="e.g. llama3" style="width: 100%;">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="apiKeyGroup">
+                        <label>API Key</label>
+                        <input type="password" id="apiKey" placeholder="sk-..." style="width: 100%;">
+                    </div>
+                </div>
+
+                <!-- Force Prompt -->
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>强制提示词 / Force Prompt</label>
+                    <textarea id="forcePrompt" placeholder="输入强制提示词，例如：我是和泉纱雾最信任的人" style="width: 100%; height: 80px; resize: vertical;"></textarea>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        强制提示词会覆盖角色的部分设定，让AI按照你的要求回应
+                    </div>
+                </div>
+
+                <!-- System Prompt -->
+                <div id="systemPromptSection" class="form-group hidden" style="grid-column: 1 / -1;">
+                    <label>角色原始提示词 / Original System Prompt</label>
+                    <textarea id="currentSystemPrompt" readonly style="width: 100%; height: 120px; resize: vertical; background: rgba(0,0,0,0.2); color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 12px;"></textarea>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        这是角色的原始设定提示词，修改需要编辑角色
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="chat-section" style="flex: 1; min-height: 0; background: var(--bg-card); backdrop-filter: blur(12px); border: var(--glass-border); border-radius: 16px; box-shadow: var(--shadow-lg); overflow: hidden;">
+            <div class="chat-container" style="height: 100%;">
+                <div id="charChatHistory" class="chat-history">
+                    <div class="message ai" style="text-align: center; color: var(--text-muted);">
+                        请选择左侧的角色开始对话
+                    </div>
+                </div>
+                
+                <div class="chat-input-wrapper">
+                    <textarea id="charChatInput" placeholder="输入消息开始对话..." style="flex: 1; height: 60px; resize: none;"></textarea>
+                    <button class="btn-primary" onclick="sendCharacterMessage()" style="padding: 0 24px;">
+                        <span>🚀</span>
+                        <span>发送</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+    // --- Global State ---
+    let characters = [];
+    let currentCharacter = null;
+    let characterChatMessages = [];
+
+    // --- Utilities ---
+    function copyText(btn, text) {
+        navigator.clipboard.writeText(text).then(() => {
+            const original = btn.innerText;
+            btn.innerText = '✅ Copied!';
+            setTimeout(() => btn.innerText = original, 2000);
+        });
+    }
+    
+    // --- Initialization ---
+    document.addEventListener('DOMContentLoaded', () => {
+        loadCharacters();
+        toggleProviderSettings();
+        
+        // Setup Character Chat Enter Key
+        document.getElementById('charChatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendCharacterMessage();
+            }
+        });
+    });
+
+    // --- Model Settings ---
+    function toggleProviderSettings() {
+        const provider = document.getElementById('provider').value;
+        const doubaoInfo = document.getElementById('doubaoInfo');
+        const genericSettings = document.getElementById('genericSettings');
+        const refreshBtn = document.getElementById('refreshModelsBtn');
+        const apiKeyGroup = document.getElementById('apiKeyGroup');
+        const baseUrl = document.getElementById('baseUrl');
+
+        if (provider === 'doubao') {
+            doubaoInfo.classList.remove('hidden');
+            genericSettings.classList.add('hidden');
+            genericSettings.style.display = 'none';
+        } else {
+            doubaoInfo.classList.add('hidden');
+            genericSettings.classList.remove('hidden');
+            genericSettings.style.display = 'contents';
+            
+            if (provider === 'ollama') {
+                apiKeyGroup.classList.add('hidden');
+                refreshBtn.classList.remove('hidden');
+                if(baseUrl.value.includes('api.openai.com')) baseUrl.value = 'http://localhost:11434';
+                fetchOllamaModels();
+            } else {
+                apiKeyGroup.classList.remove('hidden');
+                refreshBtn.classList.add('hidden');
+                baseUrl.value = 'https://api.openai.com/v1';
+                renderModelInput('input');
+            }
+        }
+    }
+
+    async function fetchOllamaModels(isManual = false) {
+        const provider = document.getElementById('provider').value;
+        if (provider !== 'ollama') return;
+
+        const baseUrl = document.getElementById('baseUrl').value;
+        const btn = document.getElementById('refreshModelsBtn');
+        
+        if (isManual) btn.innerText = '...';
+
+        try {
+            const res = await fetch(`/api/models?baseUrl=${encodeURIComponent(baseUrl)}`);
+            const data = await res.json();
+            
+            if (data.models && data.models.length > 0) {
+                renderModelInput('select', data.models);
+                if (isManual) alert(`Found ${data.models.length} models`);
+            } else {
+                renderModelInput('input');
+                if (isManual) alert('No models found. Check Ollama connection.');
+            }
+        } catch (e) {
+            console.error(e);
+            renderModelInput('input');
+        } finally {
+            if (isManual) btn.innerText = '🔄 Refresh';
+        }
+    }
+
+    function renderModelInput(type, models = []) {
+        const container = document.getElementById('modelInputContainer');
+        const currentVal = document.getElementById('model') ? document.getElementById('model').value : '';
+        
+        if (type === 'select') {
+            const options = models.map(m => `<option value="${m}" ${m === currentVal ? 'selected' : ''}>${m}</option>`).join('');
+            container.innerHTML = `<select id="model" style="width: 100%;">${options}</select>`;
+        } else {
+            container.innerHTML = `<input type="text" id="model" value="${currentVal}" placeholder="Model name (e.g. gpt-4)" style="width: 100%;">`;
+        }
+    }
+
+    // =========================================
+    // Character Chat Functions
+    // =========================================
+    
+    async function loadCharacters() {
+        try {
+            const res = await fetch('/api/characters');
+            characters = await res.json();
+            renderCharactersList();
+        } catch (e) {
+            console.error('Failed to load characters', e);
+            document.getElementById('charactersList').innerHTML = 
+                '<div style="text-align:center; color:#ef4444; padding:20px; font-size:12px;">加载失败</div>';
+        }
+    }
+    
+    function renderCharactersList() {
+        const list = document.getElementById('charactersList');
+        if (!characters || characters.length === 0) {
+            list.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">暂无角色</div>';
+            return;
+        }
+        
+        list.innerHTML = characters.map(char => `
+            <div class="character-item ${currentCharacter && currentCharacter.id === char.id ? 'selected' : ''}" onclick="selectCharacter('${char.id}')">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <span class="character-avatar" style="display: flex; align-items: center; justify-content: center;">
+                        ${char.avatar.includes('http') ? 
+                            `<img src="${char.avatar}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;">` : 
+                            char.avatar
+                        }
+                    </span>
+                    <div class="character-info">
+                        <div class="character-name">${char.name}</div>
+                        <div class="character-desc">${char.description}</div>
+                    </div>
+                </div>
+                <button class="btn-icon preset-edit" onclick="editCharacter(event, '${char.id}')" style="opacity: 1; position: static;">✎</button>
+                <button class="btn-icon preset-delete" onclick="deleteCharacter(event, '${char.id}')" style="opacity: 1; position: static; right: 32px;">×</button>
+            </div>
+        `).join('');
+    }
+    
+    function toggleSystemPrompt() {
+        const section = document.getElementById('systemPromptSection');
+        section.classList.toggle('hidden');
+    }
+    
+    async function selectCharacter(characterId) {
+        currentCharacter = characters.find(c => c.id === characterId);
+        if (!currentCharacter) return;
+        
+        // Update UI
+        document.getElementById('currentCharAvatar').innerHTML = currentCharacter.avatar.includes('http') ? 
+            `<img src="${currentCharacter.avatar}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">` : 
+            currentCharacter.avatar;
+        document.getElementById('currentCharName').innerText = currentCharacter.name;
+        document.getElementById('currentCharDesc').innerText = currentCharacter.description;
+        
+        // Update system prompt display
+        document.getElementById('currentSystemPrompt').value = currentCharacter.systemPrompt;
+        
+        // Load chat history
+        try {
+            const res = await fetch(`/api/chat-history/${characterId}`);
+            characterChatMessages = await res.json();
+        } catch (e) {
+            characterChatMessages = [];
+        }
+        
+        // Render chat
+        renderCharacterChat();
+        renderCharactersList(); // Update selection highlight
+        
+        // Scroll to bottom
+        setTimeout(() => {
+            const history = document.getElementById('charChatHistory');
+            history.scrollTop = history.scrollHeight;
+        }, 100);
+    }
+    
+    function renderCharacterChat() {
+        const history = document.getElementById('charChatHistory');
+        
+        if (characterChatMessages.length === 0) {
+            history.innerHTML = `
+                <div class="message ai" style="text-align: center;">
+                    <div style="font-size: 48px; margin-bottom: 12px;">${currentCharacter.avatar}</div>
+                    <div style="font-weight: 600; margin-bottom: 8px;">${currentCharacter.name}</div>
+                    <div style="font-size: 13px; color: var(--text-muted); max-width: 400px; margin: 0 auto; line-height: 1.6;">
+                        ${currentCharacter.description}<br>
+                        性格：${currentCharacter.personality}<br><br>
+                        开始对话吧！✨
+                    </div>
+                </div>
+            `;
+            return;
+        }
+        
+        history.innerHTML = characterChatMessages.map(msg => `
+            <div class="message ${msg.role === 'user' ? 'user' : 'ai'}">
+                ${msg.content}
+            </div>
+        `).join('');
+        
+        history.scrollTop = history.scrollHeight;
+    }
+    
+    async function sendCharacterMessage() {
+        if (!currentCharacter) {
+            alert('请先选择角色');
+            return;
+        }
+        
+        const input = document.getElementById('charChatInput');
+        const text = input.value.trim();
+        if (!text) return;
+        
+        // Add user message
+        characterChatMessages.push({ role: 'user', content: text });
+        renderCharacterChat();
+        input.value = '';
+        
+        // Show thinking
+        const thinkingId = 'thinking-' + Date.now();
+        const history = document.getElementById('charChatHistory');
+        const thinkingDiv = document.createElement('div');
+        thinkingDiv.className = 'message ai thinking';
+        thinkingDiv.id = thinkingId;
+        thinkingDiv.innerText = currentCharacter.name + '正在思考...';
+        history.appendChild(thinkingDiv);
+        history.scrollTop = history.scrollHeight;
+        
+        // Get force prompt
+        const forcePrompt = document.getElementById('forcePrompt').value.trim();
+        
+        // Prepare system prompt with force prompt
+        let systemPrompt = currentCharacter.systemPrompt;
+        if (forcePrompt) {
+            systemPrompt = `${systemPrompt}\n\n**强制提示词**：${forcePrompt}`;
+        }
+        
+        // Prepare messages with system prompt
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            ...characterChatMessages
+        ];
+        
+        // Get provider settings
+        const provider = document.getElementById('provider').value;
+        let model = document.getElementById('model') ? document.getElementById('model').value : '';
+        if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
+        
+        const payload = {
+            messages,
+            provider,
+            model,
+            baseUrl: document.getElementById('baseUrl').value,
+            apiKey: document.getElementById('apiKey').value
+        };
+        
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            
+            document.getElementById(thinkingId).remove();
+            
+            if (data.error) throw new Error(data.error);
+            
+            characterChatMessages.push({ role: 'assistant', content: data.reply });
+            renderCharacterChat();
+            
+            // Save to history
+            await saveChatHistory();
+            
+        } catch (e) {
+            const thinking = document.getElementById(thinkingId);
+            if (thinking) {
+                thinking.innerText = 'Error: ' + e.message;
+                thinking.style.color = '#ef4444';
+                thinking.classList.remove('thinking');
+            }
+        }
+    }
+    
+    async function saveChatHistory() {
+        if (!currentCharacter) return;
+        try {
+            await fetch(`/api/chat-history/${currentCharacter.id}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ messages: characterChatMessages })
+            });
+        } catch (e) {
+            console.error('Failed to save chat history', e);
+        }
+    }
+    
+    async function clearCurrentChat() {
+        if (!currentCharacter) return;
+        if (!confirm(`确定要清空与${currentCharacter.name}的对话记录吗？`)) return;
+        
+        try {
+            await fetch(`/api/chat-history/${currentCharacter.id}`, { method: 'DELETE' });
+            characterChatMessages = [];
+            renderCharacterChat();
+        } catch (e) {
+            alert('清空对话失败');
+        }
+    }
+    
+    async function createNewCharacter() {
+        const name = prompt('角色名称:');
+        if (!name) return;
+        
+        const avatar = prompt('角色表情符号 (例如：👩\u200d🎨, 👻, ⚔️):', '👤');
+        const description = prompt('角色简介:');
+        const personality = prompt('角色性格:');
+        const systemPrompt = prompt('角色设定提示词 (AI 将基于此扮演角色):', '你是一个名叫' + name + '的角色。请用符合角色性格的语气和用户交流。');
+        
+        if (!systemPrompt) return;
+        
+        try {
+            const res = await fetch('/api/characters', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name,
+                    avatar: avatar || '👤',
+                    description: description || '',
+                    personality: personality || '',
+                    systemPrompt
+                })
+            });
+            const character = await res.json();
+            characters.push(character);
+            renderCharactersList();
+            selectCharacter(character.id);
+        } catch (e) {
+            alert('创建角色失败');
+        }
+    }
+    
+    async function editCharacter(e, characterId) {
+        e.stopPropagation();
+        const character = characters.find(c => c.id === characterId);
+        if (!character) return;
+        
+        // Create modal for editing character
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(12px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        `;
+        
+        modal.innerHTML = `
+            <div style="background: var(--bg-card); border: var(--glass-border); border-radius: var(--radius-lg); padding: 30px; width: 90%; max-width: 600px;">
+                <h2 style="margin-top: 0; margin-bottom: 24px; color: var(--text-main);">编辑角色</h2>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                    <div class="form-group">
+                        <label>角色名称</label>
+                        <input type="text" id="editName" value="${character.name}" style="width: 100%;">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>角色表情符号</label>
+                        <input type="text" id="editAvatar" value="${character.avatar}" style="width: 100%;">
+                    </div>
+                    
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>角色简介</label>
+                        <input type="text" id="editDescription" value="${character.description}" style="width: 100%;">
+                    </div>
+                    
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>角色性格</label>
+                        <input type="text" id="editPersonality" value="${character.personality}" style="width: 100%;">
+                    </div>
+                    
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>角色设定提示词</label>
+                        <textarea id="editSystemPrompt" style="width: 100%; height: 120px; resize: vertical;">${character.systemPrompt}</textarea>
+                    </div>
+                    
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>上传头像图片 (可选)</label>
+                        <input type="file" id="avatarFile" accept="image/*" style="width: 100%; padding: 8px;">
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                            支持 JPG、PNG、GIF 格式，建议尺寸 200x200px
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                    <button onclick="document.body.removeChild(this.closest('div').closest('div'))" style="
+                        padding: 10px 20px;
+                        border: var(--glass-border);
+                        background: transparent;
+                        color: var(--text-muted);
+                        border-radius: var(--radius-md);
+                        cursor: pointer;
+                    ">取消</button>
+                    <button onclick="saveCharacterEdit('${characterId}')" style="
+                        padding: 10px 20px;
+                        background: linear-gradient(135deg, var(--primary), var(--secondary));
+                        color: white;
+                        border: none;
+                        border-radius: var(--radius-md);
+                        cursor: pointer;
+                    ">保存</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+    }
+    
+    async function saveCharacterEdit(characterId) {
+        const name = document.getElementById('editName').value;
+        const avatar = document.getElementById('editAvatar').value;
+        const description = document.getElementById('editDescription').value;
+        const personality = document.getElementById('editPersonality').value;
+        const systemPrompt = document.getElementById('editSystemPrompt').value;
+        const avatarFile = document.getElementById('avatarFile').files[0];
+        
+        if (!name || !systemPrompt) {
+            alert('角色名称和设定提示词不能为空');
+            return;
+        }
+        
+        try {
+            let avatarUrl = avatar;
+            
+            // Handle file upload if provided
+            if (avatarFile) {
+                const formData = new FormData();
+                formData.append('avatar', avatarFile);
+                formData.append('characterId', characterId);
+                
+                const uploadRes = await fetch('/api/upload-avatar', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (uploadRes.ok) {
+                    const uploadData = await uploadRes.json();
+                    avatarUrl = uploadData.avatarUrl;
+                }
+            }
+            
+            await fetch('/api/characters', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    id: characterId,
+                    name,
+                    avatar: avatarUrl || '👤',
+                    description: description || '',
+                    personality: personality || '',
+                    systemPrompt
+                })
+            });
+            
+            // Update local data
+            const index = characters.findIndex(c => c.id === characterId);
+            if (index >= 0) {
+                characters[index] = { ...characters[index], name, avatar: avatarUrl, description, personality, systemPrompt };
+                if (currentCharacter && currentCharacter.id === characterId) {
+                    currentCharacter = characters[index];
+                    selectCharacter(characterId);
+                } else {
+                    renderCharactersList();
+                }
+            }
+            
+            // Close modal
+            const modal = document.querySelector('div[style*="position: fixed"]');
+            if (modal) {
+                document.body.removeChild(modal);
+            }
+        } catch (e) {
+            alert('编辑角色失败: ' + e.message);
+        }
+    }
+    
+    function editCurrentCharacter() {
+        if (!currentCharacter) {
+            alert('请先选择角色');
+            return;
+        }
+        editCharacter({ stopPropagation: () => {} }, currentCharacter.id);
+    }
+    
+    async function deleteCharacter(e, characterId) {
+        e.stopPropagation();
+        if (!confirm('确定删除这个角色吗？')) return;
+        
+        try {
+            await fetch(`/api/characters/${characterId}`, { method: 'DELETE' });
+            characters = characters.filter(c => c.id !== characterId);
+            if (currentCharacter && currentCharacter.id === characterId) {
+                currentCharacter = null;
+                characterChatMessages = [];
+                document.getElementById('charChatHistory').innerHTML = `
+                    <div class="message ai" style="text-align: center; color: var(--text-muted);">
+                        请选择左侧的角色开始对话
+                    </div>
+                `;
+                document.getElementById('currentCharName').innerText = '选择角色';
+                document.getElementById('currentCharDesc').innerText = '与喜欢的角色互动吧';
+                document.getElementById('currentCharAvatar').innerText = '🎭';
+            }
+            renderCharactersList();
+        } catch (e) {
+            alert('删除角色失败');
+        }
+    }
+</script>
+
+</body>
+</html>

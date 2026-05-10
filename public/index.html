@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 工具中心</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-card: rgba(30, 41, 59, 0.6);
+            --bg-input: rgba(15, 23, 42, 0.6);
+            --bg-hover: rgba(255, 255, 255, 0.05);
+            
+            --primary: #8b5cf6;
+            --primary-hover: #7c3aed;
+            --secondary: #3b82f6;
+            --accent: #f472b6;
+            
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: rgba(148, 163, 184, 0.1);
+            
+            --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+            --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+            
+            --radius-lg: 16px;
+            --radius-md: 8px;
+            --radius-sm: 4px;
+        }
+
+        * { box-sizing: border-box; outline: none; }
+        
+        body {
+            margin: 0;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(244, 114, 182, 0.1) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 800px;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .brand {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: var(--text-muted);
+            margin-bottom: 60px;
+            line-height: 1.6;
+        }
+
+        .cards-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-bottom: 60px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: var(--glass-border);
+            border-radius: var(--radius-lg);
+            padding: 40px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(139, 92, 246, 0.3);
+            border-color: var(--primary);
+        }
+
+        .card-icon {
+            font-size: 64px;
+            margin-bottom: 24px;
+        }
+
+        .card-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .card-description {
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 768px) {
+            .cards-container {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .container {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="brand">
+            <span>🧠</span>
+            <span>AI 工具中心</span>
+        </div>
+        
+        <div class="subtitle">
+            选择你需要的 AI 工具，开启智能创作之旅
+        </div>
+
+        <div class="cards-container">
+            <a href="prompt.html" class="card">
+                <div class="card-icon">🎨</div>
+                <div class="card-title">提示词生成</div>
+                <div class="card-description">
+                    智能生成绘画提示词，结合风格预设和场景描述，
+                    帮助你创作出精美的 AI 艺术作品
+                </div>
+            </a>
+            
+            <a href="character.html" class="card">
+                <div class="card-icon">🎭</div>
+                <div class="card-title">AI 角色扮演</div>
+                <div class="card-description">
+                    与喜爱的角色进行对话，支持自定义角色设定，
+                    享受沉浸式的 AI 互动体验
+                </div>
+            </a>
+        </div>
+
+        <div class="footer">
+            © 2026 AI 工具中心 | 智能创作，无限可能
+        </div>
+    </div>
+</body>
+</html>

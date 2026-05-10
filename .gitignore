@@ -1,0 +1,41 @@
+# Environment variables (contains API keys)
+.env
+
+# Environment template (safe to commit, contains no real keys)
+!.env.example
+
+# Log files
+*.log
+*.log.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Node modules
+node_modules/
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project specific
+data/chat_history.json
+ai_decision_log.txt
+tool_call_log.txt
+
+# Test outputs
+tests/output/
