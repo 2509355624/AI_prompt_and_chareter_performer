@@ -541,7 +541,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=14">
+    <link rel="stylesheet" href="styles/character-paper.css?v=15">
 </head>
 <body>
 
@@ -669,6 +669,14 @@
                             <span onclick="loadWorkflowOptions(true)" style="cursor:pointer; font-size:11px; color:var(--primary);">刷新列表</span>
                         </span>
                     </label>
+                    <div class="wf-preset-bar">
+                        <select id="wfPresetSelect" class="wf-preset-select" onchange="applyWorkflowPreset(this.value)" title="切换已保存的工作流预设">
+                            <option value="">— 手动调整 —</option>
+                        </select>
+                        <button type="button" class="wf-preset-btn" onclick="saveNewWorkflowPreset()">＋ 存预设</button>
+                        <button type="button" class="wf-preset-btn" onclick="updateWorkflowPreset()" title="用当前参数覆盖所选预设">更新</button>
+                        <button type="button" class="wf-preset-btn wf-preset-danger" onclick="deleteWorkflowPreset()">删除</button>
+                    </div>
                     <div class="wf-grid">
                         <div class="wf-full">
                             <label style="font-size:11px; color:var(--text-muted);">Checkpoint</label>
@@ -828,6 +836,8 @@
     let activeChatTurn = null;
     const FORCE_PROMPT_STORAGE_KEY = 'characterForcePrompts';
     const EXPORT_FOLDER_STORAGE_KEY = 'chatExportFolderPath';
+    const WF_PRESETS_STORAGE_KEY = 'comfyWorkflowPresets';
+    const WF_ACTIVE_PRESET_KEY = 'comfyActiveWorkflowPresetId';
     let exportDirHandle = null;
 
     function loadForcePromptMap() {
@@ -980,6 +990,115 @@
     }
 
     let workflowDefaultsCache = null;
+    let workflowOptionsCache = null;
+
+    function loadWorkflowPresets() {
+        try {
+            const raw = localStorage.getItem(WF_PRESETS_STORAGE_KEY);
+            return raw ? JSON.parse(raw) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveWorkflowPresetsList(list) {
+        try {
+            localStorage.setItem(WF_PRESETS_STORAGE_KEY, JSON.stringify(list));
+        } catch (e) {
+            console.warn('Failed to save workflow presets', e);
+        }
+    }
+
+    function getWorkflowOptionsForApply() {
+        if (workflowOptionsCache) return workflowOptionsCache;
+        return {
+            checkpoints: Array.from(document.getElementById('comfyCheckpoint')?.options || []).map((o) => o.value),
+            loras: [1, 2, 3].flatMap((i) =>
+                Array.from(document.getElementById(`wfLora${i}Name`)?.options || [])
+                    .map((o) => o.value)
+                    .filter((v) => v && v !== '(none)')
+            ),
+            samplerOptions: Array.from(document.getElementById('wfSampler')?.options || []).map((o) => o.value),
+            schedulerOptions: Array.from(document.getElementById('wfScheduler')?.options || []).map((o) => o.value)
+        };
+    }
+
+    function renderWorkflowPresetSelect() {
+        const sel = document.getElementById('wfPresetSelect');
+        if (!sel) return;
+        const presets = loadWorkflowPresets();
+        const active = localStorage.getItem(WF_ACTIVE_PRESET_KEY) || '';
+        const options = ['<option value="">— 手动调整 —</option>']
+            .concat(presets.map((p) =>
+                `<option value="${escapeHtml(p.id)}"${p.id === active ? ' selected' : ''}>${escapeHtml(p.name)}</option>`
+            ));
+        sel.innerHTML = options.join('');
+    }
+
+    function applyWorkflowPreset(presetId) {
+        if (!presetId) {
+            localStorage.removeItem(WF_ACTIVE_PRESET_KEY);
+            return;
+        }
+        const preset = loadWorkflowPresets().find((p) => p.id === presetId);
+        if (!preset?.settings) return;
+        localStorage.setItem(WF_ACTIVE_PRESET_KEY, presetId);
+        applyWorkflowSettingsToForm(preset.settings, getWorkflowOptionsForApply());
+        saveWorkflowSettings();
+    }
+
+    function saveNewWorkflowPreset() {
+        const name = prompt('预设名称（例如：纱雾日常 / 高清竖图 / 写实风）');
+        if (!name || !name.trim()) return;
+        const presets = loadWorkflowPresets();
+        const id = `wfp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        presets.push({
+            id,
+            name: name.trim(),
+            settings: readWorkflowSettingsFromForm(),
+            updatedAt: Date.now()
+        });
+        saveWorkflowPresetsList(presets);
+        localStorage.setItem(WF_ACTIVE_PRESET_KEY, id);
+        renderWorkflowPresetSelect();
+        const sel = document.getElementById('wfPresetSelect');
+        if (sel) sel.value = id;
+    }
+
+    function updateWorkflowPreset() {
+        const sel = document.getElementById('wfPresetSelect');
+        const id = sel?.value;
+        if (!id) {
+            alert('请先从下拉框选择一个预设，或点「＋ 存预设」新建');
+            return;
+        }
+        const presets = loadWorkflowPresets();
+        const idx = presets.findIndex((p) => p.id === id);
+        if (idx < 0) return;
+        if (!confirm(`用当前参数覆盖预设「${presets[idx].name}」？`)) return;
+        presets[idx].settings = readWorkflowSettingsFromForm();
+        presets[idx].updatedAt = Date.now();
+        saveWorkflowPresetsList(presets);
+        alert('预设已更新');
+    }
+
+    function deleteWorkflowPreset() {
+        const sel = document.getElementById('wfPresetSelect');
+        const id = sel?.value;
+        if (!id) {
+            alert('请先选择要删除的预设');
+            return;
+        }
+        const presets = loadWorkflowPresets();
+        const preset = presets.find((p) => p.id === id);
+        if (!preset) return;
+        if (!confirm(`删除预设「${preset.name}」？`)) return;
+        saveWorkflowPresetsList(presets.filter((p) => p.id !== id));
+        if (localStorage.getItem(WF_ACTIVE_PRESET_KEY) === id) {
+            localStorage.removeItem(WF_ACTIVE_PRESET_KEY);
+        }
+        renderWorkflowPresetSelect();
+    }
 
     function toggleHiresFields() {
         const on = document.getElementById('wfEnableHires')?.checked;
@@ -1100,13 +1219,19 @@
             if (!merged.checkpointName) {
                 try { merged.checkpointName = localStorage.getItem('comfyCheckpoint') || data.defaults?.checkpointName; } catch (e) {}
             }
-            applyWorkflowSettingsToForm(merged, {
+            workflowOptionsCache = {
                 checkpoints: data.checkpoints || [merged.checkpointName],
                 loras: data.loras || [],
                 samplerOptions: data.defaults?.samplerOptions || [],
                 schedulerOptions: data.defaults?.schedulerOptions || []
-            });
+            };
+            applyWorkflowSettingsToForm(merged, workflowOptionsCache);
             saveWorkflowSettings();
+            renderWorkflowPresetSelect();
+            const activePresetId = localStorage.getItem(WF_ACTIVE_PRESET_KEY);
+            if (activePresetId) {
+                applyWorkflowPreset(activePresetId);
+            }
             if (isManual) alert('出图参数列表已刷新');
         } catch (e) {
             console.error(e);
@@ -1125,6 +1250,8 @@
             samplerOptions: workflowDefaultsCache.samplerOptions || [],
             schedulerOptions: workflowDefaultsCache.schedulerOptions || []
         });
+        localStorage.removeItem(WF_ACTIVE_PRESET_KEY);
+        renderWorkflowPresetSelect();
         saveWorkflowSettings();
     }
 
