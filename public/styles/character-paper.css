@@ -283,22 +283,28 @@ body {
 
 /* ===== middle chat ===== */
 .chat-main {
-  padding: 12px 12px 10px;
+  position: relative;
+  padding: 8px 10px 8px;
 }
+/* Float action buttons over chat so history uses full height */
 .chat-topbar {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 5;
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  padding-bottom: 8px;
-  margin-bottom: 6px;
-  border-bottom: 2px dashed var(--rule);
+  padding: 0;
+  margin: 0;
+  border: none;
   flex-shrink: 0;
   min-width: 0;
+  pointer-events: none;
 }
 .chat-topbar-slim {
   min-height: 0;
-  padding-top: 2px;
 }
 .chat-topbar-left[hidden] {
   display: none !important;
@@ -308,6 +314,12 @@ body {
   gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
+  pointer-events: auto;
+  background: rgba(255, 252, 245, 0.92);
+  border: 2px solid var(--text);
+  border-radius: 999px;
+  padding: 4px 6px;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.35);
 }
 .chat-section {
   flex: 1;
@@ -321,6 +333,8 @@ body {
   backdrop-filter: none !important;
   border-radius: 0 !important;
   overflow: hidden;
+  /* Room so first messages clear floating action pills */
+  padding-top: 4px;
 }
 .chat-container {
   display: flex;
@@ -661,4 +675,312 @@ body {
   font-size: 12px;
   line-height: 1.5;
   box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.4);
+}
+
+/* ===== character edit/create modal — sticker sheet ===== */
+.character-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(38, 34, 28, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+.character-modal-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+.character-modal {
+  width: min(760px, 100%);
+  max-height: min(90vh, 900px);
+  background: var(--card);
+  border: 3px solid var(--text);
+  border-radius: 14px;
+  box-shadow: 6px 7px 0 rgba(38, 34, 28, 0.9);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transform: translateY(16px) scale(0.97);
+  transition: transform 0.28s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.character-modal-overlay.show .character-modal {
+  transform: translateY(0) scale(1);
+}
+.character-modal .tape {
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  z-index: 2;
+}
+.character-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 28px 18px 12px;
+  border-bottom: 2px dashed var(--rule);
+  flex-shrink: 0;
+  background: transparent;
+}
+.character-modal .modal-title-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.character-modal .modal-icon {
+  flex-shrink: 0;
+  font-size: 28px;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 2.5px solid var(--text);
+  border-radius: 12px;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.55);
+}
+.character-modal .modal-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--text);
+  letter-spacing: 0;
+  background: none;
+  -webkit-text-fill-color: var(--text);
+}
+.character-modal .modal-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.character-modal .modal-close-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--text);
+  background: #fff;
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.55);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.character-modal .modal-close-btn:hover {
+  background: var(--accent-soft);
+  transform: rotate(90deg);
+}
+.character-modal .modal-body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px 8px;
+  overflow-y: auto;
+}
+.character-modal .form-grid {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px 20px;
+  align-items: start;
+}
+.character-modal .avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 4px;
+}
+.character-modal .avatar-preview {
+  width: 108px;
+  height: 108px;
+  border-radius: 12px;
+  background: #fff;
+  border: 2.5px solid var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 3px 3px 0 rgba(38, 34, 28, 0.65);
+  background-size: cover;
+  background-position: center;
+  transition: transform 0.15s ease;
+}
+.character-modal .avatar-preview:hover {
+  transform: translateY(-2px);
+}
+.character-modal .avatar-emoji {
+  font-size: 48px;
+}
+.character-modal .avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(38, 34, 28, 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.character-modal .avatar-preview:hover .avatar-overlay {
+  opacity: 1;
+}
+.character-modal .upload-icon {
+  font-size: 22px;
+}
+.character-modal .upload-text {
+  font-size: 11px;
+  color: #fff;
+  font-weight: 700;
+}
+.character-modal .form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.character-modal .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  min-width: 0;
+}
+.character-modal .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.character-modal .form-group.full {
+  grid-column: 1 / -1;
+}
+.character-modal .form-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.character-modal .label-icon {
+  font-size: 14px;
+}
+.character-modal .label-hint {
+  flex: 1 1 100%;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-mute);
+  margin-left: 20px;
+}
+.character-modal .form-input,
+.character-modal .form-textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  background: #fff;
+  border: 2px solid var(--text);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.4);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.character-modal .form-input:focus,
+.character-modal .form-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 2px 2px 0 rgba(232, 80, 58, 0.35);
+}
+.character-modal .form-input::placeholder,
+.character-modal .form-textarea::placeholder {
+  color: var(--text-mute);
+}
+.character-modal .form-textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+.character-modal .modal-footer {
+  padding: 10px 16px 16px;
+  border-top: 2px dashed var(--rule);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+  background: transparent;
+}
+.character-modal .btn-secondary {
+  padding: 10px 18px;
+  border: 2px solid var(--text);
+  background: #fff;
+  color: var(--text);
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.55);
+  transition: transform 0.12s ease;
+}
+.character-modal .btn-secondary:hover {
+  transform: translateY(-1px);
+}
+.character-modal .btn-primary-gradient {
+  padding: 10px 20px;
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: 2.5px solid var(--text) !important;
+  border-radius: 12px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 3px 3px 0 rgba(38, 34, 28, 0.75) !important;
+  transition: transform 0.12s ease;
+}
+.character-modal .btn-primary-gradient:hover {
+  transform: translateY(-1px);
+}
+.character-modal .btn-arrow {
+  font-size: 15px;
+  transition: transform 0.15s ease;
+}
+.character-modal .btn-primary-gradient:hover .btn-arrow {
+  transform: translateX(3px);
+}
+
+@media (max-width: 640px) {
+  .character-modal-overlay {
+    padding: 12px;
+  }
+  .character-modal .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .character-modal .avatar-section {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+  .character-modal .form-row {
+    grid-template-columns: 1fr;
+  }
 }
