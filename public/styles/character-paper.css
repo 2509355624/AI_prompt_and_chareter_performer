@@ -379,7 +379,8 @@ body {
   font-size: 12px;
 }
 
-/* ALL controls respect the column — select uses the width:0 trick */
+/* ALL controls stay inside the column.
+   Do NOT use width:0 on selects inside CSS grid — it collapses 1fr tracks to ~0. */
 .settings-scroll input:not([type="checkbox"]),
 .settings-scroll select,
 .settings-scroll textarea {
@@ -396,9 +397,9 @@ body {
 }
 
 .settings-scroll select {
-  width: 0;
-  min-width: 100%;
-  max-width: 100%;
+  /* parent already has a definite width; clip long filenames */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings-scroll input[type="checkbox"] {
@@ -457,8 +458,9 @@ body {
   max-width: 100%;
 }
 .wf-lora-row select {
-  width: 0;
-  min-width: 100%;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
 }
 .wf-lora-row input[type="number"] {
   padding: 8px 4px;
