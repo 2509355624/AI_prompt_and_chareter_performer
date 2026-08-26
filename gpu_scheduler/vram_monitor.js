@@ -3,7 +3,7 @@ const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
 
-const MIN_FREE_VRAM_MB = Number(process.env.IMAGE_MIN_VRAM_MB) || 9216;
+const MIN_FREE_VRAM_MB = Number(process.env.IMAGE_MIN_VRAM_MB) || 6144;
 const POLL_MS = Number(process.env.VRAM_POLL_INTERVAL_MS) || 800;
 const TIMEOUT_MS = Number(process.env.VRAM_WAIT_TIMEOUT_MS) || 120000;
 

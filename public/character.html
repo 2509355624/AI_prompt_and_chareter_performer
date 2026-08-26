@@ -1579,7 +1579,7 @@
             case 'queued':
                 return '出图排队中…';
             case 'waiting_vram':
-                return msg.imageStatusHint || '等待 GPU 显存释放（需要 ≥9GB 空闲）…';
+                return msg.imageStatusHint || '等待 GPU 显存释放（需要 ≥6GB 空闲）…';
             case 'running':
             case 'pending':
                 return '正在绘制这一幕…';
@@ -1676,9 +1676,9 @@
                 if (info.phase === 'ollama_unload') {
                     msg.imageStatusHint = '正在释放 Ollama 显存…';
                 } else if (info.freeMb != null) {
-                    msg.imageStatusHint = `等待 GPU 显存：当前 ${info.freeMb}MB / 需要 ≥${info.requiredMb || 9216}MB`;
+                    msg.imageStatusHint = `等待 GPU 显存：当前 ${info.freeMb}MB / 需要 ≥${info.requiredMb || 6144}MB`;
                 } else {
-                    msg.imageStatusHint = '等待 GPU 显存释放（需要 ≥9GB 空闲）…';
+                    msg.imageStatusHint = '等待 GPU 显存释放（需要 ≥6GB 空闲）…';
                 }
                 renderCharacterChat();
             } catch (err) {
