@@ -829,7 +829,7 @@
     let characters = [];
     let currentCharacter = null;
     let characterChatMessages = [];
-    let emotionHistory = [];
+    let turnMemory = [];
     let conversationSummary = '';
     let lastVisualCache = null; // session cache so outfit/scene continuity does not wait for Comfy
     const imageJobStreams = new Map();
@@ -837,7 +837,30 @@
     let activeChatTurn = null;
     const FORCE_PROMPT_STORAGE_KEY = 'characterForcePrompts';
     const EXPORT_FOLDER_STORAGE_KEY = 'chatExportFolderPath';
-    const WF_PRESETS_STORAGE_KEY = 'comfyWorkflowPresets';
+    const TURN_MEMORY_STORE_MAX = 20;
+
+    function normalizeTurnMemory(raw) {
+        if (!Array.isArray(raw)) return [];
+        return raw.map((entry, i) => ({
+            turnIndex: entry.turnIndex ?? i + 1,
+            timestamp: entry.timestamp ?? Date.now(),
+            userBrief: entry.userBrief || '',
+            assistantBrief: entry.assistantBrief || '',
+            emotion: entry.emotion || (entry.emotionAnalysis?.emotionAnalysis ? {
+                primaryEmotion: entry.emotionAnalysis.emotionAnalysis.primaryEmotion,
+                intensity: entry.emotionAnalysis.emotionAnalysis.intensity,
+                trend: entry.emotionAnalysis.emotionAnalysis.trend
+            } : null)
+        }));
+    }
+
+    function appendTurnMemoryEntry(entry) {
+        if (!entry) return;
+        turnMemory.push(entry);
+        if (turnMemory.length > TURN_MEMORY_STORE_MAX) {
+            turnMemory = turnMemory.slice(-TURN_MEMORY_STORE_MAX);
+        }
+    }
     const WF_ACTIVE_PRESET_KEY = 'comfyActiveWorkflowPresetId';
     let exportDirHandle = null;
 
@@ -1614,13 +1637,13 @@
                 ...m,
                 id: m.id || makeMessageId()
             }));
-            emotionHistory = historyData.emotionHistory || [];
+            turnMemory = normalizeTurnMemory(historyData.turnMemory || historyData.emotionHistory || []);
             conversationSummary = historyData.summary || '';
             lastVisualCache = null;
             getLastVisualContext(); // warm cache from loaded history
         } catch (e) {
             characterChatMessages = [];
-            emotionHistory = [];
+            turnMemory = [];
             conversationSummary = '';
         }
         
@@ -1710,14 +1733,8 @@
         console.log('[continuity] previousVisual sent:', previousVisual);
         console.log('[continuity] new visual cached:', data.visual || turnPromptFromChat || '(none)');
 
-        if (data.emotionAnalysis) {
-            emotionHistory.push({
-                timestamp: Date.now(),
-                ...data.emotionAnalysis
-            });
-        }
-        if (data.newSummary) {
-            conversationSummary = data.newSummary;
+        if (data.newTurnMemoryEntry) {
+            appendTurnMemoryEntry(data.newTurnMemoryEntry);
         }
 
         activeChatTurn = null;
@@ -2366,6 +2383,7 @@ ${debugInfo.visualBeforeEnforce ? '\nAI 原输出：\n' + escapeHtml(JSON.string
             model,
             baseUrl: document.getElementById('baseUrl').value,
             apiKey: document.getElementById('apiKey').value,
+            turnMemory: turnMemory,
             conversationSummary: conversationSummary,
             appearancePrompt: currentCharacter.appearancePrompt || '',
             outfitPrompt: currentCharacter.outfitPrompt || '',
@@ -2420,7 +2438,8 @@ ${debugInfo.visualBeforeEnforce ? '\nAI 原输出：\n' + escapeHtml(JSON.string
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ 
                     messages: characterChatMessages,
-                    emotionHistory: emotionHistory,
+                    turnMemory: turnMemory,
+                    emotionHistory: turnMemory,
                     summary: conversationSummary
                 })
             });
@@ -2650,7 +2669,7 @@ ${debugInfo.visualBeforeEnforce ? '\nAI 原输出：\n' + escapeHtml(JSON.string
         try {
             await fetch(`/api/chat-history/${currentCharacter.id}`, { method: 'DELETE' });
             characterChatMessages = [];
-            emotionHistory = [];
+            turnMemory = [];
             conversationSummary = '';
             lastVisualCache = null;
             renderCharacterChat();

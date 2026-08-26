@@ -266,6 +266,7 @@ app.get('/api/chat-history/:characterId', (req, res) => {
         res.json({
             messages: Array.isArray(chatData[characterId]) ? chatData[characterId] : (chatData[characterId]?.messages || []),
             summary: chatData[characterId]?.summary || '',
+            turnMemory: emotionData[characterId] || chatData[characterId]?.turnMemory || [],
             emotionHistory: emotionData[characterId] || []
         });
     } catch (e) {
@@ -276,10 +277,11 @@ app.get('/api/chat-history/:characterId', (req, res) => {
 app.post('/api/chat-history/:characterId', (req, res) => {
     try {
         const { characterId } = req.params;
-        const { messages, emotionHistory, summary } = req.body;
+        const { messages, emotionHistory, turnMemory, summary } = req.body;
         
         // 保存干净的对话历史 + 摘要到 chat_history.json
         const chatData = JSON.parse(fs.readFileSync(CHAT_HISTORY_FILE, 'utf8') || '{}');
+        const memoryToSave = Array.isArray(turnMemory) ? turnMemory : (emotionHistory || []);
         const cleanMessages = messages.map(m => ({
             id: m.id,
             role: m.role,
@@ -305,14 +307,15 @@ app.post('/api/chat-history/:characterId', (req, res) => {
         }
         chatData[characterId] = {
             messages: cleanMessages,
-            summary: summary || ''
+            summary: summary || '',
+            turnMemory: memoryToSave
         };
         fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(chatData, null, 2));
         
-        // 保存情感历史到 emotion_history.json
-        if (emotionHistory) {
+        // 情节记忆 / 情绪历史 → emotion_history.json
+        if (memoryToSave) {
             const emotionData = JSON.parse(fs.readFileSync(EMOTION_HISTORY_FILE, 'utf8') || '{}');
-            emotionData[characterId] = emotionHistory;
+            emotionData[characterId] = memoryToSave;
             fs.writeFileSync(EMOTION_HISTORY_FILE, JSON.stringify(emotionData, null, 2));
         }
         
@@ -430,7 +433,8 @@ app.post('/api/chat-with-emotion', async (req, res) => {
         conversationSummary,
         appearancePrompt,
         outfitPrompt,
-        previousVisual
+        previousVisual,
+        turnMemory
     } = req.body;
     try {
         const result = await aiService.chatWithEmotion(
@@ -443,7 +447,8 @@ app.post('/api/chat-with-emotion', async (req, res) => {
             conversationSummary,
             appearancePrompt,
             outfitPrompt,
-            previousVisual || null
+            previousVisual || null,
+            turnMemory || []
         );
         if (provider === 'ollama') {
             try {

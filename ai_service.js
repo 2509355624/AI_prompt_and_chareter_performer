@@ -1,5 +1,11 @@
 const axios = require('axios');
 
+/** Recent verbatim rounds sent in messages; older context via turnMemory briefs */
+const RECENT_FULL_ROUNDS = 4;
+const TURN_MEMORY_STORE_MAX = 20;
+const TURN_MEMORY_PROMPT_MAX = 10;
+const EMOTION_CONTEXT_ROUNDS = 4;
+
 class AIService {
     constructor() {
         // Enforce JSON format in system prompt
@@ -252,6 +258,138 @@ class AIService {
 ✅ medium_close-up, from_front, three-quarter_view, upper_body`;
     }
 
+    /** Extract recent user/assistant messages for model context */
+    extractRecentTurns(cleanMessages, maxRounds = RECENT_FULL_ROUNDS) {
+        const recentTurns = [];
+        let hasOlderHistory = false;
+        let i = cleanMessages.length - 1;
+        if (i >= 0 && cleanMessages[i].role === 'user') {
+            recentTurns.unshift(cleanMessages[i]);
+            i--;
+        }
+        let turnsCollected = 0;
+        while (i >= 0 && turnsCollected < maxRounds) {
+            if (cleanMessages[i].role === 'assistant' && i - 1 >= 0 && cleanMessages[i - 1].role === 'user') {
+                recentTurns.unshift(cleanMessages[i]);
+                recentTurns.unshift(cleanMessages[i - 1]);
+                turnsCollected++;
+                i -= 2;
+            } else {
+                i--;
+            }
+        }
+        hasOlderHistory = i >= 0;
+        return { recentTurns, hasOlderHistory, fullRoundsIncluded: turnsCollected };
+    }
+
+    /** Format stored turn briefs for system prompt (exclude rounds already in full messages) */
+    formatTurnMemoryForPrompt(turnMemory, fullRoundCount = RECENT_FULL_ROUNDS, promptMax = TURN_MEMORY_PROMPT_MAX) {
+        if (!Array.isArray(turnMemory) || !turnMemory.length) return '';
+        const excludeCount = Math.min(fullRoundCount, turnMemory.length);
+        const older = turnMemory.slice(0, turnMemory.length - excludeCount);
+        if (!older.length) return '';
+        const capped = older.slice(-promptMax);
+        const lines = capped.map((entry, idx) => {
+            const baseIndex = turnMemory.length - excludeCount - capped.length + idx;
+            const n = entry.turnIndex ?? baseIndex + 1;
+            const userB = String(entry.userBrief || '').trim() || '…';
+            const aiB = String(entry.assistantBrief || '').trim() || '…';
+            const emo = entry.emotion?.primaryEmotion
+                || entry.emotionAnalysis?.emotionAnalysis?.primaryEmotion
+                || '';
+            const intensity = entry.emotion?.intensity ?? entry.emotionAnalysis?.emotionAnalysis?.intensity;
+            const emoPart = emo
+                ? `｜情绪：${emo}${Number.isFinite(intensity) ? `(强度${intensity})` : ''}`
+                : '';
+            return `- 第${n}轮 用户：${userB}｜角色：${aiB}${emoPart}`;
+        });
+        return `\n\n【情节记忆（较早轮次摘要；最近 ${fullRoundCount} 轮完整对白在 messages 中，以 messages 为准）】\n${lines.join('\n')}`;
+    }
+
+    buildMemoryContextBlock(turnMemory, conversationSummary) {
+        const fromTurnMemory = this.formatTurnMemoryForPrompt(turnMemory);
+        if (fromTurnMemory) return fromTurnMemory;
+        if (conversationSummary) {
+            return `\n\n【对话历史摘要（旧版）】\n${conversationSummary}`;
+        }
+        return '';
+    }
+
+    truncateBrief(text, maxLen = 40) {
+        const s = String(text || '').replace(/\s+/g, ' ').trim();
+        if (!s) return '';
+        return s.length <= maxLen ? s : `${s.slice(0, maxLen - 1)}…`;
+    }
+
+    parseTurnBriefResponse(raw, lastUserMessage, lastReply) {
+        const text = String(raw || '').trim();
+        const userMatch = text.match(/用户\s*[:：]\s*(.+)/i);
+        const assistantMatch = text.match(/角色\s*[:：]\s*(.+)/i);
+        return {
+            userBrief: this.truncateBrief(userMatch?.[1] || lastUserMessage),
+            assistantBrief: this.truncateBrief(assistantMatch?.[1] || lastReply)
+        };
+    }
+
+    async generateTurnBrief(lastUserMessage, lastReply, provider, model, apiKey, baseUrl) {
+        const fallback = {
+            userBrief: this.truncateBrief(lastUserMessage),
+            assistantBrief: this.truncateBrief(lastReply)
+        };
+        if (!lastUserMessage && !lastReply) return fallback;
+
+        const briefPrompt = `请用极简中文概括本轮对话，供长对话记忆使用。每行不超过40字。
+
+用户消息：${lastUserMessage || '无'}
+角色回复：${lastReply || '无'}
+
+严格按以下两行格式输出，不要其它内容：
+用户：（概括用户说了什么）
+角色：（概括角色回复了什么）`;
+
+        try {
+            let raw = '';
+            if (provider === 'ollama') {
+                const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+                const response = await axios.post(`${url}/api/chat`, {
+                    model,
+                    messages: [{ role: 'user', content: briefPrompt }],
+                    stream: false,
+                    keep_alive: 0
+                }, { timeout: 120000 });
+                raw = response.data?.message?.content?.trim() || '';
+            } else {
+                const key = provider === 'deepseek' ? process.env.DEEPSEEK_API_KEY : apiKey;
+                const url = (baseUrl || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
+                const response = await axios.post(`${url}/chat/completions`, {
+                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+                    messages: [{ role: 'user', content: briefPrompt }],
+                    stream: false
+                }, {
+                    headers: {
+                        Authorization: `Bearer ${key}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 120000
+                });
+                raw = response.data?.choices?.[0]?.message?.content?.trim() || '';
+            }
+            return this.parseTurnBriefResponse(raw, lastUserMessage, lastReply);
+        } catch (e) {
+            console.warn('[TurnMemory] brief generation failed, using truncate fallback:', e.message);
+            return fallback;
+        }
+    }
+
+    appendTurnMemoryEntry(turnMemory, entry) {
+        const list = Array.isArray(turnMemory) ? [...turnMemory] : [];
+        if (entry) list.push(entry);
+        if (list.length > TURN_MEMORY_STORE_MAX) {
+            return list.slice(-TURN_MEMORY_STORE_MAX);
+        }
+        return list;
+    }
+
     sceneTagExpertPrompt() {
         return `#角色
 你是「分镜出图提示词专家」。根据当前对白与用户最新动作，输出 **SD 1.5 / Danbooru 风格** 的结构化英文 tags，供 Stable Diffusion 1.5 / ComfyUI 使用。
@@ -271,8 +409,9 @@ ${this.sd15TagFormatRules()}
 
 #场景锚定（极重要）
 - scene/atmosphere 描述的是「这一帧相机拍到的空间」，不是对话主题
-- 用户在服装店里聊蛋糕 → scene 仍是 clothing_store，蛋糕写进 action: holding_cake_box
-- 沿用上一张图场景时：scene 与 atmosphere **逐 tag 复制**，只改 action / expression / camera
+- **若「本轮画面变更意图」判定为换场景**：必须写新地点的 scene/atmosphere，**不得**复制上一张图（即使用户只说了「我们去蛋糕店」也算换场景）
+- 用户在服装店里聊蛋糕、且**未**移动 → scene 仍是 clothing_store，蛋糕写进 action
+- 沿用上一张图场景时（未换场景）：scene 与 atmosphere **逐 tag 复制**，只改 action / expression / camera
 - 换场景时：scene 必须换一整套地点 + 配套物件，atmosphere 跟着换，禁止留上一场景的 tags
 
 #禁止事项
@@ -307,31 +446,92 @@ camera: medium_close-up, from_front, three-quarter_view
 ###`;
     }
 
+    /** Extract a short place hint from user text for scene-change prompts */
+    extractSceneTargetHint(userText) {
+        const text = String(userText || '').trim();
+        if (!text) return '';
+        const patterns = [
+            /(?:到了|来到|已在|现在在|我们在)\s*[「"']?([^，。！？\n*「」"']{2,16})/i,
+            /(?:去|来到|进入|走进|回到|前往|设在|切换(?:到|成|为)|换(?:到|成))\s*[「"']?([^，。！？\n*「」"']{2,16})/i,
+            /\*[^*]*(?:去|来到|进入|走进|回到|前往)([^*，。！？]{2,16})/i
+        ];
+        for (const re of patterns) {
+            const m = text.match(re);
+            if (m?.[1]) {
+                return m[1]
+                    .replace(/^了+/, '')
+                    .replace(/[吧呢啊哦嘛了]+$/, '')
+                    .trim();
+            }
+        }
+        return '';
+    }
+
+    /** Collect roleplay / narration fragments (*...*, （...）) */
+    extractNarrationFragments(userText) {
+        const text = String(userText || '');
+        const parts = [];
+        const re = /\*[^*]+\*|[（(][^）)]+[）)]/g;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            parts.push(m[0].replace(/^[*（(]|[*）)]$/g, ''));
+        }
+        return parts;
+    }
+
     /** Detect whether the latest user message asks to change scene or outfit. */
     detectVisualChangeIntent(userText) {
         const text = String(userText || '').trim();
-        if (!text) return { outfitChange: false, sceneChange: false };
+        if (!text) {
+            return { outfitChange: false, sceneChange: false, sceneTargetHint: '' };
+        }
 
-        const outfitChange = /换衣服|换装|穿上|脱下|换上|脱掉|另换|另一套|泳装|比基尼|校服|连衣裙|和服|cos/i.test(text);
+        const narrations = this.extractNarrationFragments(text);
+        const combined = [text, ...narrations].join('\n');
 
-        // 仅当用户明确「换地点/去某处」才算换场景；对白里顺带提到地点不算
-        const explicitRelocate = /换(?:个|到)?(?:地方|场景|地点|房间)|离开(?:这里|这儿|店|家)|出门|去(?:外面|户外)/i.test(text);
-        const relocateVerb = /(?:我们|一起|带你?|跟我|要)?(?:去|来到|走进|进入|换到|移到|带到|回)/i;
-        const placeTarget = /(?:服装|蛋糕|甜品|咖啡|书|便利|百货|宠物)?店|餐厅|饭店|食堂|酒馆|酒吧|浴室|卫生间|厕所|淋浴|厨房|客厅|卧室|房间|学校|教室|走廊|泳池|游泳池|公园|商场|地铁|办公室|工作室|画桌|海边|沙滩|森林|阳台|天台|clothing store|restaurant|bathroom|bedroom|kitchen|pool|park|school|outdoor|shower|beach|mall|cafe|office/i.test(text);
-        const goEatOut = /去.*(?:吃饭|用餐|吃点|吃夜宵)|(?:一起|去)吃(?:个|点)?(?:饭|餐|蛋糕|东西)/i.test(text);
+        const outfitChange = /换衣服|换装|穿上|脱下|换上|脱掉|另换|另一套|换身|泳装|比基尼|校服|连衣裙|和服|cos|穿上|佩戴/i.test(combined);
+
+        const explicitRelocate = /换(?:个|到|成|为)?(?:地方|场景|地点|房间|背景|设定)|(?:切换|改换|更换)(?:到|成|为)?(?:场景|地点|背景)?|离开(?:这里|这儿|这|那|店|家|房间)?|出门(?:了)?|去(?:外面|户外)|转移(?:到|地点)|移步/i.test(combined);
+
+        const arriveAtPlace = /(?:到了|来到|已在|现在在|我们在|坐在|站在|躺在|身在)(?:了)?/i.test(combined);
+
+        const relocateVerb = /(?:我们|咱们|一起|带你?|跟我|要|先|快)?(?:去|往|到|来到|走进|进入|进去|换到|移到|带到|回|直奔|前往|溜进|钻进)/i;
+
+        const placeTarget = /(?:服装|蛋糕|甜品|咖啡|书|便利|百货|宠物|花|理发|美容|奶茶|面包|超市|药)?店|餐厅|饭店|食堂|酒馆|酒吧|浴室|卫生间|厕所|淋浴|洗手间|厨房|客厅|卧室|房间|学校|教室|走廊|楼道|泳池|游泳池|公园|商场|地铁|办公室|工作室|画桌|海边|沙滩|森林|阳台|天台|家|家里|家中|卧室|旅馆|酒店|宾馆|医院|图书馆|游乐园|电影院|车站|机场|便利店|clothing store|restaurant|bathroom|bedroom|kitchen|living room|pool|park|school|outdoor|shower|beach|mall|cafe|office|home|hotel|hospital|library|cinema|station|airport|supermarket|convenience store/i.test(combined);
+
+        const goEatOut = /去.*(?:吃饭|用餐|吃点|吃夜宵|吃午饭|吃晚饭|吃早餐)|(?:一起|去)吃(?:个|点)?(?:饭|餐|蛋糕|东西|夜宵)/i.test(combined);
+
+        const goToPlace = /(?:^|[，。！？\s])去(?:了)?\s*\S/i.test(text);
+
+        const narrationMove = narrations.some((n) =>
+            /(?:去|来到|进入|走进|离开|前往|带到|回到|移步|奔向)/.test(n)
+            && /(?:店|家|room|室|园|馆|厅|场|海|公园|school|bathroom|kitchen|bedroom|沙滩|商场|咖啡|浴室|厨房|客厅|卧室|学校|教室|office|home|beach|mall)/i.test(n)
+        );
+
+        const inviteGo = /(?:要不|不如|我们|咱们).{0,8}(?:去|到|来)/i.test(combined) && placeTarget;
 
         const sceneChange = explicitRelocate
-            || (relocateVerb.test(text) && (placeTarget || goEatOut))
-            || /^去(?:了)?\s*\S/.test(text);
+            || (relocateVerb.test(combined) && (placeTarget || goEatOut))
+            || goToPlace
+            || (arriveAtPlace && placeTarget)
+            || narrationMove
+            || inviteGo;
 
-        return { outfitChange, sceneChange };
+        const sceneTargetHint = sceneChange ? this.extractSceneTargetHint(combined) : '';
+
+        return { outfitChange, sceneChange, sceneTargetHint };
     }
 
     visualChangeHint(changeIntent, userMessage) {
         if (!userMessage) return '';
-        const lines = ['#本轮画面变更意图（来自用户最新消息）'];
+        const lines = ['#本轮画面变更意图（解析用户最新消息 — 优先于连续性复制规则）'];
         if (changeIntent.sceneChange) {
-            lines.push('- 用户明确要求更换场景/地点 → 必须重写 scene（含该地点特有物件 4～6 个）与 atmosphere，禁止保留上一张图的地点 tags');
+            lines.push('- ⚠️ **用户本轮要求/暗示更换场景** → 必须完全重写 scene 与 atmosphere（新地点类型 + 4～6 个该处物件 tags）');
+            lines.push('- **禁止**保留上一张图的 scene/atmosphere tags（即使连续性区块里写了旧场景也要丢弃）');
+            if (changeIntent.sceneTargetHint) {
+                lines.push(`- 解析到的目标地点/场景：「${changeIntent.sceneTargetHint}」（scene/atmosphere 必须贴合此处）`);
+            }
+            lines.push('- 角色对白里若已同意前往新地点，visual 必须与对白一致，使用新 scene');
         } else {
             lines.push('- 用户未要求换场景 → scene 与 atmosphere **逐 tag 复制**上一张图（禁止因对白话题改成 restaurant, outdoor 等）');
             lines.push('- 对白里出现食物/活动/物品 ≠ 换场景；相关互动写在 action 里即可');
@@ -358,14 +558,14 @@ camera: medium_close-up, from_front, three-quarter_view
             .join(', ');
     }
 
-    formatPreviousVisualStructured(previousVisual) {
+    formatPreviousVisualStructured(previousVisual, changeIntent = {}) {
         if (!previousVisual || typeof previousVisual !== 'object') return '';
+        const skipScene = Boolean(changeIntent.sceneChange);
         const fields = [
             ['action', '动作'],
             ['outfit', '服饰'],
             ['expression', '表情'],
-            ['scene', '场景'],
-            ['atmosphere', '氛围'],
+            ...(skipScene ? [] : [['scene', '场景'], ['atmosphere', '氛围']]),
             ['camera', '机位']
         ];
         const lines = fields
@@ -378,7 +578,7 @@ camera: medium_close-up, from_front, three-quarter_view
     }
 
     continuityInstruction(previousVisual, changeIntent = {}) {
-        const prevStructured = this.formatPreviousVisualStructured(previousVisual);
+        const prevStructured = this.formatPreviousVisualStructured(previousVisual, changeIntent);
         const prevFlat = !prevStructured && previousVisual
             ? (typeof previousVisual === 'string' ? previousVisual.trim() : String(previousVisual.prompt || '').trim())
             : '';
@@ -386,16 +586,25 @@ camera: medium_close-up, from_front, three-quarter_view
         if (!prev) return '';
 
         const sceneRule = changeIntent.sceneChange
-            ? '2. 【换场景】用户本轮明确要求更换地点，必须重写 scene（地点类型 + 4～6 个该处特有物件）与 atmosphere，禁止保留上一张图的 scene/atmosphere tags。'
+            ? `2. 【换场景 — 最高优先级】用户本轮已要求/暗示更换地点${changeIntent.sceneTargetHint ? `（目标：${changeIntent.sceneTargetHint}）` : ''}。必须**完全重写** scene 与 atmosphere，使用新地点的 tags；**禁止**复制上一张图的 scene/atmosphere（下方旧 scene 若有也一律作废）。`
             : '2. 【保场景】用户未要求换地点，scene 与 atmosphere 必须**原样复制**上一张图（逐 tag 复制，禁止改成 restaurant, outdoor, bedroom 等其他地点；对白话题不能驱动换场景）。';
 
         const outfitRule = changeIntent.outfitChange
             ? '1. 【换装】用户本轮明确要求更换服装，必须重写 outfit。'
             : '1. 【保服饰】用户未要求换装，必须原样沿用上一张图的 outfit（逐 tag 复制，仅可追加 wet, soaked, wrinkled, clinging 等状态 tag，禁止改成 dress, skirt, pajamas 等其他服装）。';
 
+        const inheritSceneRule = changeIntent.sceneChange
+            ? '5. 换场景时：上一张图的 scene/atmosphere **全部作废**；action/expression/camera 贴合新地点与用户动作。'
+            : '5. scene 写物件清单时， inherited 场景的所有关键 tags 必须保留（如服装店的 clothes_rack, mannequin, mirror）。';
+
+        const header = changeIntent.sceneChange
+            ? `#连续性（换场景模式 — 仅继承 outfit 等未要求变更的字段）
+⚠️ 用户已触发场景切换。上一张图的 scene/atmosphere 不得沿用。`
+            : `#连续性（必须遵守 — 违反则视为失败）`;
+
         return `
-#连续性（必须遵守 — 违反则视为失败）
-上一张图各字段（继承基准）：
+${header}
+上一张图各字段（继承基准${changeIntent.sceneChange ? '；不含 scene/atmosphere' : ''}）：
 ${prev}
 
 规则：
@@ -403,8 +612,9 @@ ${outfitRule}
 ${sceneRule}
 3. 本轮必须更新：action、expression、camera，使其贴合当前对白与用户动作。
 4. 只有用户明确要求时才改 outfit 或 scene；未要求的部分逐 tag 复制，不得擅自发挥。
-5. scene 写物件清单时， inherited 场景的所有关键 tags 必须保留（如服装店的 clothes_rack, mannequin, mirror）。
-6. 所有字段必须是 SD 1.5 / Danbooru 逗号分隔 tags，禁止自然语言句子。`;
+${inheritSceneRule}
+6. 所有字段必须是 SD 1.5 / Danbooru 逗号分隔 tags，禁止自然语言句子。
+7. **用户最新消息中的移动/换场景意图优先于一切默认 continuity**；解析见「本轮画面变更意图」区块。`;
     }
 
     buildVisualInstruction(previousVisual = null, changeIntent = {}, userMessage = '') {
@@ -903,6 +1113,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
     async finalizeChatReply({
         replyContent,
         conversationSummary,
+        turnMemory = [],
         hasOlderHistory,
         recentTurns,
         provider,
@@ -924,17 +1135,34 @@ camera: medium_shot, three-quarter_view, depth_of_field
         const { visual, enforced } = this.enforceVisualContinuity(rawVisual, previousVisual, changeIntent);
         const replyTimeMs = Date.now() - replyStartTime;
         const totalTimeMs = Date.now() - totalStartTime;
-        let newSummary = conversationSummary || '';
-        if ((hasOlderHistory || conversationSummary) && displayReply && displayReply !== '无回复') {
-            newSummary = await this.generateConversationSummary(
-                conversationSummary, lastUserMsg, displayReply, provider, model, apiKey, baseUrl
+
+        let newTurnMemoryEntry = null;
+        if (displayReply && displayReply !== '无回复') {
+            const { userBrief, assistantBrief } = await this.generateTurnBrief(
+                lastUserMsg, displayReply, provider, model, apiKey, baseUrl
             );
+            newTurnMemoryEntry = {
+                turnIndex: (Array.isArray(turnMemory) ? turnMemory.length : 0) + 1,
+                timestamp: Date.now(),
+                userBrief,
+                assistantBrief,
+                emotion: emotionResult?.emotionAnalysis ? {
+                    primaryEmotion: emotionResult.emotionAnalysis.primaryEmotion,
+                    intensity: emotionResult.emotionAnalysis.intensity,
+                    trend: emotionResult.emotionAnalysis.trend
+                } : null
+            };
         }
+
         console.log('   回复生成完成，VISUAL:', visual ? JSON.stringify(visual) : '(未解析到)');
+        if (newTurnMemoryEntry) {
+            console.log('   本轮情节记忆:', newTurnMemoryEntry.userBrief, '|', newTurnMemoryEntry.assistantBrief);
+        }
         return {
             reply: displayReply,
             visual,
-            newSummary,
+            newTurnMemoryEntry,
+            newSummary: '',
             emotionAnalysis: emotionResult,
             timing: {
                 emotionTimeMs,
@@ -952,38 +1180,18 @@ camera: medium_shot, three-quarter_view, depth_of_field
                 continuityEnforced: enforced.length ? enforced : null,
                 changeIntent,
                 previousVisual: previousVisual || null,
-                previousVisualText: this.formatPreviousVisual(previousVisual) || ''
+                previousVisualText: this.formatPreviousVisual(previousVisual) || '',
+                turnMemoryEntry: newTurnMemoryEntry
             }
         };
     }
 
     // 情感分析方法
     async analyzeEmotion(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '') {
-        // 准备聊天历史：确保格式为 user → assistant → user → assistant → ... → user
-        // 从后往前找完整的轮次
-        let recentMessages = [];
-        let i = messages.length - 1;
-        
-        // 如果最后一条是用户消息（当前要分析的），先取出来
-        if (i >= 0 && messages[i].role === 'user') {
-            recentMessages.unshift(messages[i]);
-            i--;
-        }
-        
-        // 再向前取最多2个完整轮次（user + assistant）
-        let turnsCollected = 0;
-        while (i >= 0 && turnsCollected < 2) {
-            // 检查是否是完整的轮次（assistant 前面有 user）
-            if (messages[i].role === 'assistant' && i - 1 >= 0 && messages[i - 1].role === 'user') {
-                recentMessages.unshift(messages[i]);
-                recentMessages.unshift(messages[i - 1]);
-                turnsCollected++;
-                i -= 2;
-            } else {
-                i--;
-            }
-        }
-        
+        const cleanMessages = Array.isArray(messages)
+            ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
+            : [];
+        const { recentTurns: recentMessages } = this.extractRecentTurns(cleanMessages, EMOTION_CONTEXT_ROUNDS);
         // 将消息数组转换为文本格式
         const chatHistory = recentMessages.map(m => 
             `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`
@@ -1173,7 +1381,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
     }
 
     // 带情感分析的对话方法（两轮调用 + 摘要）
-    async chatWithEmotion(messages, characterSystemPrompt, provider, model, apiKey, baseUrl, conversationSummary, appearancePrompt = '', outfitPrompt = '', previousVisual = null) {
+    async chatWithEmotion(messages, characterSystemPrompt, provider, model, apiKey, baseUrl, conversationSummary, appearancePrompt = '', outfitPrompt = '', previousVisual = null, turnMemory = []) {
         console.log('=== 开始两轮AI调用 ===');
         const totalStartTime = Date.now();
 
@@ -1193,32 +1401,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
             ? emotionResultRaw
             : this.parseEmotionResponse('');
         
-        // 准备聊天历史：保留最近2轮完整对话，更早历史用摘要代替
-        let recentTurns = [];    // 最近2轮完整对话（给AI的上下文）
-        let hasOlderHistory = false; // 是否有更早的历史
-        let i = cleanMessages.length - 1;
-        
-        // 如果最后一条是用户消息（当前要回复的），先取出来
-        if (i >= 0 && cleanMessages[i].role === 'user') {
-            recentTurns.unshift(cleanMessages[i]);
-            i--;
-        }
-        
-        // 再向前取最多2个完整轮次（user + assistant）
-        let turnsCollected = 0;
-        while (i >= 0 && turnsCollected < 2) {
-            if (cleanMessages[i].role === 'assistant' && i - 1 >= 0 && cleanMessages[i - 1].role === 'user') {
-                recentTurns.unshift(cleanMessages[i]);
-                recentTurns.unshift(cleanMessages[i - 1]);
-                turnsCollected++;
-                i -= 2;
-            } else {
-                i--;
-            }
-        }
-        
-        // 如果取完2轮后还有更早的消息，说明有更早历史
-        hasOlderHistory = i >= 0;
+        const { recentTurns, hasOlderHistory } = this.extractRecentTurns(cleanMessages, RECENT_FULL_ROUNDS);
         
         console.log('   情感分析完成，主情绪:', emotionResult.emotionAnalysis?.primaryEmotion || '未知');
         const prevVisualText = this.formatPreviousVisual(previousVisual);
@@ -1226,11 +1409,12 @@ camera: medium_shot, three-quarter_view, depth_of_field
 
         const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
         const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
-        if (changeIntent.sceneChange) console.log('   检测到用户要求换场景');
+        if (changeIntent.sceneChange) {
+            console.log('   检测到用户要求换场景', changeIntent.sceneTargetHint ? `→ ${changeIntent.sceneTargetHint}` : '');
+        }
         if (changeIntent.outfitChange) console.log('   检测到用户要求换装');
 
-        // 构建系统提示词 = 角色设定 + 情绪分析 + 历史摘要（如果有更早历史）
-        const summaryText = conversationSummary ? `\n\n【对话历史摘要】\n${conversationSummary}` : '';
+        const memoryText = this.buildMemoryContextBlock(turnMemory, conversationSummary);
         const emotionInfo = `
 【用户情绪状态】
 - 主情绪：${emotionResult.emotionAnalysis.primaryEmotion}（强度：${emotionResult.emotionAnalysis.intensity}/10）
@@ -1242,7 +1426,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
 
         const continuityBlock = this.continuityInstruction(previousVisual, changeIntent);
         // continuity is already inside buildVisualInstruction; keep one clear copy before it for log visibility
-        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
+        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${memoryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
         if (continuityBlock) {
             console.log('   已注入服饰/场景连续性指令');
         } else {
@@ -1254,7 +1438,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
             content: enhancedSystemPrompt
         };
 
-        // 发送给AI：系统提示词 + 最近2轮完整对话
+        // 发送给AI：系统提示词 + 最近4轮完整对话
         const chatMessages = [systemMessage, ...recentTurns];
 
         // 构建完整的系统提示词（用于返回给前端调试）
@@ -1262,7 +1446,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
         console.log('   完整Prompt已构建，长度:', fullSystemPrompt.length);
         console.log('   角色设定长度:', characterSystemPrompt.length);
         console.log('   情绪信息长度:', emotionInfo.length);
-        console.log('   对话摘要长度:', summaryText.length);
+        console.log('   情节记忆长度:', memoryText.length);
         console.log('   最近轮次消息数:', recentTurns.length);
 
         // 第二轮：生成回复
@@ -1282,6 +1466,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
                 return await this.finalizeChatReply({
                     replyContent,
                     conversationSummary,
+                    turnMemory,
                     hasOlderHistory,
                     recentTurns,
                     provider,
@@ -1323,6 +1508,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
                 return await this.finalizeChatReply({
                     replyContent,
                     conversationSummary,
+                    turnMemory,
                     hasOlderHistory,
                     recentTurns,
                     provider,
@@ -1361,6 +1547,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
                 return await this.finalizeChatReply({
                     replyContent,
                     conversationSummary,
+                    turnMemory,
                     hasOlderHistory,
                     recentTurns,
                     provider,
@@ -1393,6 +1580,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
                 return await this.finalizeChatReply({
                     replyContent,
                     conversationSummary,
+                    turnMemory,
                     hasOlderHistory,
                     recentTurns,
                     provider,
@@ -1531,6 +1719,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
             apiKey,
             baseUrl,
             conversationSummary,
+            turnMemory = [],
             previousVisual
         } = payload;
 
@@ -1555,30 +1744,15 @@ camera: medium_shot, three-quarter_view, depth_of_field
             emotionTimeMs
         });
 
-        let recentTurns = [];
-        let hasOlderHistory = false;
-        let i = cleanMessages.length - 1;
-        if (i >= 0 && cleanMessages[i].role === 'user') {
-            recentTurns.unshift(cleanMessages[i]);
-            i--;
-        }
-        let turnsCollected = 0;
-        while (i >= 0 && turnsCollected < 2) {
-            if (cleanMessages[i].role === 'assistant' && i - 1 >= 0 && cleanMessages[i - 1].role === 'user') {
-                recentTurns.unshift(cleanMessages[i]);
-                recentTurns.unshift(cleanMessages[i - 1]);
-                turnsCollected++;
-                i -= 2;
-            } else {
-                i--;
-            }
-        }
-        hasOlderHistory = i >= 0;
+        const { recentTurns, hasOlderHistory } = this.extractRecentTurns(cleanMessages, RECENT_FULL_ROUNDS);
 
         const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
         const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
+        if (changeIntent.sceneChange) {
+            console.log('[scene] user requested scene change', changeIntent.sceneTargetHint || '(no hint)');
+        }
 
-        const summaryText = conversationSummary ? `\n\n【对话历史摘要】\n${conversationSummary}` : '';
+        const memoryText = this.buildMemoryContextBlock(turnMemory, conversationSummary);
         const emotionInfo = `
 【用户情绪状态】
 - 主情绪：${emotionResult.emotionAnalysis.primaryEmotion}（强度：${emotionResult.emotionAnalysis.intensity}/10）
@@ -1588,7 +1762,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
 - 回复要点：${emotionResult.responseSuggestion.keyPoints.join('；') || '无'}
 `.trim();
 
-        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
+        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${memoryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
         const systemMessage = { role: 'system', content: enhancedSystemPrompt };
         const chatMessages = [systemMessage, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
@@ -1626,6 +1800,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
         return this.finalizeChatReply({
             replyContent,
             conversationSummary,
+            turnMemory,
             hasOlderHistory,
             recentTurns,
             provider,
