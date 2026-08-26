@@ -464,6 +464,28 @@ body {
   text-overflow: ellipsis;
 }
 
+#modelInputContainer {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+#modelInputContainer .model-select,
+#modelInputContainer .model-input,
+#modelInputContainer select,
+#modelInputContainer input {
+  width: 100% !important;
+  max-width: 100%;
+  min-width: 0;
+  background: #fff;
+  border: 2px solid var(--text);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.4);
+  font-family: inherit;
+}
+
 .settings-scroll input[type="checkbox"] {
   width: 16px !important;
   min-width: 16px !important;

@@ -4,7 +4,11 @@ const aiService = require('./ai_service');
 const comfyClient = require('./comfy_client');
 const imagePrompt = require('./image_prompt');
 const chatImageConfig = require('./chat_image_config');
-const visionPhase = require('./vision_phase');
+const AsyncQueue = require('./gpu_scheduler/async_queue');
+const ImageJobStore = require('./gpu_scheduler/image_job_store');
+const { startImageWorker } = require('./gpu_scheduler/image_worker');
+const { runCharacterImageJob } = require('./gpu_scheduler/character_image_runner');
+const ollamaGuard = require('./gpu_scheduler/ollama_guard');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -40,6 +44,18 @@ const PRESETS_FILE = path.join(dataDir, 'presets.json');
 const CHARACTERS_FILE = path.join(dataDir, 'characters.json');
 const CHAT_HISTORY_FILE = path.join(dataDir, 'chat_history.json');
 const EMOTION_HISTORY_FILE = path.join(dataDir, 'emotion_history.json');
+
+const imageQueue = new AsyncQueue();
+const imageJobStore = new ImageJobStore();
+
+startImageWorker({
+    queue: imageQueue,
+    jobStore: imageJobStore,
+    runCharacterImageJob: (payload) => runCharacterImageJob(payload, {
+        charactersFile: CHARACTERS_FILE,
+        chatImagesDir
+    })
+}).catch((err) => console.error('[ImageWorker] fatal:', err));
 
 // Ensure data files exist
 if (!fs.existsSync(PRESETS_FILE)) {
@@ -275,7 +291,8 @@ app.post('/api/chat-history/:characterId', (req, res) => {
             imageNegative: m.imageNegative || '',
             checkpointName: m.checkpointName || '',
             timing: m.timing,
-            debugInfo: m.debugInfo || null
+            debugInfo: m.debugInfo || null,
+            imageJobId: m.imageJobId || ''
         }));
         // 兼容旧数据格式（纯数组）
         if (Array.isArray(chatData[characterId])) {
@@ -423,6 +440,13 @@ app.post('/api/chat-with-emotion', async (req, res) => {
             outfitPrompt,
             previousVisual || null
         );
+        if (provider === 'ollama') {
+            try {
+                await ollamaGuard.unloadAll(baseUrl);
+            } catch (e) {
+                console.warn('[Ollama] post-chat unload failed:', e.message);
+            }
+        }
         res.json(result);
     } catch (error) {
         console.error('Chat with Emotion Error:', error.message);
@@ -518,112 +542,68 @@ app.post('/api/comfy/test', async (req, res) => {
     }
 });
 
-app.post('/api/character-image', async (req, res) => {
-    const started = Date.now();
-    const {
-        characterId,
-        replySnippet,
-        messageId,
-        visual: visualFromChat,
-        previousVisual,
-        userMessage,
-        provider,
-        model,
-        apiKey,
-        baseUrl,
-        checkpointName: checkpointNameFromClient,
-        workflowSettings: workflowSettingsFromClient
-    } = req.body || {};
-    if (!characterId) {
+app.post('/api/image-jobs', (req, res) => {
+    const payload = req.body || {};
+    if (!payload.characterId) {
         return res.status(400).json({ error: 'characterId is required' });
     }
+    const job = imageJobStore.createJob({
+        ...payload,
+        skipLlmFallback: payload.provider === 'ollama'
+    });
+    imageQueue.push({ jobId: job.id });
+    console.log('[ImageQueue] enqueued', job.id, 'queue size:', imageQueue.size);
+    res.json({ ok: true, imageJobId: job.id, status: 'queued' });
+});
 
-    let characters;
+app.get('/api/image-jobs/:id/stream', (req, res) => {
+    const job = imageJobStore.getJob(req.params.id);
+    if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
+    }
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    imageJobStore.subscribe(req.params.id, res);
+});
+
+app.post('/api/image-jobs/:id/retry', (req, res) => {
+    const job = imageJobStore.getJob(req.params.id);
+    if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
+    }
+    if (job.status === 'running' || job.status === 'queued') {
+        return res.status(409).json({ error: 'Job already in progress' });
+    }
+    imageJobStore.resetForRetry(req.params.id);
+    imageQueue.push({ jobId: req.params.id });
+    res.json({ ok: true, imageJobId: req.params.id, status: 'queued' });
+});
+
+app.post('/api/character-image', (req, res) => {
+    const payload = req.body || {};
+    if (!payload.characterId) {
+        return res.status(400).json({ error: 'characterId is required' });
+    }
+    const job = imageJobStore.createJob({
+        ...payload,
+        skipLlmFallback: payload.provider === 'ollama'
+    });
+    imageQueue.push({ jobId: job.id });
+    res.json({ ok: true, queued: true, imageJobId: job.id, status: 'queued' });
+});
+
+app.post('/api/character-image-sync', async (req, res) => {
     try {
-        characters = JSON.parse(fs.readFileSync(CHARACTERS_FILE, 'utf8') || '[]');
-    } catch (e) {
-        return res.status(500).json({ error: 'Failed to load characters' });
-    }
-    const character = characters.find(c => c.id === characterId);
-    if (!character) {
-        return res.status(404).json({ error: `Character not found: ${characterId}` });
-    }
-
-    const vision = visionPhase.describeVisionState(character);
-    let visual = visualFromChat || null;
-    if (!imagePrompt.isScenePromptUsable(visual) && replySnippet) {
-        try {
-            const generated = await aiService.generateSceneTags({
-                reply: replySnippet,
-                userMessage: userMessage || '',
-                provider: provider || 'deepseek',
-                model,
-                apiKey,
-                baseUrl,
-                previousVisual: previousVisual || null
-            });
-            if (imagePrompt.isScenePromptUsable(generated) || imagePrompt.tagsFromVisual(generated)) {
-                visual = generated;
-            }
-        } catch (error) {
-            console.error('Scene tag generation error:', error.message);
-        }
-    }
-    const skipOutfit = Boolean(visual && imagePrompt.tagsFromVisual(visual));
-    const basePrompt = imagePrompt.buildBasePrompt(character, { skipOutfit });
-    const turnPrompt = imagePrompt.buildTurnPrompt({ visual });
-    const positive = [basePrompt, turnPrompt].filter(Boolean).join('\n');
-    const defaults = comfyClient.workflowDefaults();
-    const workflowSettings = {
-        ...defaults,
-        ...(workflowSettingsFromClient && typeof workflowSettingsFromClient === 'object' ? workflowSettingsFromClient : {}),
-        checkpointName:
-            (workflowSettingsFromClient && workflowSettingsFromClient.checkpointName)
-            || checkpointNameFromClient
-            || defaults.checkpointName
-    };
-    const negative = workflowSettings.negativePrompt || chatImageConfig.negativePrompt;
-    const checkpointName = workflowSettings.checkpointName;
-    const destName = `${characterId}_${messageId || Date.now()}.png`.replace(/[^\w.-]/g, '_');
-    const destPath = path.join(chatImagesDir, destName);
-
-    try {
-        const result = await comfyClient.generateToFile({
-            basePrompt,
-            turnPrompt,
-            negative,
-            ...workflowSettings
-        }, destPath);
-        res.json({
-            ok: true,
-            imageUrl: `/uploads/chat_images/${destName}`,
-            promptId: result.promptId,
-            seed: result.seed,
-            elapsedMs: Date.now() - started,
-            prompt: positive,
-            turnPrompt,
-            visual,
-            checkpointName,
-            workflowSettings,
-            negative,
-            vision,
-            messageId: messageId || null
+        const result = await runCharacterImageJob(req.body || {}, {
+            charactersFile: CHARACTERS_FILE,
+            chatImagesDir
         });
+        res.json(result);
     } catch (error) {
-        console.error('Character image error:', error.message);
-        res.status(502).json({
-            ok: false,
-            error: error.message,
-            elapsedMs: Date.now() - started,
-            prompt: positive,
-            turnPrompt,
-            visual,
-            checkpointName,
-            workflowSettings,
-            negative,
-            vision,
-            messageId: messageId || null
-        });
+        console.error('Character image sync error:', error.message);
+        res.status(502).json({ ok: false, error: error.message });
     }
 });
 
@@ -682,4 +662,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`[ImageWorker] VRAM gate: ${chatImageConfig.imageMinVramMb}MB free required when provider=ollama`);
 });

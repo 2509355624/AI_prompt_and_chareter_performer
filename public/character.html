@@ -541,7 +541,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=8">
+    <link rel="stylesheet" href="styles/character-paper.css?v=9">
 </head>
 <body>
 
@@ -650,7 +650,7 @@
                             <span id="refreshModelsBtn" class="hidden" onclick="fetchOllamaModels(true)" style="cursor: pointer; font-size: 10px; color: var(--primary);">🔄 Refresh</span>
                         </div>
                         <div id="modelInputContainer">
-                            <input type="text" id="model" value="deepseek-v4-flash">
+                            <input type="text" id="model" class="model-input" value="deepseek-v4-flash">
                         </div>
                     </div>
                     
@@ -790,6 +790,7 @@
     let emotionHistory = [];
     let conversationSummary = '';
     let lastVisualCache = null; // session cache so outfit/scene continuity does not wait for Comfy
+    const imageJobStreams = new Map();
     const FORCE_PROMPT_STORAGE_KEY = 'characterForcePrompts';
 
     function loadForcePromptMap() {
@@ -913,14 +914,17 @@
             if (provider === 'ollama') {
                 apiKeyGroup.classList.add('hidden');
                 refreshBtn.classList.remove('hidden');
-                if(baseUrl.value.includes('api.openai.com')) baseUrl.value = 'http://localhost:11434';
+                const current = baseUrl.value.trim();
+                if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(current)) {
+                    baseUrl.value = 'http://localhost:11434';
+                }
+                renderModelInput('loading');
                 fetchOllamaModels();
             } else if (provider === 'deepseek') {
                 apiKeyGroup.classList.add('hidden');
                 refreshBtn.classList.add('hidden');
                 baseUrl.value = 'https://api.deepseek.com';
-                document.getElementById('modelInputContainer').innerHTML = 
-                    '<input type="text" id="model" value="deepseek-v4-flash" style="width: 100%;">';
+                renderModelInput('input', [], 'deepseek-v4-flash');
             } else {
                 apiKeyGroup.classList.remove('hidden');
                 refreshBtn.classList.add('hidden');
@@ -1099,41 +1103,61 @@
         const provider = document.getElementById('provider').value;
         if (provider !== 'ollama') return;
 
-        const baseUrl = document.getElementById('baseUrl').value;
+        const baseUrl = document.getElementById('baseUrl').value.trim();
         const btn = document.getElementById('refreshModelsBtn');
         
-        if (isManual) btn.innerText = '...';
+        if (isManual && btn) btn.innerText = '...';
+        renderModelInput('loading');
 
         try {
             const res = await fetch(`/api/models?baseUrl=${encodeURIComponent(baseUrl)}`);
             const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
             
             if (data.models && data.models.length > 0) {
                 renderModelInput('select', data.models);
-                if (isManual) alert(`Found ${data.models.length} models`);
+                if (isManual) alert(`找到 ${data.models.length} 个模型`);
             } else {
-                renderModelInput('input');
-                if (isManual) alert('No models found. Check Ollama connection.');
+                renderModelInput('empty');
+                if (isManual) alert('未找到模型，请先在 Ollama 中 pull 模型。');
             }
         } catch (e) {
-            console.error(e);
-            renderModelInput('input');
+            console.error('[Ollama models]', e);
+            renderModelInput('error', [], e.message || '连接失败');
+            if (isManual) alert('无法连接 Ollama：' + (e.message || '请确认 Ollama 已启动'));
         } finally {
-            if (isManual) btn.innerText = '🔄 Refresh';
+            if (isManual && btn) btn.innerText = '🔄 Refresh';
         }
     }
 
     function renderModelInput(type, models = [], defaultValue = '') {
         const container = document.getElementById('modelInputContainer');
-        const currentVal = document.getElementById('model') ? document.getElementById('model').value : '';
+        if (!container) return;
+        const currentEl = document.getElementById('model');
+        const currentVal = currentEl ? currentEl.value : '';
         const value = currentVal || defaultValue;
-        
-        if (type === 'select') {
-            const options = models.map(m => `<option value="${m}" ${m === value ? 'selected' : ''}>${m}</option>`).join('');
-            container.innerHTML = `<select id="model" style="width: 100%;">${options}</select>`;
-        } else {
-            container.innerHTML = `<input type="text" id="model" value="${value}" placeholder="Model name (e.g. gpt-4)" style="width: 100%;">`;
+
+        if (type === 'loading') {
+            container.innerHTML = '<select id="model" class="model-select" disabled><option>加载 Ollama 模型列表…</option></select>';
+            return;
         }
+        if (type === 'empty') {
+            container.innerHTML = '<select id="model" class="model-select"><option value="">（无可用模型，请先 ollama pull）</option></select>';
+            return;
+        }
+        if (type === 'error') {
+            const msg = escapeHtml(defaultValue || '无法连接 Ollama');
+            container.innerHTML = `<select id="model" class="model-select"><option value="">${msg}</option></select>`;
+            return;
+        }
+        if (type === 'select') {
+            const options = models.map(m => `<option value="${escapeHtml(m)}"${m === value ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('');
+            container.innerHTML = `<select id="model" class="model-select">${options}</select>`;
+            return;
+        }
+        container.innerHTML = `<input type="text" id="model" class="model-input" value="${escapeHtml(value)}" placeholder="Model name (e.g. gpt-4)">`;
     }
 
     // =========================================
@@ -1307,12 +1331,12 @@
                 );
                 const emotion = msg.emotionAnalysis?.emotionAnalysis || msg.emotionAnalysis;
                 let imageBlock = '';
-                if (msg.imageStatus === 'pending') {
-                    imageBlock = `<div class="image-pending">正在绘制这一幕…</div>`;
-                } else if (msg.imageStatus === 'failed') {
-                    imageBlock = `<div class="image-failed">配图失败${msg.imageError ? '：' + escapeHtml(msg.imageError) : ''}</div>`;
-                } else if (msg.imageUrl) {
+                if (msg.imageStatus === 'failed') {
+                    imageBlock = `<div class="image-failed">配图失败${msg.imageError ? '：' + escapeHtml(msg.imageError) : ''}<br><button type="button" class="debug-btn" onclick="retryCharacterImage('${escapeHtml(msg.id)}')">重新出图</button></div>`;
+                } else if (msg.imageUrl && msg.imageStatus === 'ready') {
                     imageBlock = `<div class="chat-image-wrap"><img class="chat-image" src="${escapeHtml(msg.imageUrl)}" alt="" onclick="openChatImage('${escapeHtml(msg.imageUrl)}')"></div>`;
+                } else if (msg.imageStatus && msg.imageStatus !== 'ready') {
+                    imageBlock = `<div class="image-pending">${escapeHtml(imageStatusLabel(msg))}</div>`;
                 }
                 return `
                     <div class="message ai">
@@ -1500,7 +1524,8 @@
                 visual: data.visual || null,
                 imageTurnPrompt: turnPromptFromChat,
                 timing: data.timing,
-                imageStatus: 'pending'
+                imageStatus: 'queued',
+                imageJobId: ''
             });
             console.log('[continuity] previousVisual sent:', previousVisual);
             console.log('[continuity] new visual cached:', data.visual || turnPromptFromChat || '(none)');
@@ -1549,13 +1574,185 @@
         }
     }
 
+    function imageStatusLabel(msg) {
+        switch (msg.imageStatus) {
+            case 'queued':
+                return '出图排队中…';
+            case 'waiting_vram':
+                return msg.imageStatusHint || '等待 GPU 显存释放（需要 ≥9GB 空闲）…';
+            case 'running':
+            case 'pending':
+                return '正在绘制这一幕…';
+            default:
+                return '正在绘制这一幕…';
+        }
+    }
+
+    function closeImageJobStream(jobId) {
+        const es = imageJobStreams.get(jobId);
+        if (es) {
+            es.close();
+            imageJobStreams.delete(jobId);
+        }
+    }
+
+    function applyImageJobResult(msg, data) {
+        if (!msg || !data) return;
+        msg.imagePrompt = data.prompt || msg.imagePrompt || '';
+        msg.imageTurnPrompt = data.turnPrompt || msg.imageTurnPrompt || '';
+        msg.imageNegative = data.negative || msg.imageNegative || '';
+        if (data.checkpointName) msg.checkpointName = data.checkpointName;
+        if (data.visual) {
+            msg.visual = data.visual;
+            rememberVisual(data.visual);
+        } else if (msg.imageTurnPrompt) {
+            rememberVisual({ prompt: msg.imageTurnPrompt });
+        }
+        if (data.ok && data.imageUrl) {
+            msg.imageUrl = data.imageUrl;
+            msg.imageStatus = 'ready';
+            msg.imageError = '';
+        }
+    }
+
+    function subscribeImageJobStream(jobId, messageId) {
+        if (!jobId) return;
+        closeImageJobStream(jobId);
+        const es = new EventSource(`/api/image-jobs/${encodeURIComponent(jobId)}/stream`);
+        imageJobStreams.set(jobId, es);
+
+        const getMsg = () => characterChatMessages.find((m) => m.id === messageId);
+
+        const handleDone = async (data) => {
+            const msg = getMsg();
+            if (!msg) return;
+            applyImageJobResult(msg, data);
+            renderCharacterChat();
+            await saveChatHistory();
+            closeImageJobStream(jobId);
+        };
+
+        const handleFailed = async (data) => {
+            const msg = getMsg();
+            if (!msg) return;
+            msg.imageStatus = 'failed';
+            msg.imageError = data.error || '出图失败';
+            renderCharacterChat();
+            await saveChatHistory();
+            closeImageJobStream(jobId);
+        };
+
+        es.addEventListener('snapshot', (e) => {
+            try {
+                const snap = JSON.parse(e.data);
+                if (snap.status === 'completed' && snap.result) {
+                    handleDone(snap.result);
+                } else if (snap.status === 'failed') {
+                    handleFailed({ error: snap.error });
+                } else if (snap.status === 'queued') {
+                    const msg = getMsg();
+                    if (msg) {
+                        msg.imageStatus = 'queued';
+                        renderCharacterChat();
+                    }
+                } else if (snap.status === 'running') {
+                    const msg = getMsg();
+                    if (msg) {
+                        msg.imageStatus = 'running';
+                        renderCharacterChat();
+                    }
+                }
+            } catch (err) {
+                console.warn('[SSE] snapshot parse error', err);
+            }
+        });
+
+        es.addEventListener('vram_waiting', (e) => {
+            const msg = getMsg();
+            if (!msg) return;
+            try {
+                const info = JSON.parse(e.data);
+                msg.imageStatus = 'waiting_vram';
+                if (info.phase === 'ollama_unload') {
+                    msg.imageStatusHint = '正在释放 Ollama 显存…';
+                } else if (info.freeMb != null) {
+                    msg.imageStatusHint = `等待 GPU 显存：当前 ${info.freeMb}MB / 需要 ≥${info.requiredMb || 9216}MB`;
+                } else {
+                    msg.imageStatusHint = '等待 GPU 显存释放（需要 ≥9GB 空闲）…';
+                }
+                renderCharacterChat();
+            } catch (err) {
+                console.warn('[SSE] vram_waiting parse error', err);
+            }
+        });
+
+        es.addEventListener('vram_ready', (e) => {
+            const msg = getMsg();
+            if (!msg) return;
+            msg.imageStatus = 'running';
+            msg.imageStatusHint = '';
+            renderCharacterChat();
+        });
+
+        es.addEventListener('image_running', () => {
+            const msg = getMsg();
+            if (!msg) return;
+            msg.imageStatus = 'running';
+            renderCharacterChat();
+        });
+
+        es.addEventListener('image_done', (e) => {
+            try {
+                handleDone(JSON.parse(e.data));
+            } catch (err) {
+                console.warn('[SSE] image_done parse error', err);
+            }
+        });
+
+        es.addEventListener('image_failed', (e) => {
+            try {
+                handleFailed(JSON.parse(e.data));
+            } catch (err) {
+                console.warn('[SSE] image_failed parse error', err);
+            }
+        });
+
+        es.onerror = () => {
+            // EventSource auto-reconnects; ignore transient errors while job runs
+        };
+    }
+
+    async function retryCharacterImage(messageId) {
+        const msg = characterChatMessages.find((m) => m.id === messageId);
+        if (!msg || !msg.imageJobId) {
+            alert('没有可重试的出图任务');
+            return;
+        }
+        try {
+            const res = await fetch(`/api/image-jobs/${encodeURIComponent(msg.imageJobId)}/retry`, {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '重试失败');
+            msg.imageStatus = 'queued';
+            msg.imageError = '';
+            msg.imageStatusHint = '';
+            renderCharacterChat();
+            subscribeImageJobStream(msg.imageJobId, messageId);
+        } catch (e) {
+            alert('重新出图失败: ' + e.message);
+        }
+    }
+
     async function requestCharacterImage(messageId, emotionBlock, reply, visual, previousVisual = null, userMessage = '') {
         if (!currentCharacter) return;
         const provider = document.getElementById('provider').value;
         let model = document.getElementById('model') ? document.getElementById('model').value : '';
         if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
+        const msg = characterChatMessages.find(m => m.id === messageId);
+        if (!msg) return;
         try {
-            const res = await fetch('/api/character-image', {
+            const res = await fetch('/api/image-jobs', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -1576,31 +1773,13 @@
                 })
             });
             const data = await res.json();
-            const msg = characterChatMessages.find(m => m.id === messageId);
-            if (!msg) return;
-            msg.imagePrompt = data.prompt || '';
-            msg.imageTurnPrompt = data.turnPrompt || msg.imageTurnPrompt || '';
-            msg.imageNegative = data.negative || '';
-            if (data.checkpointName) msg.checkpointName = data.checkpointName;
-            if (data.visual) {
-                msg.visual = data.visual;
-                rememberVisual(data.visual);
-            } else if (msg.imageTurnPrompt) {
-                rememberVisual({ prompt: msg.imageTurnPrompt });
-            }
-            if (data.ok && data.imageUrl) {
-                msg.imageUrl = data.imageUrl;
-                msg.imageStatus = 'ready';
-                msg.imageError = '';
-            } else {
-                msg.imageStatus = 'failed';
-                msg.imageError = data.error || '出图失败';
-            }
+            if (!res.ok) throw new Error(data.error || '入队失败');
+            msg.imageJobId = data.imageJobId;
+            msg.imageStatus = 'queued';
+            msg.imageError = '';
             renderCharacterChat();
-            await saveChatHistory();
+            subscribeImageJobStream(data.imageJobId, messageId);
         } catch (e) {
-            const msg = characterChatMessages.find(m => m.id === messageId);
-            if (!msg) return;
             msg.imageStatus = 'failed';
             msg.imageError = e.message;
             renderCharacterChat();

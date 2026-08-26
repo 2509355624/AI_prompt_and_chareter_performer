@@ -34,9 +34,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Project specific / local runtime data
+# Project specific / local runtime data (do not commit user chat or uploads)
 data/chat_history.json
 data/emotion_history.json
+data/characters.local.json
 public/uploads/
 !public/uploads/.gitkeep
 !public/uploads/chat_images/

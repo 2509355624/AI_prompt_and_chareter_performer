@@ -97,7 +97,8 @@ class AIService {
                 const response = await axios.post(`${url}/api/chat`, {
                     model: model,
                     messages: chatMessages,
-                    stream: false
+                    stream: false,
+                    keep_alive: 0
                 }, { timeout: 600000 });
                 return response.data?.message?.content || '无回复';
             } catch (e) {
@@ -172,7 +173,8 @@ class AIService {
             const response = await axios.post(`${url}/api/chat`, {
                 model,
                 messages,
-                stream: false
+                stream: false,
+                keep_alive: 0
             }, { timeout: 600000 });
             return response.data?.message?.content || '';
         }
@@ -411,7 +413,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     { role: 'user', content: prompt }
                 ],
                 stream: false,
-                format: 'json'
+                format: 'json',
+                keep_alive: 0
             }, {
                 timeout: 600000, // 10 minutes timeout
                 headers: {
@@ -851,7 +854,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     model: model,
                     messages: [{ role: 'user', content: prompt }],
                     stream: false,
-                    format: 'json'
+                    format: 'json',
+                    keep_alive: 0
                 }, { timeout: 600000 });
                 
                 if (response.data && response.data.message) {
@@ -948,7 +952,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                 const response = await axios.post(`${url}/api/chat`, {
                     model: model,
                     messages: [{ role: 'user', content: summaryPrompt }],
-                    stream: false
+                    stream: false,
+                    keep_alive: 0
                 }, { timeout: 600000 });
                 const summary = response.data?.message?.content?.trim() || '';
                 return summary.substring(0, 200);
@@ -1084,7 +1089,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                 const response = await axios.post(`${url}/api/chat`, {
                     model: model,
                     messages: chatMessages,
-                    stream: false
+                    stream: false,
+                    keep_alive: 0
                 }, { timeout: 600000 });
                 const replyContent = response.data?.message?.content || response.data?.message?.thinking || '无回复';
                 return await this.finalizeChatReply({

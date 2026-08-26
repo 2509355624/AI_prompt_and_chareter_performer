@@ -5,6 +5,7 @@ module.exports = {
     comfyUrl: (process.env.COMFYUI_URL || 'http://127.0.0.1:8188').replace(/\/$/, ''),
     timeoutMs: Number(process.env.COMFYUI_TIMEOUT_MS) || 180000,
     pollMs: 800,
+    imageMinVramMb: Number(process.env.IMAGE_MIN_VRAM_MB) || 9216,
     width: 544,
     height: 960,
     steps: 30,
