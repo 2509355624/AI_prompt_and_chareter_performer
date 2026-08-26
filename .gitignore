@@ -1,5 +1,7 @@
 # Environment variables (contains API keys)
 .env
+**/.env
+!.env.example
 
 # Environment template (safe to commit, contains no real keys)
 !.env.example
@@ -32,10 +34,26 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Project specific
+# Project specific / local runtime data
 data/chat_history.json
+data/emotion_history.json
+public/uploads/
+!public/uploads/.gitkeep
+!public/uploads/chat_images/
+public/uploads/chat_images/*
+!public/uploads/chat_images/.gitkeep
 ai_decision_log.txt
 tool_call_log.txt
 
-# Test outputs
+# Test outputs and bundles that may contain secrets
 tests/output/
+tests/transfer_bundle_*/
+tests/**/.env
+tests/*.zip
+tests/*.jpg
+tests/*.png
+tests/*.jpeg
+tests/*.webp
+
+# Local notes
+md_files/

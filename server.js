@@ -1,6 +1,10 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const aiService = require('./ai_service');
+const comfyClient = require('./comfy_client');
+const imagePrompt = require('./image_prompt');
+const chatImageConfig = require('./chat_image_config');
+const visionPhase = require('./vision_phase');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -19,9 +23,13 @@ const uploadsDir = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
+const chatImagesDir = path.join(uploadsDir, 'chat_images');
+if (!fs.existsSync(chatImagesDir)) {
+    fs.mkdirSync(chatImagesDir, { recursive: true });
+}
 
 // Middleware
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 app.use(express.urlencoded({ extended: true }));
@@ -31,6 +39,7 @@ app.use(express.raw({ type: 'multipart/form-data', limit: '10mb' }));
 const PRESETS_FILE = path.join(dataDir, 'presets.json');
 const CHARACTERS_FILE = path.join(dataDir, 'characters.json');
 const CHAT_HISTORY_FILE = path.join(dataDir, 'chat_history.json');
+const EMOTION_HISTORY_FILE = path.join(dataDir, 'emotion_history.json');
 
 // Ensure data files exist
 if (!fs.existsSync(PRESETS_FILE)) {
@@ -41,6 +50,9 @@ if (!fs.existsSync(CHARACTERS_FILE)) {
 }
 if (!fs.existsSync(CHAT_HISTORY_FILE)) {
     fs.writeFileSync(CHAT_HISTORY_FILE, '{}', 'utf8');
+}
+if (!fs.existsSync(EMOTION_HISTORY_FILE)) {
+    fs.writeFileSync(EMOTION_HISTORY_FILE, '{}', 'utf8');
 }
 
 app.get('/api/presets', (req, res) => {
@@ -103,6 +115,9 @@ app.get('/api/characters', (req, res) => {
                     description: '《埃罗芒阿老师》女主角，害羞的插画师',
                     avatar: '👩‍🎨',
                     personality: '害羞、内向、温柔、有点傲娇',
+                    appearancePrompt: imagePrompt.DEFAULT_APPEARANCE.izumi_sagiri,
+                    outfitPrompt: '',
+                    referenceImage: '',
                     systemPrompt: '你是一个名叫和泉纱雾的女孩，你是《埃罗芒阿老师》的女主角。你是一个害羞内向的初中女生，同时也是一位天才插画师。你平时很怕生，但在熟悉的人面前会展现出温柔可爱的一面。说话时带着少女的羞涩感，偶尔会有一点傲娇。你喜欢画画，经常待在家里工作。请用符合纱雾性格的语气和用户交流，保持可爱、害羞但又温柔的特点。',
                     createdAt: Date.now()
                 },
@@ -112,6 +127,9 @@ app.get('/api/characters', (req, res) => {
                     description: '《Re:从零开始的异世界生活》中的鬼族女仆',
                     avatar: '👻',
                     personality: '忠诚、温柔、坚强、 devoted',
+                    appearancePrompt: imagePrompt.DEFAULT_APPEARANCE.rem,
+                    outfitPrompt: '',
+                    referenceImage: '',
                     systemPrompt: '你是雷姆，来自《Re:从零开始的异世界生活》的鬼族女仆。你对主人绝对忠诚，说话温柔有礼，但内心坚强勇敢。你称呼对方为「昴君」或「主人」，总是以谦逊的态度服务他人。你喜欢甜食，擅长家务和战斗。请用雷姆特有的温柔、忠诚、谦逊的语气交流，展现出女仆的优雅和鬼族的力量。',
                     createdAt: Date.now()
                 },
@@ -121,6 +139,9 @@ app.get('/api/characters', (req, res) => {
                     description: '《刀剑神域》女主角，闪光的亚丝娜',
                     avatar: '⚔️',
                     personality: '温柔、坚强、善良、有领导力',
+                    appearancePrompt: imagePrompt.DEFAULT_APPEARANCE.asuna,
+                    outfitPrompt: '',
+                    referenceImage: '',
                     systemPrompt: '你是亚丝娜，来自《刀剑神域》的女主角，被称为「闪光」的剑士。你性格温柔善良，但面对战斗时坚强勇敢。你擅长烹饪，关心朋友，对爱人专一深情。说话时语气优雅但不失亲和力。请用符合亚丝娜性格的方式交流，展现出温柔坚强的大小姐气质。',
                     createdAt: Date.now()
                 },
@@ -130,6 +151,9 @@ app.get('/api/characters', (req, res) => {
                     description: '《进击的巨人》女主角，强大的战士',
                     avatar: '🗡️',
                     personality: '冷静、强大、忠诚、外冷内热',
+                    appearancePrompt: imagePrompt.DEFAULT_APPEARANCE.mikasa,
+                    outfitPrompt: '',
+                    referenceImage: '',
                     systemPrompt: '你是三笠·阿克曼，来自《进击的巨人》。你是人类最强的士兵之一，性格冷静沉着，平时话不多但内心充满感情。你非常重视重要的人，尤其是艾伦。你外表看起来有些冷淡，但实际上非常关心他人。请用符合三笠性格的语气交流，保持冷静、简洁但充满关怀的特点。',
                     createdAt: Date.now()
                 },
@@ -139,10 +163,27 @@ app.get('/api/characters', (req, res) => {
                     description: '《Fate》系列中的骑士王',
                     avatar: '👑',
                     personality: '正直、高贵、认真、有骑士精神',
+                    appearancePrompt: imagePrompt.DEFAULT_APPEARANCE.saber,
+                    outfitPrompt: '',
+                    referenceImage: '',
                     systemPrompt: '你是 Saber，来自《Fate》系列的骑士王阿尔托莉雅·潘德拉贡。你是一位高贵正直的骑士王，性格认真严谨，有着强烈的荣誉感和骑士精神。你说话时语气庄重优雅，保持着王者的风范。你喜欢美食，尤其是日式料理。请用符合 Saber 身份和性格的语气交流，展现出骑士王的高贵与威严。',
                     createdAt: Date.now()
                 }
             ];
+            fs.writeFileSync(CHARACTERS_FILE, JSON.stringify(data, null, 2));
+        }
+        let changed = false;
+        data = data.map((c) => {
+            if (c.appearancePrompt && c.outfitPrompt !== undefined && c.referenceImage !== undefined) return c;
+            changed = true;
+            return {
+                ...c,
+                appearancePrompt: c.appearancePrompt || imagePrompt.DEFAULT_APPEARANCE[c.id] || '',
+                outfitPrompt: c.outfitPrompt || '',
+                referenceImage: c.referenceImage || '',
+            };
+        });
+        if (changed) {
             fs.writeFileSync(CHARACTERS_FILE, JSON.stringify(data, null, 2));
         }
         res.json(data);
@@ -153,22 +194,25 @@ app.get('/api/characters', (req, res) => {
 
 app.post('/api/characters', (req, res) => {
     try {
-        const { id, name, description, avatar, personality, systemPrompt } = req.body;
+        const { id, name, description, avatar, personality, systemPrompt, appearancePrompt, outfitPrompt, referenceImage } = req.body;
         let data = JSON.parse(fs.readFileSync(CHARACTERS_FILE, 'utf8') || '[]');
-        
+        const existingIndex = id ? data.findIndex(c => c.id === id) : -1;
+        const existing = existingIndex >= 0 ? data[existingIndex] : {};
+
         const newCharacter = {
             id: id || Date.now().toString(),
-            name: name || '未命名角色',
-            description: description || '',
-            avatar: avatar || '👤',
-            personality: personality || '',
-            systemPrompt: systemPrompt || '',
-            createdAt: Date.now()
+            name: name || existing.name || '未命名角色',
+            description: description !== undefined ? description : (existing.description || ''),
+            avatar: avatar || existing.avatar || '👤',
+            personality: personality !== undefined ? personality : (existing.personality || ''),
+            systemPrompt: systemPrompt !== undefined ? systemPrompt : (existing.systemPrompt || ''),
+            appearancePrompt: appearancePrompt !== undefined ? appearancePrompt : (existing.appearancePrompt || imagePrompt.DEFAULT_APPEARANCE[id] || ''),
+            outfitPrompt: outfitPrompt !== undefined ? outfitPrompt : (existing.outfitPrompt || ''),
+            referenceImage: referenceImage !== undefined ? referenceImage : (existing.referenceImage || ''),
+            createdAt: existing.createdAt || Date.now()
         };
 
-        const existingIndex = data.findIndex(c => c.id === newCharacter.id);
         if (existingIndex >= 0) {
-            newCharacter.createdAt = data[existingIndex].createdAt;
             data[existingIndex] = newCharacter;
         } else {
             data.push(newCharacter);
@@ -197,8 +241,14 @@ app.delete('/api/characters/:id', (req, res) => {
 app.get('/api/chat-history/:characterId', (req, res) => {
     try {
         const { characterId } = req.params;
-        const data = JSON.parse(fs.readFileSync(CHAT_HISTORY_FILE, 'utf8') || '{}');
-        res.json(data[characterId] || []);
+        const chatData = JSON.parse(fs.readFileSync(CHAT_HISTORY_FILE, 'utf8') || '{}');
+        const emotionData = JSON.parse(fs.readFileSync(EMOTION_HISTORY_FILE, 'utf8') || '{}');
+        
+        res.json({
+            messages: Array.isArray(chatData[characterId]) ? chatData[characterId] : (chatData[characterId]?.messages || []),
+            summary: chatData[characterId]?.summary || '',
+            emotionHistory: emotionData[characterId] || []
+        });
     } catch (e) {
         res.status(500).json({ error: 'Failed to load chat history' });
     }
@@ -207,11 +257,42 @@ app.get('/api/chat-history/:characterId', (req, res) => {
 app.post('/api/chat-history/:characterId', (req, res) => {
     try {
         const { characterId } = req.params;
-        const { messages } = req.body;
-        const data = JSON.parse(fs.readFileSync(CHAT_HISTORY_FILE, 'utf8') || '{}');
+        const { messages, emotionHistory, summary } = req.body;
         
-        data[characterId] = messages;
-        fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(data, null, 2));
+        // 保存干净的对话历史 + 摘要到 chat_history.json
+        const chatData = JSON.parse(fs.readFileSync(CHAT_HISTORY_FILE, 'utf8') || '{}');
+        const cleanMessages = messages.map(m => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            imageUrl: m.imageUrl || '',
+            imageStatus: m.imageStatus || '',
+            imageError: m.imageError || '',
+            emotionAnalysis: m.emotionAnalysis,
+            visual: m.visual || null,
+            imagePrompt: m.imagePrompt || '',
+            imageTurnPrompt: m.imageTurnPrompt || '',
+            imageNegative: m.imageNegative || '',
+            checkpointName: m.checkpointName || '',
+            timing: m.timing
+        }));
+        // 兼容旧数据格式（纯数组）
+        if (Array.isArray(chatData[characterId])) {
+            delete chatData[characterId];
+        }
+        chatData[characterId] = {
+            messages: cleanMessages,
+            summary: summary || ''
+        };
+        fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(chatData, null, 2));
+        
+        // 保存情感历史到 emotion_history.json
+        if (emotionHistory) {
+            const emotionData = JSON.parse(fs.readFileSync(EMOTION_HISTORY_FILE, 'utf8') || '{}');
+            emotionData[characterId] = emotionHistory;
+            fs.writeFileSync(EMOTION_HISTORY_FILE, JSON.stringify(emotionData, null, 2));
+        }
+        
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to save chat history' });
@@ -221,9 +302,15 @@ app.post('/api/chat-history/:characterId', (req, res) => {
 app.delete('/api/chat-history/:characterId', (req, res) => {
     try {
         const { characterId } = req.params;
-        const data = JSON.parse(fs.readFileSync(CHAT_HISTORY_FILE, 'utf8') || '{}');
-        delete data[characterId];
-        fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(data, null, 2));
+        
+        const chatData = JSON.parse(fs.readFileSync(CHAT_HISTORY_FILE, 'utf8') || '{}');
+        delete chatData[characterId];
+        fs.writeFileSync(CHAT_HISTORY_FILE, JSON.stringify(chatData, null, 2));
+        
+        const emotionData = JSON.parse(fs.readFileSync(EMOTION_HISTORY_FILE, 'utf8') || '{}');
+        delete emotionData[characterId];
+        fs.writeFileSync(EMOTION_HISTORY_FILE, JSON.stringify(emotionData, null, 2));
+        
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Failed to clear chat history' });
@@ -296,6 +383,40 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
+// Emotion Analysis API
+app.post('/api/analyze-emotion', async (req, res) => {
+    const { messages, provider, apiKey, baseUrl, model } = req.body;
+    try {
+        const result = await aiService.analyzeEmotion(messages, provider, model, apiKey, baseUrl);
+        res.json(result);
+    } catch (error) {
+        console.error('Emotion Analysis Error:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Chat with Emotion API (两轮调用 + 摘要)
+app.post('/api/chat-with-emotion', async (req, res) => {
+    const { messages, systemPrompt, provider, apiKey, baseUrl, model, conversationSummary, appearancePrompt, outfitPrompt } = req.body;
+    try {
+        const result = await aiService.chatWithEmotion(
+            messages,
+            systemPrompt,
+            provider,
+            model,
+            apiKey,
+            baseUrl,
+            conversationSummary,
+            appearancePrompt,
+            outfitPrompt
+        );
+        res.json(result);
+    } catch (error) {
+        console.error('Chat with Emotion Error:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get('/api/models', async (req, res) => {
     const { baseUrl } = req.query;
     try {
@@ -303,6 +424,189 @@ app.get('/api/models', async (req, res) => {
         res.json({ models });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/comfy/checkpoints', async (req, res) => {
+    try {
+        const checkpoints = await comfyClient.listCheckpoints();
+        res.json({
+            ok: true,
+            checkpoints,
+            defaultCheckpoint: chatImageConfig.checkpointName
+        });
+    } catch (error) {
+        res.status(503).json({
+            ok: false,
+            checkpoints: [chatImageConfig.checkpointName],
+            defaultCheckpoint: chatImageConfig.checkpointName,
+            error: error.message
+        });
+    }
+});
+
+app.get('/api/comfy/workflow-options', async (req, res) => {
+    const defaults = comfyClient.workflowDefaults();
+    let checkpoints = [defaults.checkpointName];
+    let loras = (defaults.loras || []).map((l) => l.name);
+    try {
+        checkpoints = await comfyClient.listCheckpoints();
+    } catch (e) {}
+    try {
+        loras = await comfyClient.listLoras();
+    } catch (e) {}
+    res.json({
+        ok: true,
+        defaults,
+        checkpoints,
+        loras
+    });
+});
+
+app.get('/api/comfy/health', async (req, res) => {
+    try {
+        const stats = await comfyClient.ping();
+        res.json({ ok: true, url: chatImageConfig.comfyUrl, stats });
+    } catch (error) {
+        res.status(503).json({
+            ok: false,
+            url: chatImageConfig.comfyUrl,
+            error: error.message
+        });
+    }
+});
+
+app.post('/api/comfy/test', async (req, res) => {
+    const started = Date.now();
+    const turnPrompt = (req.body && req.body.prompt) || chatImageConfig.testPromptTurn;
+    const destName = `test_${Date.now()}.png`;
+    const destPath = path.join(chatImagesDir, destName);
+    try {
+        const result = await comfyClient.generateToFile({
+            basePrompt: `${chatImageConfig.stylePrefix}\n\n${chatImageConfig.testPromptBase}`,
+            turnPrompt,
+            negative: chatImageConfig.negativePrompt
+        }, destPath);
+        res.json({
+            ok: true,
+            imageUrl: `/uploads/chat_images/${destName}`,
+            promptId: result.promptId,
+            seed: result.seed,
+            elapsedMs: Date.now() - started,
+            prompt: `${chatImageConfig.testPromptBase}\n${turnPrompt}`
+        });
+    } catch (error) {
+        console.error('Comfy test error:', error.message);
+        res.status(502).json({
+            ok: false,
+            error: error.message,
+            elapsedMs: Date.now() - started
+        });
+    }
+});
+
+app.post('/api/character-image', async (req, res) => {
+    const started = Date.now();
+    const {
+        characterId,
+        replySnippet,
+        messageId,
+        visual: visualFromChat,
+        provider,
+        model,
+        apiKey,
+        baseUrl,
+        checkpointName: checkpointNameFromClient,
+        workflowSettings: workflowSettingsFromClient
+    } = req.body || {};
+    if (!characterId) {
+        return res.status(400).json({ error: 'characterId is required' });
+    }
+
+    let characters;
+    try {
+        characters = JSON.parse(fs.readFileSync(CHARACTERS_FILE, 'utf8') || '[]');
+    } catch (e) {
+        return res.status(500).json({ error: 'Failed to load characters' });
+    }
+    const character = characters.find(c => c.id === characterId);
+    if (!character) {
+        return res.status(404).json({ error: `Character not found: ${characterId}` });
+    }
+
+    const vision = visionPhase.describeVisionState(character);
+    let visual = visualFromChat || null;
+    if (!imagePrompt.isScenePromptUsable(visual) && replySnippet) {
+        try {
+            const generated = await aiService.generateSceneTags({
+                reply: replySnippet,
+                provider: provider || 'deepseek',
+                model,
+                apiKey,
+                baseUrl
+            });
+            if (imagePrompt.isScenePromptUsable(generated) || imagePrompt.tagsFromVisual(generated)) {
+                visual = generated;
+            }
+        } catch (error) {
+            console.error('Scene tag generation error:', error.message);
+        }
+    }
+    const skipOutfit = Boolean(visual && imagePrompt.tagsFromVisual(visual));
+    const basePrompt = imagePrompt.buildBasePrompt(character, { skipOutfit });
+    const turnPrompt = imagePrompt.buildTurnPrompt({ visual });
+    const positive = [basePrompt, turnPrompt].filter(Boolean).join('\n');
+    const defaults = comfyClient.workflowDefaults();
+    const workflowSettings = {
+        ...defaults,
+        ...(workflowSettingsFromClient && typeof workflowSettingsFromClient === 'object' ? workflowSettingsFromClient : {}),
+        checkpointName:
+            (workflowSettingsFromClient && workflowSettingsFromClient.checkpointName)
+            || checkpointNameFromClient
+            || defaults.checkpointName
+    };
+    const negative = workflowSettings.negativePrompt || chatImageConfig.negativePrompt;
+    const checkpointName = workflowSettings.checkpointName;
+    const destName = `${characterId}_${messageId || Date.now()}.png`.replace(/[^\w.-]/g, '_');
+    const destPath = path.join(chatImagesDir, destName);
+
+    try {
+        const result = await comfyClient.generateToFile({
+            basePrompt,
+            turnPrompt,
+            negative,
+            ...workflowSettings
+        }, destPath);
+        res.json({
+            ok: true,
+            imageUrl: `/uploads/chat_images/${destName}`,
+            promptId: result.promptId,
+            seed: result.seed,
+            elapsedMs: Date.now() - started,
+            prompt: positive,
+            turnPrompt,
+            visual,
+            checkpointName,
+            workflowSettings,
+            negative,
+            vision,
+            messageId: messageId || null
+        });
+    } catch (error) {
+        console.error('Character image error:', error.message);
+        res.status(502).json({
+            ok: false,
+            error: error.message,
+            elapsedMs: Date.now() - started,
+            prompt: positive,
+            turnPrompt,
+            visual,
+            checkpointName,
+            workflowSettings,
+            negative,
+            vision,
+            messageId: messageId || null
+        });
     }
 });
 

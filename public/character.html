@@ -191,6 +191,7 @@
         }
         .config-panel.collapsed .config-body { display: none; }
         .config-panel.collapsed .config-header { padding-bottom: 16px; }
+        .config-panel.collapsed .rotate-icon { transform: rotate(-90deg); }
 
         /* Forms */
         .form-group { display: flex; flex-direction: column; gap: 8px; }
@@ -393,6 +394,492 @@
             font-size: 11px;
             color: var(--text-muted);
         }
+        
+        /* Debug Button */
+        .debug-btn {
+            margin-top: 8px;
+            padding: 4px 12px;
+            font-size: 11px;
+            background: rgba(139, 92, 246, 0.2);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 12px;
+            color: #a78bfa;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .debug-btn:hover {
+            background: rgba(139, 92, 246, 0.3);
+            border-color: rgba(139, 92, 246, 0.5);
+        }
+        
+        /* Emotion Tag */
+        .emotion-tag {
+            display: inline-block;
+            margin-top: 4px;
+            padding: 2px 8px;
+            font-size: 10px;
+            background: rgba(244, 114, 182, 0.15);
+            border-radius: 10px;
+            color: #f472b6;
+        }
+
+        .chat-image-wrap {
+            margin-top: 10px;
+        }
+        .chat-image {
+            max-width: min(280px, 70%);
+            border-radius: 12px;
+            display: block;
+            cursor: zoom-in;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .image-pending,
+        .image-failed {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .image-pending {
+            color: #a78bfa;
+        }
+        .image-failed {
+            color: #f87171;
+        }
+        .image-lightbox {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.82);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1200;
+            cursor: zoom-out;
+            padding: 24px;
+        }
+        .image-lightbox img {
+            max-width: 90vw;
+            max-height: 90vh;
+            border-radius: 12px;
+        }
+        
+        .timing-info {
+            display: flex;
+            gap: 8px;
+            font-size: 9px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 8px;
+            justify-content: flex-end;
+        }
+        
+        .timing-item {
+            background: rgba(255,255,255,0.05);
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+        
+        /* Debug Modal */
+        .debug-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        .debug-modal-content {
+            background: var(--bg-dark);
+            border: var(--glass-border);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 900px;
+            max-height: 80vh;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+        }
+        .debug-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: var(--border);
+        }
+        .debug-modal-header h3 {
+            margin: 0;
+            color: var(--text-main);
+        }
+        .close-btn {
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s;
+        }
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: var(--text-main);
+        }
+        .debug-modal-body {
+            padding: 20px;
+            max-height: calc(80vh - 60px);
+            overflow-y: auto;
+        }
+        .debug-section {
+            margin-bottom: 20px;
+        }
+        .debug-section:last-child {
+            margin-bottom: 0;
+        }
+        .debug-section h4 {
+            margin: 0 0 8px 0;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .debug-section pre {
+            margin: 0;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: var(--radius-md);
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        /* Character Modal Styles */
+        .character-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .character-modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .character-modal {
+            background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 90vh;
+            overflow: hidden;
+            box-shadow: 
+                0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(139, 92, 246, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transform: translateY(20px) scale(0.95);
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        .character-modal-overlay.show .character-modal {
+            transform: translateY(0) scale(1);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 28px 32px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            background: linear-gradient(180deg, rgba(139, 92, 246, 0.08), transparent);
+        }
+        
+        .modal-title-section {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .modal-icon {
+            font-size: 36px;
+            width: 56px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.1));
+            border-radius: 16px;
+            border: 1px solid rgba(139, 92, 246, 0.2);
+        }
+        
+        .modal-title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #f1f5f9, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
+        }
+        
+        .modal-subtitle {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        
+        .modal-close-btn {
+            width: 36px;
+            height: 36px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .modal-close-btn:hover {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            transform: rotate(90deg);
+        }
+        
+        .modal-body {
+            padding: 32px;
+            max-height: calc(90vh - 180px);
+            overflow-y: auto;
+        }
+        
+        .form-grid {
+            display: grid;
+            grid-template-columns: 140px 1fr;
+            gap: 32px;
+        }
+        
+        .avatar-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .avatar-preview {
+            width: 120px;
+            height: 120px;
+            border-radius: 24px;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.1));
+            border: 2px solid rgba(139, 92, 246, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+        
+        .avatar-preview:hover {
+            border-color: rgba(139, 92, 246, 0.5);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px -10px rgba(139, 92, 246, 0.3);
+        }
+        
+        .avatar-emoji {
+            font-size: 56px;
+            transition: transform 0.3s;
+        }
+        
+        .avatar-preview:hover .avatar-emoji {
+            transform: scale(1.1);
+        }
+        
+        .avatar-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .avatar-preview:hover .avatar-overlay {
+            opacity: 1;
+        }
+        
+        .upload-icon {
+            font-size: 24px;
+        }
+        
+        .upload-text {
+            font-size: 11px;
+            color: white;
+            font-weight: 600;
+        }
+        
+        .form-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .form-group.full {
+            grid-column: 1 / -1;
+        }
+        
+        .form-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .label-icon {
+            font-size: 14px;
+        }
+        
+        .label-hint {
+            text-transform: none;
+            font-weight: 400;
+            font-size: 11px;
+            color: rgba(148, 163, 184, 0.6);
+            margin-left: auto;
+        }
+        
+        .form-input, .form-textarea {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.2s;
+            width: 100%;
+        }
+        
+        .form-input:focus, .form-textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+            outline: none;
+        }
+        
+        .form-input::placeholder, .form-textarea::placeholder {
+            color: rgba(148, 163, 184, 0.4);
+        }
+        
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+            line-height: 1.6;
+        }
+        
+        .modal-footer {
+            padding: 24px 32px 32px;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        
+        .btn-secondary {
+            padding: 12px 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-main);
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+        
+        .btn-primary-gradient {
+            padding: 12px 28px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px -3px rgba(139, 92, 246, 0.4);
+        }
+        
+        .btn-primary-gradient:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px -5px rgba(139, 92, 246, 0.5);
+        }
+        
+        .btn-primary-gradient:active {
+            transform: translateY(0);
+        }
+        
+        .btn-arrow {
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+        
+        .btn-primary-gradient:hover .btn-arrow {
+            transform: translateX(4px);
+        }
     </style>
 </head>
 <body>
@@ -428,18 +915,20 @@
     <main class="main-content">
         <!-- Character Info Panel -->
         <div class="config-panel" id="characterInfoPanel" style="margin-bottom: 20px;">
-            <div class="config-header" style="padding: 20px; cursor: default;">
+            <div class="config-header" style="padding: 20px;" onclick="document.getElementById('characterInfoPanel').classList.toggle('collapsed')">
                 <div class="config-title" style="font-size: 18px;">
-                    <span id="currentCharAvatar" style="font-size: 32px;">🎭</span>
+                    <span style="transition: transform 0.3s ease;" class="rotate-icon">▼</span>
+                    <span id="currentCharAvatar" style="font-size: 32px; margin-left: 8px;">🎭</span>
                     <div style="margin-left: 12px;">
                         <div id="currentCharName" style="font-size: 20px; font-weight: 700;">选择角色</div>
                         <div id="currentCharDesc" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">与喜欢的角色互动吧</div>
+                        <div id="currentCharBase" style="font-size: 11px; color: #a78bfa; margin-top: 6px; max-width: 520px; line-height: 1.4;"></div>
                     </div>
                 </div>
                 <div style="display: flex; gap: 8px;">
-                    <button class="btn-icon" onclick="editCurrentCharacter()" title="编辑角色">✎</button>
-                    <button class="btn-icon" onclick="clearCurrentChat()" title="清空对话">🗑️</button>
-                    <button class="btn-icon" onclick="toggleSystemPrompt()" title="查看原始提示词">📝</button>
+                    <button class="btn-icon" onclick="event.stopPropagation(); editCurrentCharacter()" title="编辑角色">✎</button>
+                    <button class="btn-icon" onclick="event.stopPropagation(); clearCurrentChat()" title="清空对话">🗑️</button>
+                    <button class="btn-icon" onclick="event.stopPropagation(); toggleSystemPrompt()" title="查看原始提示词">📝</button>
                 </div>
             </div>
             
@@ -448,8 +937,9 @@
                 <div class="form-group">
                     <label>AI Provider</label>
                     <select id="provider" onchange="toggleProviderSettings()" style="width: 100%;">
-                        <option value="doubao" selected>Doubao (火山引擎)</option>
+                        <option value="doubao">Doubao (火山引擎)</option>
                         <option value="ollama">Local Ollama</option>
+                        <option value="deepseek" selected>DeepSeek</option>
                         <option value="openai">OpenAI / Compatible</option>
                     </select>
                 </div>
@@ -458,6 +948,9 @@
                 <div id="doubaoInfo" class="form-group">
                     <label>Doubao Model</label>
                     <select id="doubaoModel" style="width: 100%;">
+                        <option value="deepseek-v4-flash-260425">DeepSeek v4 Flash (火山引擎)</option>
+                        <option value="doubao-seed-2-0-mini-260428">Doubao Seed 2.0 Mini</option>
+                        <option value="doubao-seed-2-0-lite-260428">Doubao Seed 2.0 Lite</option>
                         <option value="2.0" selected>Doubao 2.0 Pro</option>
                         <option value="1.8">Doubao 1.8 Pro</option>
                         <option value="1.6">Doubao 1.6 Flash (Vision Support)</option>
@@ -468,7 +961,7 @@
                 <div id="genericSettings" class="hidden" style="display: contents;">
                     <div class="form-group" style="flex: 2;">
                         <label>Base URL</label>
-                        <input type="text" id="baseUrl" value="http://localhost:11434" style="width: 100%;">
+                        <input type="text" id="baseUrl" value="https://api.deepseek.com" style="width: 100%;">
                     </div>
                     
                     <div class="form-group" style="flex: 1;">
@@ -477,13 +970,112 @@
                             <span id="refreshModelsBtn" class="hidden" onclick="fetchOllamaModels(true)" style="cursor: pointer; font-size: 10px; color: var(--primary);">🔄 Refresh</span>
                         </div>
                         <div id="modelInputContainer">
-                            <input type="text" id="model" placeholder="e.g. llama3" style="width: 100%;">
+                            <input type="text" id="model" value="deepseek-v4-flash" style="width: 100%;">
                         </div>
                     </div>
                     
                     <div class="form-group" id="apiKeyGroup">
                         <label>API Key</label>
                         <input type="password" id="apiKey" placeholder="sk-..." style="width: 100%;">
+                    </div>
+                </div>
+
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>Comfy 出图参数 / Workflow</span>
+                        <span style="display:flex; gap:10px;">
+                            <span onclick="resetWorkflowSettings()" style="cursor:pointer; font-size:11px; color:var(--primary);">恢复默认</span>
+                            <span onclick="loadWorkflowOptions(true)" style="cursor:pointer; font-size:11px; color:var(--primary);">刷新列表</span>
+                        </span>
+                    </label>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="grid-column: 1 / -1;">
+                            <label style="font-size:11px; color:var(--text-muted);">Checkpoint</label>
+                            <select id="comfyCheckpoint" style="width:100%;" onchange="saveWorkflowSettings()"></select>
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">宽 Width</label>
+                            <input type="number" id="wfWidth" value="544" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">高 Height</label>
+                            <input type="number" id="wfHeight" value="960" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Steps</label>
+                            <input type="number" id="wfSteps" value="30" min="1" max="150" style="width:100%;" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">CFG</label>
+                            <input type="number" id="wfCfg" value="3" min="0" max="30" step="0.1" style="width:100%;" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Sampler</label>
+                            <select id="wfSampler" style="width:100%;" onchange="saveWorkflowSettings()"></select>
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Scheduler</label>
+                            <select id="wfScheduler" style="width:100%;" onchange="saveWorkflowSettings()"></select>
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Denoise</label>
+                            <input type="number" id="wfDenoise" value="1" min="0" max="1" step="0.01" style="width:100%;" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Seed（-1 随机）</label>
+                            <input type="number" id="wfSeed" value="-1" style="width:100%;" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="wfEnableHires" onchange="saveWorkflowSettings(); toggleHiresFields()">
+                            <label for="wfEnableHires" style="margin:0;">开启高清修复 / Hires</label>
+                        </div>
+                        <div id="hiresFields" style="grid-column: 1 / -1; display:none; grid-template-columns: 1fr 1fr; gap:10px;">
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires 宽</label>
+                                <input type="number" id="wfHiresWidth" value="1080" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires 高</label>
+                                <input type="number" id="wfHiresHeight" value="1920" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires Denoise</label>
+                                <input type="number" id="wfHiresDenoise" value="0.4" min="0" max="1" step="0.01" style="width:100%;" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires Steps</label>
+                                <input type="number" id="wfHiresSteps" value="20" min="1" max="150" style="width:100%;" onchange="saveWorkflowSettings()">
+                            </div>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label style="font-size:11px; color:var(--text-muted);">LoRA 1（对比度）</label>
+                            <div style="display:grid; grid-template-columns: 1fr 90px 90px; gap:8px;">
+                                <select id="wfLora1Name" style="width:100%;" onchange="saveWorkflowSettings()"></select>
+                                <input type="number" id="wfLora1Model" value="0.6" min="0" max="2" step="0.05" title="model strength" style="width:100%;" onchange="saveWorkflowSettings()">
+                                <input type="number" id="wfLora1Clip" value="1" min="0" max="2" step="0.05" title="clip strength" style="width:100%;" onchange="saveWorkflowSettings()">
+                            </div>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label style="font-size:11px; color:var(--text-muted);">LoRA 2（饱和度）</label>
+                            <div style="display:grid; grid-template-columns: 1fr 90px 90px; gap:8px;">
+                                <select id="wfLora2Name" style="width:100%;" onchange="saveWorkflowSettings()"></select>
+                                <input type="number" id="wfLora2Model" value="0.5" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
+                                <input type="number" id="wfLora2Clip" value="1" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
+                            </div>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label style="font-size:11px; color:var(--text-muted);">LoRA 3（画风）</label>
+                            <div style="display:grid; grid-template-columns: 1fr 90px 90px; gap:8px;">
+                                <select id="wfLora3Name" style="width:100%;" onchange="saveWorkflowSettings()"></select>
+                                <input type="number" id="wfLora3Model" value="0.5" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
+                                <input type="number" id="wfLora3Clip" value="1" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">两列数字分别是 Model 强度 / CLIP 强度；选 (none) 或强度 0 等于关掉</div>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label style="font-size:11px; color:var(--text-muted);">负向提示词</label>
+                            <textarea id="wfNegative" style="width:100%; height:72px; resize:vertical;" onchange="saveWorkflowSettings()"></textarea>
+                        </div>
                     </div>
                 </div>
 
@@ -533,6 +1125,20 @@
     let characters = [];
     let currentCharacter = null;
     let characterChatMessages = [];
+    let emotionHistory = [];
+    let conversationSummary = ''; // 对话摘要
+
+    function makeMessageId() {
+        return 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    }
+
+    function openChatImage(url) {
+        const box = document.createElement('div');
+        box.className = 'image-lightbox';
+        box.innerHTML = `<img src="${escapeHtml(url)}" alt="character">`;
+        box.addEventListener('click', () => box.remove());
+        document.body.appendChild(box);
+    }
 
     // --- Utilities ---
     function copyText(btn, text) {
@@ -547,6 +1153,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         loadCharacters();
         toggleProviderSettings();
+        loadWorkflowOptions();
         
         // Setup Character Chat Enter Key
         document.getElementById('charChatInput').addEventListener('keypress', (e) => {
@@ -580,6 +1187,12 @@
                 refreshBtn.classList.remove('hidden');
                 if(baseUrl.value.includes('api.openai.com')) baseUrl.value = 'http://localhost:11434';
                 fetchOllamaModels();
+            } else if (provider === 'deepseek') {
+                apiKeyGroup.classList.add('hidden');
+                refreshBtn.classList.add('hidden');
+                baseUrl.value = 'https://api.deepseek.com';
+                document.getElementById('modelInputContainer').innerHTML = 
+                    '<input type="text" id="model" value="deepseek-v4-flash" style="width: 100%;">';
             } else {
                 apiKeyGroup.classList.remove('hidden');
                 refreshBtn.classList.add('hidden');
@@ -587,6 +1200,171 @@
                 renderModelInput('input');
             }
         }
+    }
+
+    function checkpointLabel(name) {
+        const map = {
+            'unholyDesireMixSinister_v70.safetensors': 'Unholy Desire Mix Sinister V70',
+            'unholyDesireMixSinister_v50.safetensors': 'Unholy Desire Mix Sinister V50'
+        };
+        return map[name] || name;
+    }
+
+    let workflowDefaultsCache = null;
+
+    function toggleHiresFields() {
+        const on = document.getElementById('wfEnableHires')?.checked;
+        const box = document.getElementById('hiresFields');
+        if (box) box.style.display = on ? 'grid' : 'none';
+    }
+
+    function fillSelect(el, values, selected, labels) {
+        if (!el) return;
+        const opts = values.map((v) => {
+            const label = (labels && labels[v]) || v;
+            return `<option value="${escapeHtml(v)}"${v === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        }).join('');
+        el.innerHTML = opts;
+        if (selected) el.value = selected;
+    }
+
+    function readWorkflowSettingsFromForm() {
+        const lora = (i) => ({
+            name: document.getElementById(`wfLora${i}Name`)?.value || '',
+            strengthModel: Number(document.getElementById(`wfLora${i}Model`)?.value),
+            strengthClip: Number(document.getElementById(`wfLora${i}Clip`)?.value)
+        });
+        return {
+            checkpointName: document.getElementById('comfyCheckpoint')?.value || '',
+            width: Number(document.getElementById('wfWidth')?.value),
+            height: Number(document.getElementById('wfHeight')?.value),
+            steps: Number(document.getElementById('wfSteps')?.value),
+            cfg: Number(document.getElementById('wfCfg')?.value),
+            sampler: document.getElementById('wfSampler')?.value || '',
+            scheduler: document.getElementById('wfScheduler')?.value || '',
+            denoise: Number(document.getElementById('wfDenoise')?.value),
+            seed: Number(document.getElementById('wfSeed')?.value),
+            enableHires: Boolean(document.getElementById('wfEnableHires')?.checked),
+            hiresWidth: Number(document.getElementById('wfHiresWidth')?.value),
+            hiresHeight: Number(document.getElementById('wfHiresHeight')?.value),
+            hiresDenoise: Number(document.getElementById('wfHiresDenoise')?.value),
+            hiresSteps: Number(document.getElementById('wfHiresSteps')?.value),
+            negativePrompt: document.getElementById('wfNegative')?.value || '',
+            loras: [lora(1), lora(2), lora(3)]
+        };
+    }
+
+    function applyWorkflowSettingsToForm(settings, options = {}) {
+        if (!settings) return;
+        const setVal = (id, v) => {
+            const el = document.getElementById(id);
+            if (el != null && v != null) el.value = v;
+        };
+        if (options.checkpoints) {
+            fillSelect(
+                document.getElementById('comfyCheckpoint'),
+                options.checkpoints,
+                settings.checkpointName,
+                Object.fromEntries(options.checkpoints.map((n) => [n, checkpointLabel(n)]))
+            );
+        } else {
+            setVal('comfyCheckpoint', settings.checkpointName);
+        }
+        if (options.samplerOptions) {
+            fillSelect(document.getElementById('wfSampler'), options.samplerOptions, settings.sampler);
+        } else {
+            setVal('wfSampler', settings.sampler);
+        }
+        if (options.schedulerOptions) {
+            fillSelect(document.getElementById('wfScheduler'), options.schedulerOptions, settings.scheduler);
+        } else {
+            setVal('wfScheduler', settings.scheduler);
+        }
+        const loraNames = ['(none)', ...((options.loras || []).filter(Boolean))];
+        for (let i = 1; i <= 3; i++) {
+            const lora = (settings.loras && settings.loras[i - 1]) || {};
+            const names = loraNames.includes(lora.name) || !lora.name ? loraNames : [lora.name, ...loraNames];
+            fillSelect(document.getElementById(`wfLora${i}Name`), names, lora.name || '(none)');
+            setVal(`wfLora${i}Model`, lora.strengthModel);
+            setVal(`wfLora${i}Clip`, lora.strengthClip);
+        }
+        setVal('wfWidth', settings.width);
+        setVal('wfHeight', settings.height);
+        setVal('wfSteps', settings.steps);
+        setVal('wfCfg', settings.cfg);
+        setVal('wfDenoise', settings.denoise);
+        setVal('wfSeed', settings.seed);
+        const hires = document.getElementById('wfEnableHires');
+        if (hires) hires.checked = Boolean(settings.enableHires);
+        setVal('wfHiresWidth', settings.hiresWidth);
+        setVal('wfHiresHeight', settings.hiresHeight);
+        setVal('wfHiresDenoise', settings.hiresDenoise);
+        setVal('wfHiresSteps', settings.hiresSteps);
+        setVal('wfNegative', settings.negativePrompt);
+        toggleHiresFields();
+    }
+
+    function saveWorkflowSettings() {
+        try {
+            localStorage.setItem('comfyWorkflowSettings', JSON.stringify(readWorkflowSettingsFromForm()));
+            localStorage.setItem('comfyCheckpoint', document.getElementById('comfyCheckpoint')?.value || '');
+        } catch (e) {}
+    }
+
+    function loadSavedWorkflowSettings() {
+        try {
+            const raw = localStorage.getItem('comfyWorkflowSettings');
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function loadWorkflowOptions(isManual = false) {
+        try {
+            const res = await fetch('/api/comfy/workflow-options');
+            const data = await res.json();
+            workflowDefaultsCache = data.defaults || null;
+            const saved = loadSavedWorkflowSettings();
+            const merged = { ...(data.defaults || {}), ...(saved || {}) };
+            if (!merged.checkpointName && saved?.checkpointName) merged.checkpointName = saved.checkpointName;
+            if (!merged.checkpointName) {
+                try { merged.checkpointName = localStorage.getItem('comfyCheckpoint') || data.defaults?.checkpointName; } catch (e) {}
+            }
+            applyWorkflowSettingsToForm(merged, {
+                checkpoints: data.checkpoints || [merged.checkpointName],
+                loras: data.loras || [],
+                samplerOptions: data.defaults?.samplerOptions || [],
+                schedulerOptions: data.defaults?.schedulerOptions || []
+            });
+            saveWorkflowSettings();
+            if (isManual) alert('出图参数列表已刷新');
+        } catch (e) {
+            console.error(e);
+            if (isManual) alert('刷新失败：' + e.message);
+        }
+    }
+
+    function resetWorkflowSettings() {
+        if (!workflowDefaultsCache) {
+            loadWorkflowOptions(true);
+            return;
+        }
+        applyWorkflowSettingsToForm(workflowDefaultsCache, {
+            checkpoints: Array.from(document.getElementById('comfyCheckpoint')?.options || []).map((o) => o.value),
+            loras: Array.from(document.getElementById('wfLora1Name')?.options || []).map((o) => o.value).filter((v) => v !== '(none)'),
+            samplerOptions: workflowDefaultsCache.samplerOptions || [],
+            schedulerOptions: workflowDefaultsCache.schedulerOptions || []
+        });
+        saveWorkflowSettings();
+    }
+
+    function getSelectedCheckpoint() {
+        return document.getElementById('comfyCheckpoint')?.value || 'unholyDesireMixSinister_v70.safetensors';
+    }
+
+    function getWorkflowSettings() {
+        return readWorkflowSettingsFromForm();
     }
 
     async function fetchOllamaModels(isManual = false) {
@@ -617,15 +1395,16 @@
         }
     }
 
-    function renderModelInput(type, models = []) {
+    function renderModelInput(type, models = [], defaultValue = '') {
         const container = document.getElementById('modelInputContainer');
         const currentVal = document.getElementById('model') ? document.getElementById('model').value : '';
+        const value = currentVal || defaultValue;
         
         if (type === 'select') {
-            const options = models.map(m => `<option value="${m}" ${m === currentVal ? 'selected' : ''}>${m}</option>`).join('');
+            const options = models.map(m => `<option value="${m}" ${m === value ? 'selected' : ''}>${m}</option>`).join('');
             container.innerHTML = `<select id="model" style="width: 100%;">${options}</select>`;
         } else {
-            container.innerHTML = `<input type="text" id="model" value="${currentVal}" placeholder="Model name (e.g. gpt-4)" style="width: 100%;">`;
+            container.innerHTML = `<input type="text" id="model" value="${value}" placeholder="Model name (e.g. gpt-4)" style="width: 100%;">`;
         }
     }
 
@@ -634,42 +1413,60 @@
     // =========================================
     
     async function loadCharacters() {
+        const list = document.getElementById('charactersList');
         try {
+            console.log('Loading characters from API...');
             const res = await fetch('/api/characters');
+            if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+            }
             characters = await res.json();
+            console.log('Characters loaded:', characters);
             renderCharactersList();
         } catch (e) {
             console.error('Failed to load characters', e);
-            document.getElementById('charactersList').innerHTML = 
-                '<div style="text-align:center; color:#ef4444; padding:20px; font-size:12px;">加载失败</div>';
+            list.innerHTML = 
+                `<div style="text-align:center; padding:20px;">
+                    <div style="color:#ef4444; font-size:12px; margin-bottom:8px;">加载失败</div>
+                    <div style="color:#94a3b8; font-size:11px;">${e.message}</div>
+                    <button onclick="loadCharacters()" style="margin-top:10px; padding:6px 12px; background:rgba(139,92,246,0.2); border:none; border-radius:6px; color:#a78bfa; cursor:pointer;">重试</button>
+                </div>`;
         }
     }
     
     function renderCharactersList() {
         const list = document.getElementById('charactersList');
+        console.log('Rendering characters list, characters:', characters);
+        
         if (!characters || characters.length === 0) {
             list.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">暂无角色</div>';
             return;
         }
         
-        list.innerHTML = characters.map(char => `
-            <div class="character-item ${currentCharacter && currentCharacter.id === char.id ? 'selected' : ''}" onclick="selectCharacter('${char.id}')">
-                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
-                    <span class="character-avatar" style="display: flex; align-items: center; justify-content: center;">
-                        ${char.avatar.includes('http') ? 
-                            `<img src="${char.avatar}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;">` : 
-                            char.avatar
-                        }
-                    </span>
-                    <div class="character-info">
-                        <div class="character-name">${char.name}</div>
-                        <div class="character-desc">${char.description}</div>
+        try {
+            list.innerHTML = characters.map(char => `
+                <div class="character-item ${currentCharacter && currentCharacter.id === char.id ? 'selected' : ''}" onclick="selectCharacter('${char.id}')">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                        <span class="character-avatar" style="display: flex; align-items: center; justify-content: center;">
+                            ${char.avatar && (char.avatar.startsWith('http') || char.avatar.includes('/')) ? 
+                                `<img src="${char.avatar}" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;">` : 
+                                (char.avatar || '👤')
+                            }
+                        </span>
+                        <div class="character-info">
+                            <div class="character-name">${char.name || '未命名角色'}</div>
+                            <div class="character-desc">${char.description || ''}</div>
+                        </div>
                     </div>
+                    <button class="btn-icon preset-edit" onclick="editCharacter(event, '${char.id}')" style="opacity: 1; position: static;">✎</button>
+                    <button class="btn-icon preset-delete" onclick="deleteCharacter(event, '${char.id}')" style="opacity: 1; position: static; right: 32px;">×</button>
                 </div>
-                <button class="btn-icon preset-edit" onclick="editCharacter(event, '${char.id}')" style="opacity: 1; position: static;">✎</button>
-                <button class="btn-icon preset-delete" onclick="deleteCharacter(event, '${char.id}')" style="opacity: 1; position: static; right: 32px;">×</button>
-            </div>
-        `).join('');
+            `).join('');
+            console.log('Characters list rendered successfully');
+        } catch (e) {
+            console.error('Error rendering characters list:', e);
+            list.innerHTML = `<div style="text-align:center; padding:20px; color:#ef4444; font-size:12px;">渲染失败: ${e.message}</div>`;
+        }
     }
     
     function toggleSystemPrompt() {
@@ -687,6 +1484,11 @@
             currentCharacter.avatar;
         document.getElementById('currentCharName').innerText = currentCharacter.name;
         document.getElementById('currentCharDesc').innerText = currentCharacter.description;
+        const baseEl = document.getElementById('currentCharBase');
+        if (baseEl) {
+            const baseBits = [currentCharacter.appearancePrompt, currentCharacter.outfitPrompt].filter(Boolean);
+            baseEl.innerText = baseBits.length ? ('底模：' + baseBits.join(' / ')) : '底模未设置，请编辑角色并填写特征提示词';
+        }
         
         // Update system prompt display
         document.getElementById('currentSystemPrompt').value = currentCharacter.systemPrompt;
@@ -694,9 +1496,14 @@
         // Load chat history
         try {
             const res = await fetch(`/api/chat-history/${characterId}`);
-            characterChatMessages = await res.json();
+            const historyData = await res.json();
+            characterChatMessages = historyData.messages || [];
+            emotionHistory = historyData.emotionHistory || [];
+            conversationSummary = historyData.summary || '';
         } catch (e) {
             characterChatMessages = [];
+            emotionHistory = [];
+            conversationSummary = '';
         }
         
         // Render chat
@@ -728,13 +1535,114 @@
             return;
         }
         
-        history.innerHTML = characterChatMessages.map(msg => `
-            <div class="message ${msg.role === 'user' ? 'user' : 'ai'}">
-                ${msg.content}
-            </div>
-        `).join('');
+        history.innerHTML = characterChatMessages.map((msg, index) => {
+            if (msg.role === 'user') {
+                return `<div class="message user">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>`;
+            } else {
+                const hasDebugInfo = msg.debugInfo;
+                const emotion = msg.emotionAnalysis?.emotionAnalysis || msg.emotionAnalysis;
+                let imageBlock = '';
+                if (msg.imageStatus === 'pending') {
+                    imageBlock = `<div class="image-pending">正在绘制这一幕…</div>`;
+                } else if (msg.imageStatus === 'failed') {
+                    imageBlock = `<div class="image-failed">配图失败${msg.imageError ? '：' + escapeHtml(msg.imageError) : ''}</div>`;
+                } else if (msg.imageUrl) {
+                    imageBlock = `<div class="chat-image-wrap"><img class="chat-image" src="${escapeHtml(msg.imageUrl)}" alt="" onclick="openChatImage('${escapeHtml(msg.imageUrl)}')"></div>`;
+                }
+                return `
+                    <div class="message ai">
+                        ${escapeHtml(msg.content).replace(/\n/g, '<br>')}
+                        ${imageBlock}
+                        ${hasDebugInfo ? `<button class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
+                        ${emotion && emotion.primaryEmotion ? `<div class="emotion-tag">${emotion.primaryEmotion} ${emotion.intensity || 0}/10</div>` : ''}
+                        ${msg.visual ? `<div class="emotion-tag">出图：${escapeHtml(msg.visual.prompt || [msg.visual.expression, msg.visual.action, msg.visual.outfit, msg.visual.scene].filter(Boolean).join(' · '))}</div>` : ''}
+                        ${msg.timing ? `
+                        <div class="timing-info">
+                            <span class="timing-item">情感: ${(msg.timing.emotionTimeMs / 1000).toFixed(1)}s</span>
+                            <span class="timing-item">回复: ${(msg.timing.replyTimeMs / 1000).toFixed(1)}s</span>
+                            <span class="timing-item">总耗时: ${(msg.timing.totalTimeMs / 1000).toFixed(1)}s</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+        }).join('');
         
         history.scrollTop = history.scrollHeight;
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    
+    function showDebugInfo(index) {
+        const msg = characterChatMessages[index];
+        if (!msg) return;
+        
+        const debugModal = document.createElement('div');
+        debugModal.className = 'debug-modal';
+        const debugInfo = msg.debugInfo || {};
+        const emotionAnalysis = msg.emotionAnalysis?.emotionAnalysis || msg.emotionAnalysis;
+        const systemMessagesText = debugInfo.sentMessages ? JSON.stringify(debugInfo.sentMessages, null, 2) : '';
+        const emotionMessagesText = debugInfo.emotionMessages ? JSON.stringify(debugInfo.emotionMessages, null, 2) : '';
+        const emotionResultText = emotionAnalysis ? JSON.stringify(emotionAnalysis, null, 2) : '';
+        const replyText = debugInfo.rawResponse || msg.content || '';
+        
+        debugModal.innerHTML = `
+            <div class="debug-modal-content">
+                <div class="debug-modal-header">
+                    <h3>对话日志详情</h3>
+                    <button class="close-btn" onclick="this.parentElement.parentElement.parentElement.remove()">&times;</button>
+                </div>
+                <div class="debug-modal-body">
+                    <div class="debug-section">
+                        <h4>发送给AI的完整情感提示词messages</h4>
+                        <pre>${escapeHtml(emotionMessagesText || 'N/A')}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>AI分析的情感结果</h4>
+                        <pre>${escapeHtml(emotionResultText || 'N/A')}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>发送给AI的完整系统提示词messages</h4>
+                        <pre>${escapeHtml(systemMessagesText || 'N/A')}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>AI的回复结果</h4>
+                        <pre>${escapeHtml(replyText || 'N/A')}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>本轮出图 VISUAL</h4>
+                        <pre>${escapeHtml(msg.visual ? JSON.stringify(msg.visual, null, 2) : (msg.imageStatus === 'pending' ? '出图尚未完成' : '无'))}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>本轮服饰 / 动作 / 表情 / 场景（不含底模）</h4>
+                        <pre>${escapeHtml(msg.imageTurnPrompt || msg.visual?.prompt || (msg.imageStatus === 'pending' ? '出图尚未完成，请出图后再打开日志' : '无'))}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>实际发给 Comfy 的完整正向提示词（底模 + 本轮服饰动作场景）</h4>
+                        <pre>${escapeHtml(msg.imagePrompt || (msg.imageStatus === 'pending' ? '出图尚未完成，请出图后再打开日志' : '无'))}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>绘图模型 / Checkpoint</h4>
+                        <pre>${escapeHtml(msg.checkpointName || '未记录')}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>负向提示词</h4>
+                        <pre>${escapeHtml(msg.imageNegative || '无')}</pre>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(debugModal);
+        debugModal.addEventListener('click', (e) => {
+            if (e.target === debugModal) debugModal.remove();
+        });
     }
     
     async function sendCharacterMessage() {
@@ -748,7 +1656,7 @@
         if (!text) return;
         
         // Add user message
-        characterChatMessages.push({ role: 'user', content: text });
+        characterChatMessages.push({ role: 'user', content: text, id: makeMessageId() });
         renderCharacterChat();
         input.value = '';
         
@@ -771,27 +1679,30 @@
             systemPrompt = `${systemPrompt}\n\n**强制提示词**：${forcePrompt}`;
         }
         
-        // Prepare messages with system prompt
-        const messages = [
-            { role: 'system', content: systemPrompt },
-            ...characterChatMessages
-        ];
-        
         // Get provider settings
         const provider = document.getElementById('provider').value;
         let model = document.getElementById('model') ? document.getElementById('model').value : '';
         if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
         
+        // 使用带情绪分析的聊天接口
+        const messagesForAI = characterChatMessages.map(m => ({
+            role: m.role,
+            content: m.content
+        }));
         const payload = {
-            messages,
+            messages: messagesForAI,
+            systemPrompt: systemPrompt,
             provider,
             model,
             baseUrl: document.getElementById('baseUrl').value,
-            apiKey: document.getElementById('apiKey').value
+            apiKey: document.getElementById('apiKey').value,
+            conversationSummary: conversationSummary,
+            appearancePrompt: currentCharacter.appearancePrompt || '',
+            outfitPrompt: currentCharacter.outfitPrompt || ''
         };
         
         try {
-            const res = await fetch('/api/chat', {
+            const res = await fetch('/api/chat-with-emotion', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload)
@@ -802,11 +1713,38 @@
             
             if (data.error) throw new Error(data.error);
             
-            characterChatMessages.push({ role: 'assistant', content: data.reply });
-            renderCharacterChat();
+            // 保存调试信息
+            const debugInfo = data.debugInfo || {};
             
-            // Save to history
+            const assistantId = makeMessageId();
+            const emotionBlock = data.emotionAnalysis?.emotionAnalysis || data.emotionAnalysis || {};
+            characterChatMessages.push({ 
+                id: assistantId,
+                role: 'assistant', 
+                content: data.reply,
+                debugInfo: debugInfo,
+                emotionAnalysis: data.emotionAnalysis,
+                visual: data.visual || null,
+                timing: data.timing,
+                imageStatus: 'pending'
+            });
+            
+            // 保存情绪分析结果到历史
+            if (data.emotionAnalysis) {
+                emotionHistory.push({
+                    timestamp: Date.now(),
+                    ...data.emotionAnalysis
+                });
+            }
+            
+            // 更新对话摘要
+            if (data.newSummary) {
+                conversationSummary = data.newSummary;
+            }
+            
+            renderCharacterChat();
             await saveChatHistory();
+            requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual);
             
         } catch (e) {
             const thinking = document.getElementById(thinkingId);
@@ -824,10 +1762,65 @@
             await fetch(`/api/chat-history/${currentCharacter.id}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ messages: characterChatMessages })
+                body: JSON.stringify({ 
+                    messages: characterChatMessages,
+                    emotionHistory: emotionHistory,
+                    summary: conversationSummary
+                })
             });
         } catch (e) {
             console.error('Failed to save chat history', e);
+        }
+    }
+
+    async function requestCharacterImage(messageId, emotionBlock, reply, visual) {
+        if (!currentCharacter) return;
+        const provider = document.getElementById('provider').value;
+        let model = document.getElementById('model') ? document.getElementById('model').value : '';
+        if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
+        try {
+            const res = await fetch('/api/character-image', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    characterId: currentCharacter.id,
+                    emotion: emotionBlock.primaryEmotion || '平静',
+                    intensity: emotionBlock.intensity,
+                    replySnippet: reply,
+                    visual: visual || null,
+                    provider,
+                    model,
+                    baseUrl: document.getElementById('baseUrl').value,
+                    apiKey: document.getElementById('apiKey').value,
+                    checkpointName: getSelectedCheckpoint(),
+                    workflowSettings: getWorkflowSettings(),
+                    messageId
+                })
+            });
+            const data = await res.json();
+            const msg = characterChatMessages.find(m => m.id === messageId);
+            if (!msg) return;
+            msg.imagePrompt = data.prompt || '';
+            msg.imageTurnPrompt = data.turnPrompt || '';
+            msg.imageNegative = data.negative || '';
+            if (data.checkpointName) msg.checkpointName = data.checkpointName;
+            if (data.visual) msg.visual = data.visual;
+            if (data.ok && data.imageUrl) {
+                msg.imageUrl = data.imageUrl;
+                msg.imageStatus = 'ready';
+                msg.imageError = '';
+            } else {
+                msg.imageStatus = 'failed';
+                msg.imageError = data.error || '出图失败';
+            }
+            renderCharacterChat();
+            await saveChatHistory();
+        } catch (e) {
+            const msg = characterChatMessages.find(m => m.id === messageId);
+            if (!msg) return;
+            msg.imageStatus = 'failed';
+            msg.imageError = e.message;
+            renderCharacterChat();
         }
     }
     
@@ -838,6 +1831,8 @@
         try {
             await fetch(`/api/chat-history/${currentCharacter.id}`, { method: 'DELETE' });
             characterChatMessages = [];
+            emotionHistory = [];
+            conversationSummary = '';
             renderCharacterChat();
         } catch (e) {
             alert('清空对话失败');
@@ -845,32 +1840,238 @@
     }
     
     async function createNewCharacter() {
-        const name = prompt('角色名称:');
-        if (!name) return;
+        showCharacterModal();
+    }
+    
+    function showCharacterModal(character = null) {
+        const isEdit = character !== null;
         
-        const avatar = prompt('角色表情符号 (例如：👩\u200d🎨, 👻, ⚔️):', '👤');
-        const description = prompt('角色简介:');
-        const personality = prompt('角色性格:');
-        const systemPrompt = prompt('角色设定提示词 (AI 将基于此扮演角色):', '你是一个名叫' + name + '的角色。请用符合角色性格的语气和用户交流。');
+        const modal = document.createElement('div');
+        modal.className = 'character-modal-overlay';
         
-        if (!systemPrompt) return;
+        modal.innerHTML = `
+            <div class="character-modal">
+                <div class="modal-header">
+                    <div class="modal-title-section">
+                        <span class="modal-icon">${isEdit ? '✏️' : '✨'}</span>
+                        <div>
+                            <h2 class="modal-title">${isEdit ? '编辑角色' : '创建新角色'}</h2>
+                            <p class="modal-subtitle">${isEdit ? '调整你的角色设定' : '打造你的专属角色'}</p>
+                        </div>
+                    </div>
+                    <button class="modal-close-btn" onclick="closeCharacterModal()">✕</button>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="form-grid">
+                        <div class="avatar-section">
+                            <div class="avatar-preview" id="avatarPreview">
+                                <span class="avatar-emoji" id="avatarEmoji">${isEdit ? (character ? character.avatar : '👤') : '👤'}</span>
+                                <div class="avatar-overlay">
+                                    <span class="upload-icon">📷</span>
+                                    <span class="upload-text">更换</span>
+                                </div>
+                            </div>
+                            <input type="file" id="avatarFile" accept="image/*" style="display: none;">
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="form-row">
+                                <div class="form-group full">
+                                    <label class="form-label">
+                                        <span class="label-icon">🏷️</span>
+                                        角色名称
+                                    </label>
+                                    <input type="text" id="charName" class="form-input" value="" placeholder="给你的角色起个名字...">
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <span class="label-icon">😀</span>
+                                        表情符号
+                                    </label>
+                                    <input type="text" id="charAvatar" class="form-input" value="" placeholder="👤" oninput="updateAvatarPreview()">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <span class="label-icon">📝</span>
+                                        角色简介
+                                    </label>
+                                    <input type="text" id="charDesc" class="form-input" value="" placeholder="一句话描述这个角色...">
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group full">
+                                    <label class="form-label">
+                                        <span class="label-icon">🎭</span>
+                                        角色性格
+                                    </label>
+                                    <input type="text" id="charPersonality" class="form-input" value="" placeholder="比如：温柔、活泼、高冷、幽默...">
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group full">
+                                    <label class="form-label">
+                                        <span class="label-icon">🧠</span>
+                                        角色设定提示词
+                                        <span class="label-hint">AI 将基于此扮演角色</span>
+                                    </label>
+                                    <textarea id="charSystemPrompt" class="form-textarea" placeholder="详细描述角色的背景、性格、说话方式等..."></textarea>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group full">
+                                    <label class="form-label">
+                                        <span class="label-icon">🎨</span>
+                                        角色特征底模（提示词）
+                                        <span class="label-hint">只写角色固定外貌。服饰动作氛围由 AI 按对话生成后拼上来</span>
+                                    </label>
+                                    <textarea id="charAppearancePrompt" class="form-textarea" placeholder="1girl, solo, white hair, twin tails, orange eyes"></textarea>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group full">
+                                    <label class="form-label">
+                                        <span class="label-icon">👗</span>
+                                        默认服饰（可选）
+                                        <span class="label-hint">立绘默认衣服。不填则模型自己补；表情和动作由对话决定</span>
+                                    </label>
+                                    <textarea id="charOutfitPrompt" class="form-textarea" placeholder="school blazer, plaid skirt, loosened ribbon"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="closeCharacterModal()">
+                        <span>取消</span>
+                    </button>
+                    <button class="btn-primary-gradient" id="modalSubmitBtn">
+                        <span>创建角色</span>
+                        <span class="btn-arrow">→</span>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        setTimeout(() => modal.classList.add('show'), 10);
+        
+        // 填充数据
+        if (isEdit && character) {
+            document.getElementById('charName').value = character.name || '';
+            document.getElementById('charAvatar').value = character.avatar || '👤';
+            document.getElementById('charDesc').value = character.description || '';
+            document.getElementById('charPersonality').value = character.personality || '';
+            document.getElementById('charSystemPrompt').value = character.systemPrompt || '';
+            document.getElementById('charAppearancePrompt').value = character.appearancePrompt || '';
+            document.getElementById('charOutfitPrompt').value = character.outfitPrompt || '';
+            document.getElementById('modalSubmitBtn').innerHTML = '<span>保存更改</span><span class="btn-arrow">→</span>';
+            document.getElementById('modalSubmitBtn').onclick = () => saveCharacterEdit(character.id);
+        } else {
+            document.getElementById('charAvatar').value = '👤';
+            document.getElementById('avatarEmoji').textContent = '👤';
+            document.getElementById('modalSubmitBtn').innerHTML = '<span>创建角色</span><span class="btn-arrow">→</span>';
+            document.getElementById('modalSubmitBtn').onclick = saveNewCharacter;
+        }
+        
+        // 添加事件监听器
+        document.getElementById('avatarPreview').addEventListener('click', () => {
+            document.getElementById('avatarFile').click();
+        });
+        
+        document.getElementById('avatarFile').addEventListener('change', handleAvatarUpload);
+    }
+    
+    function closeCharacterModal() {
+        const modal = document.querySelector('.character-modal-overlay');
+        if (modal) {
+            modal.classList.remove('show');
+            setTimeout(() => modal.remove(), 300);
+        }
+    }
+    
+    function updateAvatarPreview() {
+        const emoji = document.getElementById('charAvatar').value || '👤';
+        document.getElementById('avatarEmoji').textContent = emoji;
+    }
+    
+    function handleAvatarUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const preview = document.getElementById('avatarPreview');
+            const emoji = document.getElementById('avatarEmoji');
+            emoji.style.display = 'none';
+            preview.style.backgroundImage = `url(${event.target.result})`;
+            preview.style.backgroundSize = 'cover';
+            preview.style.backgroundPosition = 'center';
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    async function saveNewCharacter() {
+        const name = document.getElementById('charName').value;
+        const avatar = document.getElementById('charAvatar').value;
+        const description = document.getElementById('charDesc').value;
+        const personality = document.getElementById('charPersonality').value;
+        const systemPrompt = document.getElementById('charSystemPrompt').value;
+        const appearancePrompt = document.getElementById('charAppearancePrompt').value;
+        const outfitPrompt = document.getElementById('charOutfitPrompt').value;
+        const avatarFile = document.getElementById('avatarFile').files[0];
+        
+        if (!name || !systemPrompt) {
+            alert('角色名称和设定提示词不能为空');
+            return;
+        }
         
         try {
+            let avatarUrl = avatar || '👤';
+            
+            if (avatarFile) {
+                const formData = new FormData();
+                formData.append('avatar', avatarFile);
+                
+                const uploadRes = await fetch('/api/upload-avatar', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (uploadRes.ok) {
+                    const uploadData = await uploadRes.json();
+                    avatarUrl = uploadData.avatarUrl;
+                }
+            }
+            
             const res = await fetch('/api/characters', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     name,
-                    avatar: avatar || '👤',
+                    avatar: avatarUrl,
                     description: description || '',
                     personality: personality || '',
-                    systemPrompt
+                    systemPrompt,
+                    appearancePrompt: appearancePrompt || '',
+                    outfitPrompt: outfitPrompt || ''
                 })
             });
             const character = await res.json();
             characters.push(character);
             renderCharactersList();
             selectCharacter(character.id);
+            closeCharacterModal();
         } catch (e) {
             alert('创建角色失败');
         }
@@ -881,91 +2082,17 @@
         const character = characters.find(c => c.id === characterId);
         if (!character) return;
         
-        // Create modal for editing character
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(12px);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        `;
-        
-        modal.innerHTML = `
-            <div style="background: var(--bg-card); border: var(--glass-border); border-radius: var(--radius-lg); padding: 30px; width: 90%; max-width: 600px;">
-                <h2 style="margin-top: 0; margin-bottom: 24px; color: var(--text-main);">编辑角色</h2>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                    <div class="form-group">
-                        <label>角色名称</label>
-                        <input type="text" id="editName" value="${character.name}" style="width: 100%;">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>角色表情符号</label>
-                        <input type="text" id="editAvatar" value="${character.avatar}" style="width: 100%;">
-                    </div>
-                    
-                    <div class="form-group" style="grid-column: 1 / -1;">
-                        <label>角色简介</label>
-                        <input type="text" id="editDescription" value="${character.description}" style="width: 100%;">
-                    </div>
-                    
-                    <div class="form-group" style="grid-column: 1 / -1;">
-                        <label>角色性格</label>
-                        <input type="text" id="editPersonality" value="${character.personality}" style="width: 100%;">
-                    </div>
-                    
-                    <div class="form-group" style="grid-column: 1 / -1;">
-                        <label>角色设定提示词</label>
-                        <textarea id="editSystemPrompt" style="width: 100%; height: 120px; resize: vertical;">${character.systemPrompt}</textarea>
-                    </div>
-                    
-                    <div class="form-group" style="grid-column: 1 / -1;">
-                        <label>上传头像图片 (可选)</label>
-                        <input type="file" id="avatarFile" accept="image/*" style="width: 100%; padding: 8px;">
-                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                            支持 JPG、PNG、GIF 格式，建议尺寸 200x200px
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                    <button onclick="document.body.removeChild(this.closest('div').closest('div'))" style="
-                        padding: 10px 20px;
-                        border: var(--glass-border);
-                        background: transparent;
-                        color: var(--text-muted);
-                        border-radius: var(--radius-md);
-                        cursor: pointer;
-                    ">取消</button>
-                    <button onclick="saveCharacterEdit('${characterId}')" style="
-                        padding: 10px 20px;
-                        background: linear-gradient(135deg, var(--primary), var(--secondary));
-                        color: white;
-                        border: none;
-                        border-radius: var(--radius-md);
-                        cursor: pointer;
-                    ">保存</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
+        showCharacterModal(character);
     }
     
     async function saveCharacterEdit(characterId) {
-        const name = document.getElementById('editName').value;
-        const avatar = document.getElementById('editAvatar').value;
-        const description = document.getElementById('editDescription').value;
-        const personality = document.getElementById('editPersonality').value;
-        const systemPrompt = document.getElementById('editSystemPrompt').value;
+        const name = document.getElementById('charName').value;
+        const avatar = document.getElementById('charAvatar').value;
+        const description = document.getElementById('charDesc').value;
+        const personality = document.getElementById('charPersonality').value;
+        const systemPrompt = document.getElementById('charSystemPrompt').value;
+        const appearancePrompt = document.getElementById('charAppearancePrompt').value;
+        const outfitPrompt = document.getElementById('charOutfitPrompt').value;
         const avatarFile = document.getElementById('avatarFile').files[0];
         
         if (!name || !systemPrompt) {
@@ -1002,14 +2129,16 @@
                     avatar: avatarUrl || '👤',
                     description: description || '',
                     personality: personality || '',
-                    systemPrompt
+                    systemPrompt,
+                    appearancePrompt: appearancePrompt || '',
+                    outfitPrompt: outfitPrompt || ''
                 })
             });
             
             // Update local data
             const index = characters.findIndex(c => c.id === characterId);
             if (index >= 0) {
-                characters[index] = { ...characters[index], name, avatar: avatarUrl, description, personality, systemPrompt };
+                characters[index] = { ...characters[index], name, avatar: avatarUrl, description, personality, systemPrompt, appearancePrompt, outfitPrompt };
                 if (currentCharacter && currentCharacter.id === characterId) {
                     currentCharacter = characters[index];
                     selectCharacter(characterId);
@@ -1018,13 +2147,9 @@
                 }
             }
             
-            // Close modal
-            const modal = document.querySelector('div[style*="position: fixed"]');
-            if (modal) {
-                document.body.removeChild(modal);
-            }
+            closeCharacterModal();
         } catch (e) {
-            alert('编辑角色失败: ' + e.message);
+            alert('保存角色失败: ' + e.message);
         }
     }
     
@@ -1053,6 +2178,8 @@
                 `;
                 document.getElementById('currentCharName').innerText = '选择角色';
                 document.getElementById('currentCharDesc').innerText = '与喜欢的角色互动吧';
+                const baseEl = document.getElementById('currentCharBase');
+                if (baseEl) baseEl.innerText = '';
                 document.getElementById('currentCharAvatar').innerText = '🎭';
             }
             renderCharactersList();

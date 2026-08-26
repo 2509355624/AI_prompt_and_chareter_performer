@@ -1,0 +1,78 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "unholyDesireMixSinister_v70.safetensors"
+    }
+  },
+  "25": {
+    "class_type": "LoraLoader",
+    "inputs": {
+      "lora_name": "add_contrast_XL.safetensors",
+      "strength_model": 0.6,
+      "strength_clip": 1,
+      "model": ["4", 0],
+      "clip": ["4", 1]
+    }
+  },
+  "24": {
+    "class_type": "LoraLoader",
+    "inputs": {
+      "lora_name": "add_saturation_XL.safetensors",
+      "strength_model": 0.5,
+      "strength_clip": 1,
+      "model": ["25", 0],
+      "clip": ["25", 1]
+    }
+  },
+  "19": {
+    "class_type": "LoraLoader",
+    "inputs": {
+      "lora_name": "loras\\anima-masterpieces-nlmix2-e41.safetensors",
+      "strength_model": 0.5,
+      "strength_clip": 1,
+      "model": ["24", 0],
+      "clip": ["24", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "NEGATIVE_PROMPT",
+      "clip": ["19", 1]
+    }
+  },
+  "53": {
+    "class_type": "BatchPromptImageGenerator",
+    "inputs": {
+      "multi_prompts": "TURN_PROMPT",
+      "base_prompt": "BASE_PROMPT",
+      "delimiter": "---",
+      "model": ["19", 0],
+      "clip": ["19", 1],
+      "vae": ["4", 2],
+      "negative": ["7", 0],
+      "width": 544,
+      "height": 960,
+      "seed": 1,
+      "steps": 30,
+      "cfg": 3,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1,
+      "random_seed_per_prompt": false,
+      "enable_hires": false,
+      "hires_width": 1080,
+      "hires_height": 1920,
+      "hires_denoise": 0.4,
+      "hires_steps": 20
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "character_chat",
+      "images": ["53", 0]
+    }
+  }
+}

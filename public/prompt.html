@@ -551,6 +551,7 @@
                     <select id="provider" onchange="toggleProviderSettings()">
                         <option value="doubao" selected>Doubao (火山引擎)</option>
                         <option value="ollama">Local Ollama</option>
+                        <option value="deepseek">DeepSeek</option>
                         <option value="openai">OpenAI / Compatible</option>
                     </select>
                 </div>
@@ -559,6 +560,9 @@
                 <div id="doubaoInfo" class="form-group">
                     <label>Doubao Model</label>
                     <select id="doubaoModel">
+                        <option value="deepseek-v4-flash-260425">DeepSeek v4 Flash (火山引擎)</option>
+                        <option value="doubao-seed-2-0-mini-260428">Doubao Seed 2.0 Mini</option>
+                        <option value="doubao-seed-2-0-lite-260428">Doubao Seed 2.0 Lite</option>
                         <option value="2.0" selected>Doubao 2.0 Pro</option>
                         <option value="1.8">Doubao 1.8 Pro</option>
                         <option value="1.6">Doubao 1.6 Flash (Vision Support)</option>
@@ -751,7 +755,7 @@
 
         if (provider === 'doubao') {
             doubaoInfo.classList.remove('hidden');
-            genericSettings.classList.add('hidden'); // Use class hidden logic or style display
+            genericSettings.classList.add('hidden');
             genericSettings.style.display = 'none';
         } else {
             doubaoInfo.classList.add('hidden');
@@ -763,6 +767,12 @@
                 refreshBtn.classList.remove('hidden');
                 if(baseUrl.value.includes('api.openai.com')) baseUrl.value = 'http://localhost:11434';
                 fetchOllamaModels();
+            } else if (provider === 'deepseek') {
+                apiKeyGroup.classList.add('hidden');
+                refreshBtn.classList.add('hidden');
+                baseUrl.value = 'https://api.deepseek.com';
+                document.getElementById('modelInputContainer').innerHTML = 
+                    '<input type="text" id="model" value="deepseek-v4-flash" style="width:100%;">';
             } else {
                 apiKeyGroup.classList.remove('hidden');
                 refreshBtn.classList.add('hidden');
