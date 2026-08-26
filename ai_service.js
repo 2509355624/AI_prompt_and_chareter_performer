@@ -224,9 +224,18 @@ class AIService {
 1. action — 动作、姿势、肢体语言、与道具/环境的互动（如 standing, water splashing, hands gripping hem）
 2. outfit — 服装类型与穿着状态（同一套衣服变湿/皱了仍写在这里，加 wet fabric, clinging 等，不算换装）
 3. expression — 面部表情与眼神（blush, biting lip, averted eyes）
-4. scene — 具体地点、空间、背景物件（bathroom, shower area, tiled walls；不要只写 indoor）
-5. atmosphere — 光影、色调、空气感、情绪基调（warm steam, soft bathroom lighting, intimate mood）
+4. scene — 人物**此刻物理所在**的具体地点（不是对白里聊到的地方）
+   - 必须写：地点类型 + 该地点特有的 4～6 个可见物件/陈设（例如服装店 → clothing store interior, clothing racks, mannequins, mirror, fitting room curtain, folded garments on shelves）
+   - 禁止只写 indoor / room / bedroom 等模糊词
+   - 禁止因对白出现「蛋糕/吃饭/游戏」等就把 scene 改成餐厅/咖啡厅，除非用户明确已换地点
+5. atmosphere — 光影、色调、空气感、情绪基调（须与 scene 地点类型一致）
 6. camera — 机位、景别、构图（medium close-up, three-quarter view, respectful distance）
+
+#场景锚定（极重要）
+- scene/atmosphere 描述的是「这一帧相机拍到的空间」，不是对话主题
+- 用户在服装店里聊蛋糕 → scene 仍是 clothing store，最多在 action 里写 holding cake box
+- 沿用上一张图场景时：scene 与 atmosphere **逐词复制**，只改 action / expression / camera
+- 换场景时：scene 必须换一整套地点 + 配套物件，atmosphere 跟着换，禁止留上一场景的 tags
 
 #禁止事项
 - 禁止写角色固定外貌（发色、瞳色、身材、角色名触发词等）
@@ -234,32 +243,32 @@ class AIService {
 - 禁止 JSON；禁止 markdown 代码块
 - 禁止在 ### 块外再输出解释
 
-#输出示例（### 包裹，每组六行字段）
+#输出示例（### 包裹，每组六行字段；示例仅说明格式，勿无脑复制场景）
+###
+action: leaning toward glass display case, finger pointing at strawberry cake, hesitant shy gesture
+outfit: casual home wear, soft cotton t-shirt, comfortable shorts, relaxed fit
+expression: blush, shy smile, curious eyes, lips slightly parted
+scene: cake shop interior, glass display counter with colorful cakes, wooden tables, warm pendant lights, cozy seating
+atmosphere: cozy evening, sweet scent of baked goods, soft warm glow, intimate mood
+camera: medium shot, front view, upper body and shop background
+###
+---
+###
+action: browsing clothes rack, holding dress on hanger, turning to mirror
+outfit: casual white blouse, denim skirt, flat shoes
+expression: curious smile, comparing options, slightly excited
+scene: clothing store interior, metal clothing racks, mannequins, full-length mirror, fitting room curtains, sale signs
+atmosphere: bright retail fluorescent lighting, clean commercial interior, busy shopping mood
+camera: medium shot, three-quarter view, store aisle depth
+###
+---
 ###
 action: standing under shower spray, water droplets on skin, hands nervously twisting wet shirt hem
 outfit: oversized white men's dress shirt, wet cotton fabric, clinging to body, long sleeves
 expression: deep blush, embarrassed, biting lower lip, eyes cast downward
 scene: bathroom interior, shower area, white tiles, glass shower door, steam, wet floor
-atmosphere: warm bathroom lighting, soft steam haze, intimate shy mood, water droplets glistening
+atmosphere: warm bathroom lighting, soft steam haze, intimate shy mood
 camera: medium close-up, front three-quarter view
-###
----
-###
-action: mid-jump, spinning, arms spread
-outfit: white frilly bikini, thin strings
-expression: bright smile, excited eyes
-scene: beach shoreline, shallow waves, clear blue sky
-atmosphere: soft natural sunlight, bright airy summer, refreshing breeze
-camera: dynamic side view, full body
-###
----
-###
-action: sitting, legs together, hands on lap
-outfit: navy blue school swimsuit, white trim
-expression: shy smile, slight blush
-scene: pool edge, lane lines, water reflections
-atmosphere: warm afternoon sunlight, ripples, energetic youthful summer
-camera: three-quarter front view, waist up
 ###`;
     }
 
@@ -270,9 +279,15 @@ camera: three-quarter front view, waist up
 
         const outfitChange = /换衣服|换装|穿上|脱下|换上|脱掉|另换|另一套|泳装|比基尼|校服|连衣裙|和服|cos/i.test(text);
 
-        const sceneNouns = /浴室|卫生间|厕所|洗手间|淋浴|厨房|客厅|餐厅|卧室|房间|学校|教室|走廊|泳池|游泳池|公园|户外|外面|阳台|天台|海边|沙滩|森林|商场|地铁|办公室|工作室|画桌|bedroom|bathroom|kitchen|pool|park|school|outdoor|shower|beach/i;
-        const sceneVerbs = /(?:到|去|来到|走进|进入|换到|移到|在)(?:了)?\s*\S{0,8}(?:室|厅|场|园|池|边|里|内|外)|我们到|去(?:一下)?\s*\S+/;
-        const sceneChange = sceneVerbs.test(text) || sceneNouns.test(text);
+        // 仅当用户明确「换地点/去某处」才算换场景；对白里顺带提到地点不算
+        const explicitRelocate = /换(?:个|到)?(?:地方|场景|地点|房间)|离开(?:这里|这儿|店|家)|出门|去(?:外面|户外)/i.test(text);
+        const relocateVerb = /(?:我们|一起|带你?|跟我|要)?(?:去|来到|走进|进入|换到|移到|带到|回)/i.test(text);
+        const placeTarget = /(?:服装|蛋糕|甜品|咖啡|书|便利|百货|宠物)?店|餐厅|饭店|食堂|酒馆|酒吧|浴室|卫生间|厕所|淋浴|厨房|客厅|卧室|房间|学校|教室|走廊|泳池|游泳池|公园|商场|地铁|办公室|工作室|画桌|海边|沙滩|森林|阳台|天台|clothing store|restaurant|bathroom|bedroom|kitchen|pool|park|school|outdoor|shower|beach|mall|cafe|office/i.test(text);
+        const goEatOut = /去.*(?:吃饭|用餐|吃点|吃夜宵)|(?:一起|去)吃(?:个|点)?(?:饭|餐|蛋糕|东西)/i.test(text);
+
+        const sceneChange = explicitRelocate
+            || (relocateVerb.test(text) && (placeTarget || goEatOut))
+            || /^去(?:了)?\s*\S/.test(text);
 
         return { outfitChange, sceneChange };
     }
@@ -281,16 +296,17 @@ camera: three-quarter front view, waist up
         if (!userMessage) return '';
         const lines = ['#本轮画面变更意图（来自用户最新消息）'];
         if (changeIntent.sceneChange) {
-            lines.push('- 用户明确要求更换场景/地点 → 必须重写 scene 与 atmosphere，禁止沿用 bedroom/indoor 等上一张图场景');
+            lines.push('- 用户明确要求更换场景/地点 → 必须重写 scene（含该地点特有物件 4～6 个）与 atmosphere，禁止保留上一张图的地点 tags');
         } else {
-            lines.push('- 用户未要求换场景 → scene 与 atmosphere 沿用上一张图（可微调光影以配合动作）');
+            lines.push('- 用户未要求换场景 → scene 与 atmosphere **逐词复制**上一张图（禁止因对白话题改成餐厅/户外等）');
+            lines.push('- 对白里出现食物/活动/物品 ≠ 换场景；相关互动写在 action 里即可');
         }
         if (changeIntent.outfitChange) {
             lines.push('- 用户明确要求更换服装 → 必须重写 outfit');
         } else {
-            lines.push('- 用户未要求换装 → outfit 沿用上一张图（湿透/沾水/褶皱等状态变化写在 outfit 里，不算换装）');
+            lines.push('- 用户未要求换装 → outfit **逐词复制**上一张图（仅可追加 wet/soaked/wrinkled 等状态词）');
         }
-        lines.push('- 表情 action camera 必须贴合本轮对白更新');
+        lines.push('- 本轮必须更新：action、expression、camera，贴合当前对白与用户动作');
         lines.push(`- 用户原话：${userMessage.slice(0, 300)}`);
         return lines.join('\n');
     }
@@ -335,23 +351,24 @@ camera: three-quarter front view, waist up
         if (!prev) return '';
 
         const sceneRule = changeIntent.sceneChange
-            ? '2. 【换场景】用户本轮明确要求更换地点/环境，必须重写 scene 与 atmosphere，禁止保留 bedroom、cozy bedroom 等上一张图场景 tags。'
-            : '2. 【保场景】用户未要求换场景/地点/时间，必须沿用上一张图的 scene 与 atmosphere tags。';
+            ? '2. 【换场景】用户本轮明确要求更换地点，必须重写 scene（地点类型 + 4～6 个该处特有物件）与 atmosphere，禁止保留上一张图的 scene/atmosphere tags。'
+            : '2. 【保场景】用户未要求换地点，scene 与 atmosphere 必须**原样复制**上一张图（逐词复制，禁止改成 restaurant/outdoor/bedroom 等其他地点；对白话题不能驱动换场景）。';
 
         const outfitRule = changeIntent.outfitChange
             ? '1. 【换装】用户本轮明确要求更换服装，必须重写 outfit。'
             : '1. 【保服饰】用户未要求换装，必须原样沿用上一张图的 outfit（逐词复制，仅可追加 wet/soaked/wrinkled 等状态词，禁止改成 dress/skirt/pajamas 等其他服装）。';
 
         return `
-#连续性（必须遵守）
-上一张图各字段：
+#连续性（必须遵守 — 违反则视为失败）
+上一张图各字段（继承基准）：
 ${prev}
 
 规则：
 ${outfitRule}
 ${sceneRule}
-3. 本轮必须更新：expression、action、camera，使其贴合当前对白与用户动作。
-4. 只有用户明确要求时才改 outfit 或 scene；未要求的部分按上面规则继承。`;
+3. 本轮必须更新：action、expression、camera，使其贴合当前对白与用户动作。
+4. 只有用户明确要求时才改 outfit 或 scene；未要求的部分逐词复制，不得擅自发挥。
+5. scene 写物件清单时， inherited 场景的所有关键物件 tags 必须保留（如服装店的 racks, mannequins, mirror）。`;
     }
 
     buildVisualInstruction(previousVisual = null, changeIntent = {}, userMessage = '') {
@@ -421,15 +438,16 @@ camera: ...
 ${this.continuityInstruction(previousVisual, changeIntent)}
 ${this.visualChangeHint(changeIntent, userMessage)}
 
-这一次只输出 ### 包裹的分镜块（不要对白，不要 JSON，不要代码块）：
+这一次只输出 ### 包裹的分镜块（不要对白，不要 JSON，不要代码块）。
+未换场景时 scene/atmosphere 必须与上一张图逐词一致。
 
 ###
-action: standing under shower spray, water droplets on skin
-outfit: oversized white dress shirt, wet fabric clinging
-expression: deep blush, embarrassed
-scene: bathroom interior, shower area, tiled walls, steam
-atmosphere: warm bathroom lighting, soft steam haze
-camera: medium close-up, front view
+action: browsing clothes rack, holding dress on hanger
+outfit: casual white blouse, denim skirt
+expression: curious smile, comparing options
+scene: clothing store interior, metal clothing racks, mannequins, full-length mirror, fitting room curtains, sale signs
+atmosphere: bright retail fluorescent lighting, clean commercial interior, busy shopping mood
+camera: medium shot, three-quarter view
 ###`
             },
             {
@@ -439,8 +457,9 @@ camera: medium close-up, front view
         ];
         const raw = await this.completeText(messages, provider, model, apiKey, baseUrl);
         const split = this.splitReplyAndVisual(raw);
-        if (split.visual) return split.visual;
-        return this.visualFromTagBlock(raw);
+        const parsed = split.visual || this.visualFromTagBlock(raw);
+        const { visual } = this.enforceVisualContinuity(parsed, previousVisual, changeIntent);
+        return visual;
     }
 
     async generateWithOllama(model, topic, count, baseUrl) {
@@ -800,6 +819,51 @@ camera: medium close-up, front view
         return { displayReply: text.trim(), visual: null };
     }
 
+    /**
+     * When the user did not request outfit/scene change, forcibly copy from previousVisual.
+     * LLMs often ignore continuity instructions and revert to primed examples (e.g. bathroom).
+     */
+    enforceVisualContinuity(visual, previousVisual, changeIntent = {}) {
+        if (!visual || !previousVisual || typeof previousVisual !== 'object') {
+            return { visual, enforced: [] };
+        }
+        const merged = { ...visual };
+        const enforced = [];
+
+        if (!changeIntent.outfitChange && previousVisual.outfit) {
+            const prev = String(previousVisual.outfit).trim();
+            const cur = String(merged.outfit || '').trim();
+            if (prev && cur !== prev) {
+                merged.outfit = prev;
+                enforced.push('outfit');
+            }
+        }
+        if (!changeIntent.sceneChange) {
+            if (previousVisual.scene) {
+                const prev = String(previousVisual.scene).trim();
+                const cur = String(merged.scene || '').trim();
+                if (prev && cur !== prev) {
+                    merged.scene = prev;
+                    enforced.push('scene');
+                }
+            }
+            if (previousVisual.atmosphere) {
+                const prev = String(previousVisual.atmosphere).trim();
+                const cur = String(merged.atmosphere || '').trim();
+                if (prev && cur !== prev) {
+                    merged.atmosphere = prev;
+                    enforced.push('atmosphere');
+                }
+            }
+        }
+
+        if (enforced.length) {
+            console.log('[continuity] enforced fields from previousVisual:', enforced.join(', '));
+        }
+        const normalized = this.normalizeVisual(merged) || merged;
+        return { visual: normalized, enforced };
+    }
+
     async finalizeChatReply({
         replyContent,
         conversationSummary,
@@ -818,12 +882,14 @@ camera: medium close-up, front view
         totalStartTime,
         previousVisual = null
     }) {
-        const { displayReply, visual } = this.splitReplyAndVisual(replyContent);
+        const { displayReply, visual: rawVisual } = this.splitReplyAndVisual(replyContent);
+        const lastUserMsg = [...recentTurns].reverse().find((m) => m.role === 'user')?.content || '';
+        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
+        const { visual, enforced } = this.enforceVisualContinuity(rawVisual, previousVisual, changeIntent);
         const replyTimeMs = Date.now() - replyStartTime;
         const totalTimeMs = Date.now() - totalStartTime;
         let newSummary = conversationSummary || '';
         if ((hasOlderHistory || conversationSummary) && displayReply && displayReply !== '无回复') {
-            const lastUserMsg = recentTurns.length > 0 ? recentTurns[recentTurns.length - 1].content : '';
             newSummary = await this.generateConversationSummary(
                 conversationSummary, lastUserMsg, displayReply, provider, model, apiKey, baseUrl
             );
@@ -846,6 +912,9 @@ camera: medium close-up, front view
                 sentMessages: chatMessages,
                 rawResponse: replyContent,
                 visual,
+                visualBeforeEnforce: enforced.length ? rawVisual : null,
+                continuityEnforced: enforced.length ? enforced : null,
+                changeIntent,
                 previousVisual: previousVisual || null,
                 previousVisualText: this.formatPreviousVisual(previousVisual) || ''
             }

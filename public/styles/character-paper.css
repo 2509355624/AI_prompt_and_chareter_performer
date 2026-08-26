@@ -350,6 +350,66 @@ body {
   overflow-x: hidden;
   /* clear floating top-right action pills */
   padding: 52px 12px 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 88%;
+}
+.message-wrap-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.message-wrap-ai {
+  align-self: flex-start;
+  align-items: flex-start;
+  max-width: 92%;
+}
+.message-wrap .message {
+  max-width: 100%;
+}
+.message-actions {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.message-wrap:hover .message-actions,
+.message-wrap:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.msg-action-btn {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  border: 1.5px solid var(--text);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 1px 1px 0 rgba(38, 34, 28, 0.4);
+  white-space: nowrap;
+}
+.msg-action-btn:hover {
+  background: var(--accent-soft);
+}
+.msg-action-danger:hover {
+  background: rgba(232, 80, 58, 0.15);
+}
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .chat-input-wrapper {
   display: flex;

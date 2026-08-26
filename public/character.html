@@ -541,7 +541,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=13">
+    <link rel="stylesheet" href="styles/character-paper.css?v=14">
 </head>
 <body>
 
@@ -1314,7 +1314,10 @@
         try {
             const res = await fetch(`/api/chat-history/${characterId}`);
             const historyData = await res.json();
-            characterChatMessages = historyData.messages || [];
+            characterChatMessages = (historyData.messages || []).map((m) => ({
+                ...m,
+                id: m.id || makeMessageId()
+            }));
             emotionHistory = historyData.emotionHistory || [];
             conversationSummary = historyData.summary || '';
             lastVisualCache = null;
@@ -1533,6 +1536,101 @@
         };
     }
 
+    function rebuildVisualCacheFromHistory() {
+        lastVisualCache = null;
+        getLastVisualContext();
+    }
+
+    function isChatBusy() {
+        return Boolean(activeChatTurn);
+    }
+
+    function truncateChatFromIndex(index) {
+        characterChatMessages.slice(index).forEach((msg) => {
+            if (msg?.imageJobId) closeImageJobStream(msg.imageJobId);
+        });
+        closeChatTurnStream();
+        activeChatTurn = null;
+        characterChatMessages = characterChatMessages.slice(0, index);
+        rebuildVisualCacheFromHistory();
+        renderCharacterChat();
+        saveChatHistory();
+    }
+
+    function deleteMessageAt(index) {
+        if (isChatBusy()) {
+            alert('请等待当前回复完成后再操作');
+            return;
+        }
+        const msg = characterChatMessages[index];
+        if (!msg) return;
+
+        if (msg.role === 'user') {
+            if (!confirm('删除这条消息及之后的全部对话？')) return;
+            truncateChatFromIndex(index);
+            return;
+        }
+
+        if (!confirm('删除这条 AI 回复？')) return;
+        if (msg.imageJobId) closeImageJobStream(msg.imageJobId);
+        characterChatMessages.splice(index, 1);
+        rebuildVisualCacheFromHistory();
+        renderCharacterChat();
+        saveChatHistory();
+    }
+
+    function editMessageAt(index) {
+        if (isChatBusy()) {
+            alert('请等待当前回复完成后再操作');
+            return;
+        }
+        const msg = characterChatMessages[index];
+        if (!msg || msg.role !== 'user') return;
+        truncateChatFromIndex(index);
+        const input = document.getElementById('charChatInput');
+        input.value = msg.content;
+        input.focus();
+    }
+
+    async function regenerateAssistantAt(index) {
+        if (isChatBusy()) {
+            alert('请等待当前回复完成后再操作');
+            return;
+        }
+        const msg = characterChatMessages[index];
+        if (!msg || msg.role !== 'assistant') return;
+        const userMsg = characterChatMessages[index - 1];
+        if (!userMsg || userMsg.role !== 'user') {
+            alert('找不到对应的用户消息');
+            return;
+        }
+        if (!confirm('重新生成这条 AI 回复？')) return;
+        if (msg.imageJobId) closeImageJobStream(msg.imageJobId);
+        characterChatMessages.splice(index, 1);
+        rebuildVisualCacheFromHistory();
+        renderCharacterChat();
+        await saveChatHistory();
+        await startChatTurn(userMsg.content, { skipPushUser: true });
+    }
+
+    function renderMessageActions(index, role) {
+        if (isChatBusy()) return '';
+        if (role === 'user') {
+            return `
+                <div class="message-actions">
+                    <button type="button" class="msg-action-btn" onclick="editMessageAt(${index})" title="编辑并重发">✎ 编辑</button>
+                    <button type="button" class="msg-action-btn msg-action-danger" onclick="deleteMessageAt(${index})" title="删除此条及之后">🗑 删除</button>
+                </div>
+            `;
+        }
+        return `
+            <div class="message-actions">
+                <button type="button" class="msg-action-btn" onclick="regenerateAssistantAt(${index})" title="重新生成回复">🔄 重生成</button>
+                <button type="button" class="msg-action-btn msg-action-danger" onclick="deleteMessageAt(${index})" title="删除此回复">🗑 删除</button>
+            </div>
+        `;
+    }
+
     function renderCharacterChat() {
         const history = document.getElementById('charChatHistory');
         
@@ -1553,7 +1651,12 @@
         
         history.innerHTML = characterChatMessages.map((msg, index) => {
             if (msg.role === 'user') {
-                return `<div class="message user">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>`;
+                return `
+                    <div class="message-wrap message-wrap-user">
+                        ${renderMessageActions(index, 'user')}
+                        <div class="message user">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>
+                    </div>
+                `;
             } else {
                 const canShowLog = Boolean(
                     msg.debugInfo
@@ -1576,7 +1679,9 @@
                     ? `<details class="thinking-fold thinking-fold--past"><summary>思考过程</summary><pre class="thinking-text">${escapeHtml(msg.debugInfo.thinkingText)}</pre></details>`
                     : '';
                 return `
-                    <div class="message ai">
+                    <div class="message-wrap message-wrap-ai">
+                        ${renderMessageActions(index, 'assistant')}
+                        <div class="message ai">
                         ${thinkingPast}
                         ${escapeHtml(msg.content).replace(/\n/g, '<br>')}
                         ${imageBlock}
@@ -1589,6 +1694,7 @@
                             <span class="timing-item">总耗时: ${(msg.timing.totalTimeMs / 1000).toFixed(1)}s</span>
                         </div>
                         ` : ''}
+                        </div>
                     </div>
                 `;
             }
@@ -1895,6 +2001,13 @@
                         <h4>本轮出图 VISUAL</h4>
                         <pre>${escapeHtml(msg.visual ? JSON.stringify(msg.visual, null, 2) : (msg.imageStatus === 'pending' ? '出图尚未完成' : '无'))}</pre>
                     </div>
+                    ${debugInfo.continuityEnforced?.length ? `
+                    <div class="debug-section">
+                        <h4>连续性强制修正（AI 输出已被服务端改回上一轮）</h4>
+                        <pre>修正字段：${escapeHtml(debugInfo.continuityEnforced.join(', '))}
+${debugInfo.visualBeforeEnforce ? '\nAI 原输出：\n' + escapeHtml(JSON.stringify(debugInfo.visualBeforeEnforce, null, 2)) : ''}</pre>
+                    </div>
+                    ` : ''}
                     <div class="debug-section">
                         <h4>本轮动作 / 服饰 / 表情 / 场景 / 氛围（不含底模）</h4>
                         <pre>${escapeHtml(msg.imageTurnPrompt || msg.visual?.prompt || (msg.imageStatus === 'pending' ? '出图尚未完成，请出图后再打开日志' : '无'))}</pre>
@@ -1920,35 +2033,31 @@
         });
     }
     
-    async function sendCharacterMessage() {
+    async function startChatTurn(userText, { skipPushUser = false } = {}) {
         if (!currentCharacter) {
             alert('请先选择角色');
             return;
         }
-        
-        const input = document.getElementById('charChatInput');
-        const text = input.value.trim();
+
+        const text = String(userText || '').trim();
         if (!text) return;
-        
-        // Add user message
-        characterChatMessages.push({ role: 'user', content: text, id: makeMessageId() });
-        renderCharacterChat();
-        input.value = '';
-        
-        // Get force prompt
+
+        if (!skipPushUser) {
+            characterChatMessages.push({ role: 'user', content: text, id: makeMessageId() });
+            renderCharacterChat();
+            document.getElementById('charChatInput').value = '';
+        }
+
         const forcePrompt = document.getElementById('forcePrompt').value.trim();
-        
-        // Prepare system prompt with force prompt
         let systemPrompt = currentCharacter.systemPrompt;
         if (forcePrompt) {
             systemPrompt = `${systemPrompt}\n\n**强制提示词**：${forcePrompt}`;
         }
-        
-        // Get provider settings
+
         const provider = document.getElementById('provider').value;
         let model = document.getElementById('model') ? document.getElementById('model').value : '';
         if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
-        
+
         const messagesForAI = characterChatMessages.map(m => ({
             role: m.role,
             content: m.content
@@ -1975,7 +2084,7 @@
             thinkingOpen: false
         };
         renderCharacterChat();
-        
+
         try {
             const res = await fetch('/api/chat-turn', {
                 method: 'POST',
@@ -1983,12 +2092,12 @@
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-            
+
             if (!res.ok || data.error) throw new Error(data.error || '无法创建对话任务');
-            
+
             activeChatTurn.turnId = data.turnId;
             subscribeChatTurnStream(data.turnId, text, previousVisual);
-            
+
         } catch (e) {
             activeChatTurn = {
                 turnId: '',
@@ -2000,6 +2109,11 @@
             closeChatTurnStream();
             renderCharacterChat();
         }
+    }
+
+    async function sendCharacterMessage() {
+        const input = document.getElementById('charChatInput');
+        await startChatTurn(input.value.trim());
     }
     
     async function saveChatHistory() {
