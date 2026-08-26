@@ -255,8 +255,10 @@ ${prev}
     }
 
     buildVisualInstruction(previousVisual = null) {
-        return `${this.sceneTagExpertPrompt()}
-${this.continuityInstruction(previousVisual)}
+        // put continuity FIRST so it is visible in logs and models weight it higher
+        return `${this.continuityInstruction(previousVisual)}
+
+${this.sceneTagExpertPrompt()}
 
 #输出格式
 先写角色对白。对白结束后另起一行写 ### ，再只输出一组英文提示词，格式和上面输出示例相同（不要用 --- 输出多组）。`;
@@ -628,7 +630,8 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
         chatMessages,
         emotionTimeMs,
         replyStartTime,
-        totalStartTime
+        totalStartTime,
+        previousVisual = null
     }) {
         const { displayReply, visual } = this.splitReplyAndVisual(replyContent);
         const replyTimeMs = Date.now() - replyStartTime;
@@ -657,7 +660,9 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
                 sentPrompt: fullSystemPrompt,
                 sentMessages: chatMessages,
                 rawResponse: replyContent,
-                visual
+                visual,
+                previousVisual: previousVisual || null,
+                previousVisualText: this.formatPreviousVisual(previousVisual) || ''
             }
         };
     }
@@ -924,6 +929,8 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
         hasOlderHistory = i >= 0;
         
         console.log('   情感分析完成，主情绪:', emotionResult.emotionAnalysis?.primaryEmotion || '未知');
+        const prevVisualText = this.formatPreviousVisual(previousVisual);
+        console.log('   上一轮出图提示词:', prevVisualText ? prevVisualText.slice(0, 120) : '(无)');
 
         // 构建系统提示词 = 角色设定 + 情绪分析 + 历史摘要（如果有更早历史）
         const summaryText = conversationSummary ? `\n\n【对话历史摘要】\n${conversationSummary}` : '';
@@ -936,7 +943,14 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
 - 回复要点：${emotionResult.responseSuggestion.keyPoints.join('；') || '无'}
 `.trim();
 
+        const continuityBlock = this.continuityInstruction(previousVisual);
+        // continuity is already inside buildVisualInstruction; keep one clear copy before it for log visibility
         const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction(previousVisual)}`;
+        if (continuityBlock) {
+            console.log('   已注入服饰/场景连续性指令');
+        } else {
+            console.log('   未注入连续性（没有上一轮出图提示词）');
+        }
 
         const systemMessage = {
             role: 'system',
@@ -982,7 +996,8 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
                     chatMessages,
                     emotionTimeMs,
                     replyStartTime,
-                    totalStartTime
+                    totalStartTime,
+                    previousVisual
                 });
             } catch (e) {
                 throw new Error(`Ollama Chat Error: ${e.message}`);
@@ -1022,7 +1037,8 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
                     chatMessages,
                     emotionTimeMs,
                     replyStartTime,
-                    totalStartTime
+                    totalStartTime,
+                    previousVisual
                 });
             } catch (e) {
                 const msg = e.response?.data?.error?.message || e.message;
@@ -1059,7 +1075,8 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
                     chatMessages,
                     emotionTimeMs,
                     replyStartTime,
-                    totalStartTime
+                    totalStartTime,
+                    previousVisual
                 });
             } catch (e) {
                 throw new Error(`DeepSeek Chat Error: ${e.message}`);
@@ -1090,7 +1107,8 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
                     chatMessages,
                     emotionTimeMs,
                     replyStartTime,
-                    totalStartTime
+                    totalStartTime,
+                    previousVisual
                 });
             } catch (e) {
                 throw new Error(`API Chat Error: ${e.message}`);
