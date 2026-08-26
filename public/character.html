@@ -541,7 +541,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=9">
+    <link rel="stylesheet" href="styles/character-paper.css?v=10">
 </head>
 <body>
 
@@ -791,6 +791,8 @@
     let conversationSummary = '';
     let lastVisualCache = null; // session cache so outfit/scene continuity does not wait for Comfy
     const imageJobStreams = new Map();
+    let activeChatTurnStream = null;
+    let activeChatTurn = null;
     const FORCE_PROMPT_STORAGE_KEY = 'characterForcePrompts';
 
     function loadForcePromptMap() {
@@ -1299,6 +1301,203 @@
         }, 100);
     }
     
+    function chatTurnPhaseLabel(phase) {
+        switch (phase) {
+            case 'queued':
+            case 'starting':
+                return '准备中…';
+            case 'emotion_analyzing':
+                return '分析情绪中…';
+            case 'reply_generating':
+                return '生成回复中…';
+            case 'parsing_visual':
+                return '整理出图信息…';
+            case 'done':
+                return '完成';
+            case 'error':
+                return '出错了';
+            default:
+                return '思考中…';
+        }
+    }
+
+    function preserveThinkingFoldOpen() {
+        if (!activeChatTurn) return;
+        const fold = document.querySelector('.streaming-turn .thinking-fold');
+        if (fold) activeChatTurn.thinkingOpen = fold.open;
+    }
+
+    function buildStreamingBubbleHtml(turn) {
+        const phaseLine = turn.replyText
+            ? ''
+            : `<div class="stream-phase">${escapeHtml(chatTurnPhaseLabel(turn.phase))}</div>`;
+        const thinkingBlock = turn.thinkingText
+            ? `<details class="thinking-fold"${turn.thinkingOpen ? ' open' : ''}><summary>思考过程</summary><pre class="thinking-text">${escapeHtml(turn.thinkingText)}</pre></details>`
+            : '';
+        const replyBlock = turn.replyText
+            ? `<div class="stream-reply">${escapeHtml(turn.replyText).replace(/\n/g, '<br>')}</div>`
+            : `<div class="stream-reply"></div>`;
+        return `
+            <div class="message ai streaming-turn" id="active-stream-bubble">
+                ${phaseLine}
+                ${thinkingBlock}
+                ${replyBlock}
+            </div>
+        `;
+    }
+
+    function closeChatTurnStream() {
+        if (activeChatTurnStream) {
+            activeChatTurnStream.close();
+            activeChatTurnStream = null;
+        }
+    }
+
+    function finalizeChatTurnResult(data, userText, thinkingText, previousVisual) {
+        const debugInfo = data.debugInfo || {};
+        if (thinkingText) debugInfo.thinkingText = thinkingText;
+
+        const assistantId = makeMessageId();
+        const emotionBlock = data.emotionAnalysis?.emotionAnalysis || data.emotionAnalysis || {};
+        const turnPromptFromChat = (data.visual && data.visual.prompt) ? data.visual.prompt : '';
+        rememberVisual(data.visual);
+        characterChatMessages.push({
+            id: assistantId,
+            role: 'assistant',
+            content: data.reply,
+            debugInfo,
+            emotionAnalysis: data.emotionAnalysis,
+            visual: data.visual || null,
+            imageTurnPrompt: turnPromptFromChat,
+            timing: data.timing,
+            imageStatus: 'queued',
+            imageJobId: ''
+        });
+        console.log('[continuity] previousVisual sent:', previousVisual);
+        console.log('[continuity] new visual cached:', data.visual || turnPromptFromChat || '(none)');
+
+        if (data.emotionAnalysis) {
+            emotionHistory.push({
+                timestamp: Date.now(),
+                ...data.emotionAnalysis
+            });
+        }
+        if (data.newSummary) {
+            conversationSummary = data.newSummary;
+        }
+
+        activeChatTurn = null;
+        closeChatTurnStream();
+        renderCharacterChat();
+        saveChatHistory();
+        requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual, userText);
+    }
+
+    function subscribeChatTurnStream(turnId, userText, previousVisual) {
+        closeChatTurnStream();
+        const es = new EventSource(`/api/chat-turn/${encodeURIComponent(turnId)}/stream`);
+        activeChatTurnStream = es;
+
+        const handleTurnDone = (data) => {
+            const thinkingText = activeChatTurn?.thinkingText || '';
+            finalizeChatTurnResult(data, userText, thinkingText, previousVisual);
+        };
+
+        const handleTurnError = (message) => {
+            activeChatTurn = {
+                turnId,
+                phase: 'error',
+                thinkingText: activeChatTurn?.thinkingText || '',
+                replyText: `Error: ${message}`,
+                thinkingOpen: activeChatTurn?.thinkingOpen
+            };
+            closeChatTurnStream();
+            renderCharacterChat();
+        };
+
+        es.addEventListener('snapshot', (e) => {
+            try {
+                const snap = JSON.parse(e.data);
+                if (snap.status === 'completed' && snap.result) {
+                    handleTurnDone(snap.result);
+                    return;
+                }
+                if (snap.status === 'failed') {
+                    handleTurnError(snap.error || '对话生成失败');
+                    return;
+                }
+                preserveThinkingFoldOpen();
+                activeChatTurn = {
+                    turnId,
+                    phase: snap.phase || 'starting',
+                    thinkingText: snap.thinkingText || '',
+                    replyText: snap.replyText || '',
+                    thinkingOpen: activeChatTurn?.thinkingOpen
+                };
+                renderCharacterChat();
+            } catch (err) {
+                console.warn('[SSE] chat snapshot parse error', err);
+            }
+        });
+
+        es.addEventListener('phase', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                preserveThinkingFoldOpen();
+                if (activeChatTurn) activeChatTurn.phase = data.phase;
+                renderCharacterChat();
+            } catch (err) {
+                console.warn('[SSE] chat phase parse error', err);
+            }
+        });
+
+        es.addEventListener('thinking_delta', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                preserveThinkingFoldOpen();
+                if (activeChatTurn) activeChatTurn.thinkingText = data.accumulated || '';
+                renderCharacterChat();
+            } catch (err) {
+                console.warn('[SSE] thinking_delta parse error', err);
+            }
+        });
+
+        es.addEventListener('reply_delta', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                preserveThinkingFoldOpen();
+                if (activeChatTurn) {
+                    activeChatTurn.replyText = data.accumulated || '';
+                    activeChatTurn.phase = 'reply_generating';
+                }
+                renderCharacterChat();
+            } catch (err) {
+                console.warn('[SSE] reply_delta parse error', err);
+            }
+        });
+
+        es.addEventListener('turn_done', (e) => {
+            try {
+                handleTurnDone(JSON.parse(e.data));
+            } catch (err) {
+                console.warn('[SSE] turn_done parse error', err);
+            }
+        });
+
+        es.addEventListener('turn_error', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                handleTurnError(data.error || '对话生成失败');
+            } catch (err) {
+                console.warn('[SSE] turn_error parse error', err);
+            }
+        });
+
+        es.onerror = () => {
+            // EventSource auto-reconnects while turn is running
+        };
+    }
+
     function renderCharacterChat() {
         const history = document.getElementById('charChatHistory');
         
@@ -1338,8 +1537,12 @@
                 } else if (msg.imageStatus && msg.imageStatus !== 'ready') {
                     imageBlock = `<div class="image-pending">${escapeHtml(imageStatusLabel(msg))}</div>`;
                 }
+                const thinkingPast = msg.debugInfo?.thinkingText
+                    ? `<details class="thinking-fold thinking-fold--past"><summary>思考过程</summary><pre class="thinking-text">${escapeHtml(msg.debugInfo.thinkingText)}</pre></details>`
+                    : '';
                 return `
                     <div class="message ai">
+                        ${thinkingPast}
                         ${escapeHtml(msg.content).replace(/\n/g, '<br>')}
                         ${imageBlock}
                         ${canShowLog ? `<button type="button" class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
@@ -1356,6 +1559,10 @@
                 `;
             }
         }).join('');
+
+        if (activeChatTurn) {
+            history.innerHTML += buildStreamingBubbleHtml(activeChatTurn);
+        }
         
         history.scrollTop = history.scrollHeight;
     }
@@ -1409,6 +1616,12 @@
                         <h4>AI的回复结果</h4>
                         <pre>${escapeHtml(replyText || 'N/A')}</pre>
                     </div>
+                    ${debugInfo.thinkingText ? `
+                    <div class="debug-section">
+                        <h4>模型思考过程</h4>
+                        <pre>${escapeHtml(debugInfo.thinkingText)}</pre>
+                    </div>
+                    ` : ''}
                     <div class="debug-section">
                         <h4>本轮出图 VISUAL</h4>
                         <pre>${escapeHtml(msg.visual ? JSON.stringify(msg.visual, null, 2) : (msg.imageStatus === 'pending' ? '出图尚未完成' : '无'))}</pre>
@@ -1453,16 +1666,6 @@
         renderCharacterChat();
         input.value = '';
         
-        // Show thinking
-        const thinkingId = 'thinking-' + Date.now();
-        const history = document.getElementById('charChatHistory');
-        const thinkingDiv = document.createElement('div');
-        thinkingDiv.className = 'message ai thinking';
-        thinkingDiv.id = thinkingId;
-        thinkingDiv.innerText = currentCharacter.name + '正在思考...';
-        history.appendChild(thinkingDiv);
-        history.scrollTop = history.scrollHeight;
-        
         // Get force prompt
         const forcePrompt = document.getElementById('forcePrompt').value.trim();
         
@@ -1477,7 +1680,6 @@
         let model = document.getElementById('model') ? document.getElementById('model').value : '';
         if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
         
-        // 使用带情绪分析的聊天接口
         const messagesForAI = characterChatMessages.map(m => ({
             role: m.role,
             content: m.content
@@ -1495,65 +1697,39 @@
             outfitPrompt: currentCharacter.outfitPrompt || '',
             previousVisual
         };
+
+        activeChatTurn = {
+            turnId: '',
+            phase: 'queued',
+            thinkingText: '',
+            replyText: '',
+            thinkingOpen: false
+        };
+        renderCharacterChat();
         
         try {
-            const res = await fetch('/api/chat-with-emotion', {
+            const res = await fetch('/api/chat-turn', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
             
-            document.getElementById(thinkingId).remove();
+            if (!res.ok || data.error) throw new Error(data.error || '无法创建对话任务');
             
-            if (data.error) throw new Error(data.error);
-            
-            // 保存调试信息
-            const debugInfo = data.debugInfo || {};
-            
-            const assistantId = makeMessageId();
-            const emotionBlock = data.emotionAnalysis?.emotionAnalysis || data.emotionAnalysis || {};
-            const turnPromptFromChat = (data.visual && data.visual.prompt) ? data.visual.prompt : '';
-            rememberVisual(data.visual);
-            characterChatMessages.push({ 
-                id: assistantId,
-                role: 'assistant', 
-                content: data.reply,
-                debugInfo: debugInfo,
-                emotionAnalysis: data.emotionAnalysis,
-                visual: data.visual || null,
-                imageTurnPrompt: turnPromptFromChat,
-                timing: data.timing,
-                imageStatus: 'queued',
-                imageJobId: ''
-            });
-            console.log('[continuity] previousVisual sent:', previousVisual);
-            console.log('[continuity] new visual cached:', data.visual || turnPromptFromChat || '(none)');
-            
-            // 保存情绪分析结果到历史
-            if (data.emotionAnalysis) {
-                emotionHistory.push({
-                    timestamp: Date.now(),
-                    ...data.emotionAnalysis
-                });
-            }
-            
-            // 更新对话摘要
-            if (data.newSummary) {
-                conversationSummary = data.newSummary;
-            }
-            
-            renderCharacterChat();
-            await saveChatHistory();
-            requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual, text);
+            activeChatTurn.turnId = data.turnId;
+            subscribeChatTurnStream(data.turnId, text, previousVisual);
             
         } catch (e) {
-            const thinking = document.getElementById(thinkingId);
-            if (thinking) {
-                thinking.innerText = 'Error: ' + e.message;
-                thinking.style.color = '#ef4444';
-                thinking.classList.remove('thinking');
-            }
+            activeChatTurn = {
+                turnId: '',
+                phase: 'error',
+                thinkingText: '',
+                replyText: 'Error: ' + e.message,
+                thinkingOpen: false
+            };
+            closeChatTurnStream();
+            renderCharacterChat();
         }
     }
     

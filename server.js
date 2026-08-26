@@ -6,7 +6,9 @@ const imagePrompt = require('./image_prompt');
 const chatImageConfig = require('./chat_image_config');
 const AsyncQueue = require('./gpu_scheduler/async_queue');
 const ImageJobStore = require('./gpu_scheduler/image_job_store');
+const ChatTurnStore = require('./gpu_scheduler/chat_turn_store');
 const { startImageWorker } = require('./gpu_scheduler/image_worker');
+const { processChatTurn } = require('./gpu_scheduler/chat_turn_runner');
 const { runCharacterImageJob } = require('./gpu_scheduler/character_image_runner');
 const ollamaGuard = require('./gpu_scheduler/ollama_guard');
 const path = require('path');
@@ -47,6 +49,7 @@ const EMOTION_HISTORY_FILE = path.join(dataDir, 'emotion_history.json');
 
 const imageQueue = new AsyncQueue();
 const imageJobStore = new ImageJobStore();
+const chatTurnStore = new ChatTurnStore();
 
 startImageWorker({
     queue: imageQueue,
@@ -540,6 +543,36 @@ app.post('/api/comfy/test', async (req, res) => {
             elapsedMs: Date.now() - started
         });
     }
+});
+
+app.post('/api/chat-turn', (req, res) => {
+    const payload = req.body || {};
+    if (!payload.messages || !Array.isArray(payload.messages)) {
+        return res.status(400).json({ error: 'messages is required' });
+    }
+    const turn = chatTurnStore.createTurn(payload);
+    processChatTurn({
+        turnId: turn.id,
+        turnStore: chatTurnStore,
+        aiService,
+        payload
+    }).catch((err) => {
+        console.error('[ChatTurn] unhandled:', err.message);
+    });
+    console.log('[ChatTurn] enqueued', turn.id);
+    res.json({ ok: true, turnId: turn.id });
+});
+
+app.get('/api/chat-turn/:id/stream', (req, res) => {
+    const turn = chatTurnStore.getTurn(req.params.id);
+    if (!turn) {
+        return res.status(404).json({ error: 'Turn not found' });
+    }
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    chatTurnStore.subscribe(req.params.id, res);
 });
 
 app.post('/api/image-jobs', (req, res) => {

@@ -1227,6 +1227,235 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             }
         }
     }
+
+    visibleReplyDuringStream(raw) {
+        const text = String(raw || '');
+        const marker = text.indexOf('###');
+        if (marker >= 0) {
+            return text.slice(0, marker).trim();
+        }
+        return text.replace(/\n#+\s*$/, '').replace(/#+\s*$/, '').trimEnd();
+    }
+
+    async streamOllamaChat({ url, model, messages, onThinkingDelta, onContentDelta }) {
+        const response = await axios.post(`${url}/api/chat`, {
+            model,
+            messages,
+            stream: true,
+            keep_alive: 0
+        }, {
+            responseType: 'stream',
+            timeout: 600000
+        });
+
+        let thinkingAcc = '';
+        let contentAcc = '';
+        let buffer = '';
+
+        return new Promise((resolve, reject) => {
+            const finish = (err) => {
+                if (err) reject(err);
+                else resolve(contentAcc || thinkingAcc);
+            };
+
+            response.data.on('data', (chunk) => {
+                buffer += chunk.toString();
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    try {
+                        const json = JSON.parse(trimmed);
+                        if (json.message?.thinking) {
+                            thinkingAcc += json.message.thinking;
+                            onThinkingDelta?.(json.message.thinking, thinkingAcc);
+                        }
+                        if (json.message?.content) {
+                            contentAcc += json.message.content;
+                            onContentDelta?.(json.message.content, contentAcc);
+                        }
+                        if (json.done) {
+                            finish();
+                        }
+                    } catch (e) {
+                        // ignore malformed line
+                    }
+                }
+            });
+            response.data.on('error', finish);
+            response.data.on('end', () => finish());
+        });
+    }
+
+    async generateReplySync(provider, model, apiKey, baseUrl, chatMessages) {
+        if (provider === 'ollama') {
+            throw new Error('generateReplySync should not be used for ollama');
+        }
+        if (provider === 'doubao') {
+            const key = process.env.VOLC_API_KEY;
+            const url = (process.env.VOLC_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3').replace(/\/$/, '');
+            const endpoint = url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
+            const response = await axios.post(endpoint, {
+                model: this.resolveDoubaoModel(model),
+                messages: chatMessages,
+                stream: false
+            }, {
+                headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 60000
+            });
+            return response.data?.choices?.[0]?.message?.content || '无回复';
+        }
+        if (provider === 'deepseek') {
+            const key = process.env.DEEPSEEK_API_KEY;
+            const url = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
+            const response = await axios.post(`${url}/chat/completions`, {
+                model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+                messages: chatMessages,
+                stream: false
+            }, {
+                headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 600000
+            });
+            return response.data?.choices?.[0]?.message?.content || '无回复';
+        }
+        const url = (baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+        const response = await axios.post(`${url}/chat/completions`, {
+            model,
+            messages: chatMessages
+        }, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            timeout: 60000
+        });
+        return response.data?.choices?.[0]?.message?.content || '无回复';
+    }
+
+    async runChatTurn(payload, emit) {
+        const {
+            messages,
+            systemPrompt: characterSystemPrompt,
+            provider,
+            model,
+            apiKey,
+            baseUrl,
+            conversationSummary,
+            previousVisual
+        } = payload;
+
+        const totalStartTime = Date.now();
+        const cleanMessages = Array.isArray(messages)
+            ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
+            : [];
+
+        emit('phase', { phase: 'emotion_analyzing' });
+        const emotionStartTime = Date.now();
+        const emotionResultWithDebug = await this.analyzeEmotion(
+            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt
+        );
+        const emotionTimeMs = Date.now() - emotionStartTime;
+        const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
+        const emotionResult = emotionResultRaw?.emotionAnalysis && emotionResultRaw?.responseSuggestion
+            ? emotionResultRaw
+            : this.parseEmotionResponse('');
+
+        emit('emotion_done', {
+            emotionAnalysis: emotionResult,
+            emotionTimeMs
+        });
+
+        let recentTurns = [];
+        let hasOlderHistory = false;
+        let i = cleanMessages.length - 1;
+        if (i >= 0 && cleanMessages[i].role === 'user') {
+            recentTurns.unshift(cleanMessages[i]);
+            i--;
+        }
+        let turnsCollected = 0;
+        while (i >= 0 && turnsCollected < 2) {
+            if (cleanMessages[i].role === 'assistant' && i - 1 >= 0 && cleanMessages[i - 1].role === 'user') {
+                recentTurns.unshift(cleanMessages[i]);
+                recentTurns.unshift(cleanMessages[i - 1]);
+                turnsCollected++;
+                i -= 2;
+            } else {
+                i--;
+            }
+        }
+        hasOlderHistory = i >= 0;
+
+        const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
+        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
+
+        const summaryText = conversationSummary ? `\n\n【对话历史摘要】\n${conversationSummary}` : '';
+        const emotionInfo = `
+【用户情绪状态】
+- 主情绪：${emotionResult.emotionAnalysis.primaryEmotion}（强度：${emotionResult.emotionAnalysis.intensity}/10）
+- 情绪趋势：${emotionResult.emotionAnalysis.trend}
+- 建议语气：${emotionResult.responseSuggestion.tone}
+- 避免语气：${emotionResult.responseSuggestion.avoidTones.join(', ') || '无'}
+- 回复要点：${emotionResult.responseSuggestion.keyPoints.join('；') || '无'}
+`.trim();
+
+        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
+        const systemMessage = { role: 'system', content: enhancedSystemPrompt };
+        const chatMessages = [systemMessage, ...recentTurns];
+        const fullSystemPrompt = enhancedSystemPrompt;
+
+        emit('phase', { phase: 'reply_generating' });
+        const replyStartTime = Date.now();
+        let replyContent = '';
+        let lastVisible = '';
+
+        if (provider === 'ollama') {
+            const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+            replyContent = await this.streamOllamaChat({
+                url,
+                model,
+                messages: chatMessages,
+                onThinkingDelta: (delta, accumulated) => {
+                    emit('thinking_delta', { delta, accumulated });
+                },
+                onContentDelta: (delta, accumulated) => {
+                    const visible = this.visibleReplyDuringStream(accumulated);
+                    if (visible !== lastVisible) {
+                        lastVisible = visible;
+                        emit('reply_delta', { delta, accumulated: visible });
+                    }
+                }
+            });
+        } else {
+            replyContent = await this.generateReplySync(provider, model, apiKey, baseUrl, chatMessages);
+            const visible = this.visibleReplyDuringStream(replyContent);
+            emit('reply_delta', { delta: visible, accumulated: visible });
+        }
+
+        emit('phase', { phase: 'parsing_visual' });
+
+        return this.finalizeChatReply({
+            replyContent,
+            conversationSummary,
+            hasOlderHistory,
+            recentTurns,
+            provider,
+            model,
+            apiKey,
+            baseUrl,
+            emotionResult,
+            emotionDebugInfo,
+            fullSystemPrompt,
+            chatMessages,
+            emotionTimeMs,
+            replyStartTime,
+            totalStartTime,
+            previousVisual: previousVisual || null
+        });
+    }
 }
 
 module.exports = new AIService();
