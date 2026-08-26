@@ -8,7 +8,7 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Noto+Sans+SC:wght@500;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 
     <style>
         :root {
@@ -881,6 +881,7 @@
             transform: translateX(4px);
         }
     </style>
+    <link rel="stylesheet" href="styles/character-paper.css?v=2">
 </head>
 <body>
 
@@ -890,216 +891,41 @@
 </a>
 
 <div class="app-container">
-    <!-- Character Sidebar -->
-    <aside class="sidebar">
+    <aside class="sidebar sticker tilt-l">
+        <div class="tape"></div>
         <div class="brand">
-            <span>🎭</span>
-            <span>角色选择</span>
+            <span class="kicker">角色本</span>
+            <span class="brand-title">角色选择</span>
         </div>
-        
         <div class="sidebar-header">
             <span class="sidebar-title">我的角色</span>
-            <div style="display:flex; gap:8px;">
-                <button class="btn-icon" onclick="createNewCharacter()" title="添加新角色">➕ 新建</button>
-            </div>
+            <button class="btn-icon" onclick="createNewCharacter()" title="添加新角色">➕ 新建</button>
         </div>
-        
         <div id="charactersList" class="presets-list">
             <div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">
                 加载中...
             </div>
         </div>
+        <div class="ticket">CHARACTER · STICKER SHEET</div>
     </aside>
 
-    <!-- Main Chat Area -->
-    <main class="main-content">
-        <!-- Character Info Panel -->
-        <div class="config-panel" id="characterInfoPanel" style="margin-bottom: 20px;">
-            <div class="config-header" style="padding: 20px;" onclick="document.getElementById('characterInfoPanel').classList.toggle('collapsed')">
-                <div class="config-title" style="font-size: 18px;">
-                    <span style="transition: transform 0.3s ease;" class="rotate-icon">▼</span>
-                    <span id="currentCharAvatar" style="font-size: 32px; margin-left: 8px;">🎭</span>
-                    <div style="margin-left: 12px;">
-                        <div id="currentCharName" style="font-size: 20px; font-weight: 700;">选择角色</div>
-                        <div id="currentCharDesc" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">与喜欢的角色互动吧</div>
-                        <div id="currentCharBase" style="font-size: 11px; color: #a78bfa; margin-top: 6px; max-width: 520px; line-height: 1.4;"></div>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 8px;">
-                    <button class="btn-icon" onclick="event.stopPropagation(); editCurrentCharacter()" title="编辑角色">✎</button>
-                    <button class="btn-icon" onclick="event.stopPropagation(); clearCurrentChat()" title="清空对话">🗑️</button>
-                    <button class="btn-icon" onclick="event.stopPropagation(); toggleSystemPrompt()" title="查看原始提示词">📝</button>
+    <main class="main-content chat-main sticker">
+        <div class="tape warm"></div>
+        <div class="chat-topbar">
+            <div class="chat-topbar-left">
+                <span id="currentCharAvatar" class="chat-avatar">🎭</span>
+                <div class="chat-topbar-text">
+                    <div id="currentCharName" class="chat-name">选择角色</div>
+                    <div id="currentCharDesc" class="chat-desc">与喜欢的角色互动吧</div>
+                    <div id="currentCharBase" class="chat-base"></div>
                 </div>
             </div>
-            
-            <div class="config-body" style="padding: 20px;">
-                <!-- Model Selection -->
-                <div class="form-group">
-                    <label>AI Provider</label>
-                    <select id="provider" onchange="toggleProviderSettings()" style="width: 100%;">
-                        <option value="doubao">Doubao (火山引擎)</option>
-                        <option value="ollama">Local Ollama</option>
-                        <option value="deepseek" selected>DeepSeek</option>
-                        <option value="openai">OpenAI / Compatible</option>
-                    </select>
-                </div>
-
-                <!-- Doubao Specific -->
-                <div id="doubaoInfo" class="form-group">
-                    <label>Doubao Model</label>
-                    <select id="doubaoModel" style="width: 100%;">
-                        <option value="deepseek-v4-flash-260425">DeepSeek v4 Flash (火山引擎)</option>
-                        <option value="doubao-seed-2-0-mini-260428">Doubao Seed 2.0 Mini</option>
-                        <option value="doubao-seed-2-0-lite-260428">Doubao Seed 2.0 Lite</option>
-                        <option value="2.0" selected>Doubao 2.0 Pro</option>
-                        <option value="1.8">Doubao 1.8 Pro</option>
-                        <option value="1.6">Doubao 1.6 Flash (Vision Support)</option>
-                    </select>
-                </div>
-
-                <!-- Generic Settings -->
-                <div id="genericSettings" class="hidden" style="display: contents;">
-                    <div class="form-group" style="flex: 2;">
-                        <label>Base URL</label>
-                        <input type="text" id="baseUrl" value="https://api.deepseek.com" style="width: 100%;">
-                    </div>
-                    
-                    <div class="form-group" style="flex: 1;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <label>Model Name</label>
-                            <span id="refreshModelsBtn" class="hidden" onclick="fetchOllamaModels(true)" style="cursor: pointer; font-size: 10px; color: var(--primary);">🔄 Refresh</span>
-                        </div>
-                        <div id="modelInputContainer">
-                            <input type="text" id="model" value="deepseek-v4-flash" style="width: 100%;">
-                        </div>
-                    </div>
-                    
-                    <div class="form-group" id="apiKeyGroup">
-                        <label>API Key</label>
-                        <input type="password" id="apiKey" placeholder="sk-..." style="width: 100%;">
-                    </div>
-                </div>
-
-                <div class="form-group" style="grid-column: 1 / -1;">
-                    <label style="display:flex; justify-content:space-between; align-items:center;">
-                        <span>Comfy 出图参数 / Workflow</span>
-                        <span style="display:flex; gap:10px;">
-                            <span onclick="resetWorkflowSettings()" style="cursor:pointer; font-size:11px; color:var(--primary);">恢复默认</span>
-                            <span onclick="loadWorkflowOptions(true)" style="cursor:pointer; font-size:11px; color:var(--primary);">刷新列表</span>
-                        </span>
-                    </label>
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                        <div style="grid-column: 1 / -1;">
-                            <label style="font-size:11px; color:var(--text-muted);">Checkpoint</label>
-                            <select id="comfyCheckpoint" style="width:100%;" onchange="saveWorkflowSettings()"></select>
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">宽 Width</label>
-                            <input type="number" id="wfWidth" value="544" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">高 Height</label>
-                            <input type="number" id="wfHeight" value="960" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">Steps</label>
-                            <input type="number" id="wfSteps" value="30" min="1" max="150" style="width:100%;" onchange="saveWorkflowSettings()">
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">CFG</label>
-                            <input type="number" id="wfCfg" value="3" min="0" max="30" step="0.1" style="width:100%;" onchange="saveWorkflowSettings()">
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">Sampler</label>
-                            <select id="wfSampler" style="width:100%;" onchange="saveWorkflowSettings()"></select>
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">Scheduler</label>
-                            <select id="wfScheduler" style="width:100%;" onchange="saveWorkflowSettings()"></select>
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">Denoise</label>
-                            <input type="number" id="wfDenoise" value="1" min="0" max="1" step="0.01" style="width:100%;" onchange="saveWorkflowSettings()">
-                        </div>
-                        <div>
-                            <label style="font-size:11px; color:var(--text-muted);">Seed（-1 随机）</label>
-                            <input type="number" id="wfSeed" value="-1" style="width:100%;" onchange="saveWorkflowSettings()">
-                        </div>
-                        <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:8px;">
-                            <input type="checkbox" id="wfEnableHires" onchange="saveWorkflowSettings(); toggleHiresFields()">
-                            <label for="wfEnableHires" style="margin:0;">开启高清修复 / Hires</label>
-                        </div>
-                        <div id="hiresFields" style="grid-column: 1 / -1; display:none; grid-template-columns: 1fr 1fr; gap:10px;">
-                            <div>
-                                <label style="font-size:11px; color:var(--text-muted);">Hires 宽</label>
-                                <input type="number" id="wfHiresWidth" value="1080" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
-                            </div>
-                            <div>
-                                <label style="font-size:11px; color:var(--text-muted);">Hires 高</label>
-                                <input type="number" id="wfHiresHeight" value="1920" min="64" step="8" style="width:100%;" onchange="saveWorkflowSettings()">
-                            </div>
-                            <div>
-                                <label style="font-size:11px; color:var(--text-muted);">Hires Denoise</label>
-                                <input type="number" id="wfHiresDenoise" value="0.4" min="0" max="1" step="0.01" style="width:100%;" onchange="saveWorkflowSettings()">
-                            </div>
-                            <div>
-                                <label style="font-size:11px; color:var(--text-muted);">Hires Steps</label>
-                                <input type="number" id="wfHiresSteps" value="20" min="1" max="150" style="width:100%;" onchange="saveWorkflowSettings()">
-                            </div>
-                        </div>
-                        <div style="grid-column: 1 / -1;">
-                            <label style="font-size:11px; color:var(--text-muted);">LoRA 1（对比度）</label>
-                            <div style="display:grid; grid-template-columns: 1fr 90px 90px; gap:8px;">
-                                <select id="wfLora1Name" style="width:100%;" onchange="saveWorkflowSettings()"></select>
-                                <input type="number" id="wfLora1Model" value="0.6" min="0" max="2" step="0.05" title="model strength" style="width:100%;" onchange="saveWorkflowSettings()">
-                                <input type="number" id="wfLora1Clip" value="1" min="0" max="2" step="0.05" title="clip strength" style="width:100%;" onchange="saveWorkflowSettings()">
-                            </div>
-                        </div>
-                        <div style="grid-column: 1 / -1;">
-                            <label style="font-size:11px; color:var(--text-muted);">LoRA 2（饱和度）</label>
-                            <div style="display:grid; grid-template-columns: 1fr 90px 90px; gap:8px;">
-                                <select id="wfLora2Name" style="width:100%;" onchange="saveWorkflowSettings()"></select>
-                                <input type="number" id="wfLora2Model" value="0.5" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
-                                <input type="number" id="wfLora2Clip" value="1" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
-                            </div>
-                        </div>
-                        <div style="grid-column: 1 / -1;">
-                            <label style="font-size:11px; color:var(--text-muted);">LoRA 3（画风）</label>
-                            <div style="display:grid; grid-template-columns: 1fr 90px 90px; gap:8px;">
-                                <select id="wfLora3Name" style="width:100%;" onchange="saveWorkflowSettings()"></select>
-                                <input type="number" id="wfLora3Model" value="0.5" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
-                                <input type="number" id="wfLora3Clip" value="1" min="0" max="2" step="0.05" style="width:100%;" onchange="saveWorkflowSettings()">
-                            </div>
-                            <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">两列数字分别是 Model 强度 / CLIP 强度；选 (none) 或强度 0 等于关掉</div>
-                        </div>
-                        <div style="grid-column: 1 / -1;">
-                            <label style="font-size:11px; color:var(--text-muted);">负向提示词</label>
-                            <textarea id="wfNegative" style="width:100%; height:72px; resize:vertical;" onchange="saveWorkflowSettings()"></textarea>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Force Prompt -->
-                <div class="form-group" style="grid-column: 1 / -1;">
-                    <label>强制提示词 / Force Prompt</label>
-                    <textarea id="forcePrompt" placeholder="输入强制提示词，例如：我是和泉纱雾最信任的人" style="width: 100%; height: 80px; resize: vertical;"></textarea>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                        强制提示词会覆盖角色的部分设定，让AI按照你的要求回应
-                    </div>
-                </div>
-
-                <!-- System Prompt -->
-                <div id="systemPromptSection" class="form-group hidden" style="grid-column: 1 / -1;">
-                    <label>角色原始提示词 / Original System Prompt</label>
-                    <textarea id="currentSystemPrompt" readonly style="width: 100%; height: 120px; resize: vertical; background: rgba(0,0,0,0.2); color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 12px;"></textarea>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                        这是角色的原始设定提示词，修改需要编辑角色
-                    </div>
-                </div>
+            <div class="chat-topbar-actions">
+                <button class="btn-icon" onclick="editCurrentCharacter()" title="编辑角色">✎</button>
+                <button class="btn-icon" onclick="clearCurrentChat()" title="清空对话">🗑️</button>
+                <button class="btn-icon" onclick="toggleSystemPrompt()" title="查看原始提示词">📝</button>
             </div>
         </div>
-
-        <!-- Chat Container -->
         <div class="chat-section" style="flex: 1; min-height: 0; background: var(--bg-card); backdrop-filter: blur(12px); border: var(--glass-border); border-radius: 16px; box-shadow: var(--shadow-lg); overflow: hidden;">
             <div class="chat-container" style="height: 100%;">
                 <div id="charChatHistory" class="chat-history">
@@ -1118,6 +944,182 @@
             </div>
         </div>
     </main>
+
+    <aside class="settings-panel sticker" id="characterInfoPanel">
+        <div class="tape"></div>
+        <div class="settings-header">
+            <h2>配置贴纸</h2>
+            <span class="kicker kicker-sm">AI + Comfy</span>
+        </div>
+        <div class="settings-scroll config-body" id="settingsScroll">
+            
+                <!-- Model Selection -->
+                <div class="form-group">
+                    <label>AI Provider</label>
+                    <select id="provider" onchange="toggleProviderSettings()">
+                        <option value="doubao">Doubao (火山引擎)</option>
+                        <option value="ollama">Local Ollama</option>
+                        <option value="deepseek" selected>DeepSeek</option>
+                        <option value="openai">OpenAI / Compatible</option>
+                    </select>
+                </div>
+
+                <!-- Doubao Specific -->
+                <div id="doubaoInfo" class="form-group">
+                    <label>Doubao Model</label>
+                    <select id="doubaoModel">
+                        <option value="deepseek-v4-flash-260425">DeepSeek v4 Flash (火山引擎)</option>
+                        <option value="doubao-seed-2-0-mini-260428">Doubao Seed 2.0 Mini</option>
+                        <option value="doubao-seed-2-0-lite-260428">Doubao Seed 2.0 Lite</option>
+                        <option value="2.0" selected>Doubao 2.0 Pro</option>
+                        <option value="1.8">Doubao 1.8 Pro</option>
+                        <option value="1.6">Doubao 1.6 Flash (Vision Support)</option>
+                    </select>
+                </div>
+
+                <!-- Generic Settings -->
+                <div id="genericSettings" class="hidden" style="display: contents;">
+                    <div class="form-group" style="flex: 2;">
+                        <label>Base URL</label>
+                        <input type="text" id="baseUrl" value="https://api.deepseek.com">
+                    </div>
+                    
+                    <div class="form-group" style="flex: 1;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <label>Model Name</label>
+                            <span id="refreshModelsBtn" class="hidden" onclick="fetchOllamaModels(true)" style="cursor: pointer; font-size: 10px; color: var(--primary);">🔄 Refresh</span>
+                        </div>
+                        <div id="modelInputContainer">
+                            <input type="text" id="model" value="deepseek-v4-flash">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="apiKeyGroup">
+                        <label>API Key</label>
+                        <input type="password" id="apiKey" placeholder="sk-...">
+                    </div>
+                </div>
+
+                <div class="form-group wf-full">
+                    <label style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>Comfy 出图参数 / Workflow</span>
+                        <span style="display:flex; gap:10px;">
+                            <span onclick="resetWorkflowSettings()" style="cursor:pointer; font-size:11px; color:var(--primary);">恢复默认</span>
+                            <span onclick="loadWorkflowOptions(true)" style="cursor:pointer; font-size:11px; color:var(--primary);">刷新列表</span>
+                        </span>
+                    </label>
+                    <div class="wf-grid">
+                        <div class="wf-full">
+                            <label style="font-size:11px; color:var(--text-muted);">Checkpoint</label>
+                            <select id="comfyCheckpoint" onchange="saveWorkflowSettings()"></select>
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">宽 Width</label>
+                            <input type="number" id="wfWidth" value="544" min="64" step="8" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">高 Height</label>
+                            <input type="number" id="wfHeight" value="960" min="64" step="8" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Steps</label>
+                            <input type="number" id="wfSteps" value="30" min="1" max="150" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">CFG</label>
+                            <input type="number" id="wfCfg" value="3" min="0" max="30" step="0.1" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Sampler</label>
+                            <select id="wfSampler" onchange="saveWorkflowSettings()"></select>
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Scheduler</label>
+                            <select id="wfScheduler" onchange="saveWorkflowSettings()"></select>
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Denoise</label>
+                            <input type="number" id="wfDenoise" value="1" min="0" max="1" step="0.01" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div>
+                            <label style="font-size:11px; color:var(--text-muted);">Seed（-1 随机）</label>
+                            <input type="number" id="wfSeed" value="-1" onchange="saveWorkflowSettings()">
+                        </div>
+                        <div class="wf-full wf-check-row">
+                            <input type="checkbox" id="wfEnableHires" onchange="saveWorkflowSettings(); toggleHiresFields()">
+                            <label for="wfEnableHires" style="margin:0;">开启高清修复 / Hires</label>
+                        </div>
+                        <div id="hiresFields" class="wf-grid wf-full" style="display:none;">
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires 宽</label>
+                                <input type="number" id="wfHiresWidth" value="1080" min="64" step="8" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires 高</label>
+                                <input type="number" id="wfHiresHeight" value="1920" min="64" step="8" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires Denoise</label>
+                                <input type="number" id="wfHiresDenoise" value="0.4" min="0" max="1" step="0.01" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div>
+                                <label style="font-size:11px; color:var(--text-muted);">Hires Steps</label>
+                                <input type="number" id="wfHiresSteps" value="20" min="1" max="150" onchange="saveWorkflowSettings()">
+                            </div>
+                        </div>
+                        <div class="wf-full">
+                            <label style="font-size:11px; color:var(--text-muted);">LoRA 1（对比度）</label>
+                            <div class="wf-lora-row">
+                                <select id="wfLora1Name" onchange="saveWorkflowSettings()"></select>
+                                <input type="number" id="wfLora1Model" value="0.6" min="0" max="2" step="0.05" title="model strength" onchange="saveWorkflowSettings()">
+                                <input type="number" id="wfLora1Clip" value="1" min="0" max="2" step="0.05" title="clip strength" onchange="saveWorkflowSettings()">
+                            </div>
+                        </div>
+                        <div class="wf-full">
+                            <label style="font-size:11px; color:var(--text-muted);">LoRA 2（饱和度）</label>
+                            <div class="wf-lora-row">
+                                <select id="wfLora2Name" onchange="saveWorkflowSettings()"></select>
+                                <input type="number" id="wfLora2Model" value="0.5" min="0" max="2" step="0.05" onchange="saveWorkflowSettings()">
+                                <input type="number" id="wfLora2Clip" value="1" min="0" max="2" step="0.05" onchange="saveWorkflowSettings()">
+                            </div>
+                        </div>
+                        <div class="wf-full">
+                            <label style="font-size:11px; color:var(--text-muted);">LoRA 3（画风）</label>
+                            <div class="wf-lora-row">
+                                <select id="wfLora3Name" onchange="saveWorkflowSettings()"></select>
+                                <input type="number" id="wfLora3Model" value="0.5" min="0" max="2" step="0.05" onchange="saveWorkflowSettings()">
+                                <input type="number" id="wfLora3Clip" value="1" min="0" max="2" step="0.05" onchange="saveWorkflowSettings()">
+                            </div>
+                            <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">两列数字分别是 Model 强度 / CLIP 强度；选 (none) 或强度 0 等于关掉</div>
+                        </div>
+                        <div class="wf-full">
+                            <label style="font-size:11px; color:var(--text-muted);">负向提示词</label>
+                            <textarea id="wfNegative" style="height:72px; resize:vertical;" onchange="saveWorkflowSettings()"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Force Prompt -->
+                <div class="form-group wf-full">
+                    <label>强制提示词 / Force Prompt</label>
+                    <textarea id="forcePrompt" placeholder="输入强制提示词，例如：我是和泉纱雾最信任的人" style="height: 80px; resize: vertical;"></textarea>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        强制提示词会覆盖角色的部分设定，让AI按照你的要求回应
+                    </div>
+                </div>
+
+                <!-- System Prompt -->
+                <div id="systemPromptSection" class="form-group hidden wf-full">
+                    <label>角色原始提示词 / Original System Prompt</label>
+                    <textarea id="currentSystemPrompt" readonly style="height: 120px; resize: vertical; background: rgba(0,0,0,0.2); color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 12px;"></textarea>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        这是角色的原始设定提示词，修改需要编辑角色
+                    </div>
+                </div>
+            
+            <div class="ticket">CFG · LORA · WORKFLOW</div>
+        </div>
+    </aside>
 </div>
 
 <script>
