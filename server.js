@@ -397,7 +397,18 @@ app.post('/api/analyze-emotion', async (req, res) => {
 
 // Chat with Emotion API (两轮调用 + 摘要)
 app.post('/api/chat-with-emotion', async (req, res) => {
-    const { messages, systemPrompt, provider, apiKey, baseUrl, model, conversationSummary, appearancePrompt, outfitPrompt } = req.body;
+    const {
+        messages,
+        systemPrompt,
+        provider,
+        apiKey,
+        baseUrl,
+        model,
+        conversationSummary,
+        appearancePrompt,
+        outfitPrompt,
+        previousVisual
+    } = req.body;
     try {
         const result = await aiService.chatWithEmotion(
             messages,
@@ -408,7 +419,8 @@ app.post('/api/chat-with-emotion', async (req, res) => {
             baseUrl,
             conversationSummary,
             appearancePrompt,
-            outfitPrompt
+            outfitPrompt,
+            previousVisual || null
         );
         res.json(result);
     } catch (error) {
@@ -512,6 +524,7 @@ app.post('/api/character-image', async (req, res) => {
         replySnippet,
         messageId,
         visual: visualFromChat,
+        previousVisual,
         provider,
         model,
         apiKey,
@@ -543,7 +556,8 @@ app.post('/api/character-image', async (req, res) => {
                 provider: provider || 'deepseek',
                 model,
                 apiKey,
-                baseUrl
+                baseUrl,
+                previousVisual: previousVisual || null
             });
             if (imagePrompt.isScenePromptUsable(generated) || imagePrompt.tagsFromVisual(generated)) {
                 visual = generated;

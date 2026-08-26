@@ -229,8 +229,34 @@ navy blue school swimsuit, white trim, standing, pool edge, three-quarter front 
 floral summer sundress, thin spaghetti straps, sitting, park bench, front view, dappled sunlight, tree leaves, golden hour glow, gentle shadows, peaceful, nostalgic, romantic countryside, warm earthy tones, soft greens, soft pinks`;
     }
 
-    buildVisualInstruction() {
+    formatPreviousVisual(previousVisual) {
+        if (!previousVisual) return '';
+        if (typeof previousVisual === 'string') return previousVisual.trim();
+        if (previousVisual.prompt) return String(previousVisual.prompt).trim();
+        return ['outfit', 'scene', 'expression', 'action']
+            .map((key) => String(previousVisual[key] || '').trim())
+            .filter(Boolean)
+            .join(', ');
+    }
+
+    continuityInstruction(previousVisual) {
+        const prev = this.formatPreviousVisual(previousVisual);
+        if (!prev) return '';
+        return `
+#连续性（必须遵守）
+上一张图的英文提示词是：
+${prev}
+
+规则：
+1. 若用户本轮没有明确要求更换服装/穿搭，必须沿用上一张图的服装相关 tags（可微调褶皱/角度，但服装类型与主体不变）。
+2. 若用户本轮没有明确要求更换场景/地点/时间，必须沿用上一张图的场景与光影氛围 tags。
+3. 本轮优先更新：表情、动作、姿势、机位，使其贴合当前对白。
+4. 只有用户明确要求换衣服或换场景时，才改对应部分；未要求的部分保持上一张图。`;
+    }
+
+    buildVisualInstruction(previousVisual = null) {
         return `${this.sceneTagExpertPrompt()}
+${this.continuityInstruction(previousVisual)}
 
 #输出格式
 先写角色对白。对白结束后另起一行写 ### ，再只输出一组英文提示词，格式和上面输出示例相同（不要用 --- 输出多组）。`;
@@ -241,12 +267,14 @@ floral summer sundress, thin spaghetti straps, sitting, park bench, front view, 
         provider,
         model,
         apiKey,
-        baseUrl
+        baseUrl,
+        previousVisual = null
     }) {
         const messages = [
             {
                 role: 'system',
                 content: `${this.sceneTagExpertPrompt()}
+${this.continuityInstruction(previousVisual)}
 
 这一次只输出一组。格式：
 
@@ -848,7 +876,7 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
     }
 
     // 带情感分析的对话方法（两轮调用 + 摘要）
-    async chatWithEmotion(messages, characterSystemPrompt, provider, model, apiKey, baseUrl, conversationSummary, appearancePrompt = '', outfitPrompt = '') {
+    async chatWithEmotion(messages, characterSystemPrompt, provider, model, apiKey, baseUrl, conversationSummary, appearancePrompt = '', outfitPrompt = '', previousVisual = null) {
         console.log('=== 开始两轮AI调用 ===');
         const totalStartTime = Date.now();
 
@@ -908,7 +936,7 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
 - 回复要点：${emotionResult.responseSuggestion.keyPoints.join('；') || '无'}
 `.trim();
 
-        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction()}`;
+        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction(previousVisual)}`;
 
         const systemMessage = {
             role: 'system',

@@ -465,14 +465,17 @@
         .timing-info {
             display: flex;
             gap: 8px;
-            font-size: 9px;
-            color: rgba(255,255,255,0.4);
+            font-size: 10px;
+            color: rgba(38, 34, 28, 0.55);
             margin-top: 8px;
             justify-content: flex-end;
+            flex-wrap: wrap;
         }
         
         .timing-item {
-            background: rgba(255,255,255,0.05);
+            background: rgba(38, 34, 28, 0.06);
+            color: rgba(38, 34, 28, 0.72);
+            border: 1px solid rgba(38, 34, 28, 0.14);
             padding: 2px 6px;
             border-radius: 6px;
         }
@@ -881,7 +884,7 @@
             transform: translateX(4px);
         }
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=3">
+    <link rel="stylesheet" href="styles/character-paper.css?v=5">
 </head>
 <body>
 
@@ -1691,6 +1694,7 @@
             role: m.role,
             content: m.content
         }));
+        const previousVisual = getLastVisualContext();
         const payload = {
             messages: messagesForAI,
             systemPrompt: systemPrompt,
@@ -1700,7 +1704,8 @@
             apiKey: document.getElementById('apiKey').value,
             conversationSummary: conversationSummary,
             appearancePrompt: currentCharacter.appearancePrompt || '',
-            outfitPrompt: currentCharacter.outfitPrompt || ''
+            outfitPrompt: currentCharacter.outfitPrompt || '',
+            previousVisual
         };
         
         try {
@@ -1746,7 +1751,7 @@
             
             renderCharacterChat();
             await saveChatHistory();
-            requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual);
+            requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual);
             
         } catch (e) {
             const thinking = document.getElementById(thinkingId);
@@ -1775,7 +1780,22 @@
         }
     }
 
-    async function requestCharacterImage(messageId, emotionBlock, reply, visual) {
+    function getLastVisualContext() {
+        for (let i = characterChatMessages.length - 1; i >= 0; i--) {
+            const msg = characterChatMessages[i];
+            if (msg.role !== 'assistant') continue;
+            if (msg.visual && (msg.visual.prompt || msg.visual.outfit || msg.visual.scene || msg.visual.action)) {
+                return msg.visual;
+            }
+            // only the turn tags (outfit/action/scene), not the full Comfy positive with appearance base
+            if (msg.imageTurnPrompt) {
+                return { prompt: msg.imageTurnPrompt };
+            }
+        }
+        return null;
+    }
+
+    async function requestCharacterImage(messageId, emotionBlock, reply, visual, previousVisual = null) {
         if (!currentCharacter) return;
         const provider = document.getElementById('provider').value;
         let model = document.getElementById('model') ? document.getElementById('model').value : '';
@@ -1790,6 +1810,7 @@
                     intensity: emotionBlock.intensity,
                     replySnippet: reply,
                     visual: visual || null,
+                    previousVisual: previousVisual || null,
                     provider,
                     model,
                     baseUrl: document.getElementById('baseUrl').value,
