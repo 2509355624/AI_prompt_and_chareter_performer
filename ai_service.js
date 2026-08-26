@@ -216,76 +216,181 @@ class AIService {
 
     sceneTagExpertPrompt() {
         return `#角色
-服饰和动作扩展专家，我给你我的初始需求，你直接输出服饰和动作和氛围，严格按照示例输出
+你是「分镜出图提示词专家」。根据当前对白与用户最新动作，输出结构化英文 tags，供 Stable Diffusion / ComfyUI 使用。
+
+#字段说明（必须全部填写，英文逗号分隔的 tag 串）
+1. action — 动作、姿势、肢体语言、与道具/环境的互动（如 standing, water splashing, hands gripping hem）
+2. outfit — 服装类型与穿着状态（同一套衣服变湿/皱了仍写在这里，加 wet fabric, clinging 等，不算换装）
+3. expression — 面部表情与眼神（blush, biting lip, averted eyes）
+4. scene — 具体地点、空间、背景物件（bathroom, shower area, tiled walls；不要只写 indoor）
+5. atmosphere — 光影、色调、空气感、情绪基调（warm steam, soft bathroom lighting, intimate mood）
+6. camera — 机位、景别、构图（medium close-up, three-quarter view, respectful distance）
 
 #禁止事项
-禁止增加角色特征
+- 禁止写角色固定外貌（发色、瞳色、身材、角色名触发词等）
+- 禁止中文
+- 禁止 JSON 外再输出解释
 
-#输出示例
-white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft natural lighting, bright airy atmosphere, dreamy lighting, pale skin glowing, subtle pink tones, innocent, charming, cute little sister, gentle, pure, wholesome summer, gentle freckled beauty
+#输出示例（JSON，一组）
+{"action":"standing under shower spray, water droplets on skin, hands nervously twisting wet shirt hem","outfit":"oversized white men's dress shirt, wet cotton fabric, clinging to body, long sleeves, semi-transparent when wet","expression":"deep blush, embarrassed, biting lower lip, eyes cast downward","scene":"bathroom interior, shower area, white tiles, glass shower door, steam, wet floor","atmosphere":"warm bathroom lighting, soft steam haze, intimate shy mood, water droplets glistening","camera":"medium close-up, front three-quarter view"}
 ---
-navy blue school swimsuit, white trim, standing, pool edge, three-quarter front view, warm afternoon sunlight, water reflections, ripples, clear blue sky, breeze, refreshing, energetic, youthful summer, bright crisp colors, clean minimal composition
+{"action":"mid-jump, spinning, arms spread","outfit":"white frilly bikini, thin strings","expression":"bright smile, excited eyes","scene":"beach shoreline, shallow waves, clear blue sky","atmosphere":"soft natural sunlight, bright airy summer, refreshing breeze","camera":"dynamic side view, full body"}
 ---
-floral summer sundress, thin spaghetti straps, sitting, park bench, front view, dappled sunlight, tree leaves, golden hour glow, gentle shadows, peaceful, nostalgic, romantic countryside, warm earthy tones, soft greens, soft pinks`;
+{"action":"sitting, legs together, hands on lap","outfit":"navy blue school swimsuit, white trim","expression":"shy smile, slight blush","scene":"pool edge, lane lines, water reflections","atmosphere":"warm afternoon sunlight, ripples, energetic youthful summer","camera":"three-quarter front view, waist up"}`;
+    }
+
+    /** Detect whether the latest user message asks to change scene or outfit. */
+    detectVisualChangeIntent(userText) {
+        const text = String(userText || '').trim();
+        if (!text) return { outfitChange: false, sceneChange: false };
+
+        const outfitChange = /换衣服|换装|穿上|脱下|换上|脱掉|另换|另一套|泳装|比基尼|校服|连衣裙|和服|cos/i.test(text);
+
+        const sceneNouns = /浴室|卫生间|厕所|洗手间|淋浴|厨房|客厅|餐厅|卧室|房间|学校|教室|走廊|泳池|游泳池|公园|户外|外面|阳台|天台|海边|沙滩|森林|商场|地铁|办公室|工作室|画桌|bedroom|bathroom|kitchen|pool|park|school|outdoor|shower|beach/i;
+        const sceneVerbs = /(?:到|去|来到|走进|进入|换到|移到|在)(?:了)?\s*\S{0,8}(?:室|厅|场|园|池|边|里|内|外)|我们到|去(?:一下)?\s*\S+/;
+        const sceneChange = sceneVerbs.test(text) || sceneNouns.test(text);
+
+        return { outfitChange, sceneChange };
+    }
+
+    visualChangeHint(changeIntent, userMessage) {
+        if (!userMessage) return '';
+        const lines = ['#本轮画面变更意图（来自用户最新消息）'];
+        if (changeIntent.sceneChange) {
+            lines.push('- 用户明确要求更换场景/地点 → 必须重写 scene 与 atmosphere，禁止沿用 bedroom/indoor 等上一张图场景');
+        } else {
+            lines.push('- 用户未要求换场景 → scene 与 atmosphere 沿用上一张图（可微调光影以配合动作）');
+        }
+        if (changeIntent.outfitChange) {
+            lines.push('- 用户明确要求更换服装 → 必须重写 outfit');
+        } else {
+            lines.push('- 用户未要求换装 → outfit 沿用上一张图（湿透/沾水/褶皱等状态变化写在 outfit 里，不算换装）');
+        }
+        lines.push('- 表情 action camera 必须贴合本轮对白更新');
+        lines.push(`- 用户原话：${userMessage.slice(0, 300)}`);
+        return lines.join('\n');
     }
 
     formatPreviousVisual(previousVisual) {
         if (!previousVisual) return '';
         if (typeof previousVisual === 'string') return previousVisual.trim();
+        const structured = this.formatPreviousVisualStructured(previousVisual);
+        if (structured) return structured;
         if (previousVisual.prompt) return String(previousVisual.prompt).trim();
-        return ['outfit', 'scene', 'expression', 'action']
+        return ['action', 'outfit', 'expression', 'scene', 'atmosphere', 'camera']
             .map((key) => String(previousVisual[key] || '').trim())
             .filter(Boolean)
             .join(', ');
     }
 
-    continuityInstruction(previousVisual) {
-        const prev = this.formatPreviousVisual(previousVisual);
+    formatPreviousVisualStructured(previousVisual) {
+        if (!previousVisual || typeof previousVisual !== 'object') return '';
+        const fields = [
+            ['action', '动作'],
+            ['outfit', '服饰'],
+            ['expression', '表情'],
+            ['scene', '场景'],
+            ['atmosphere', '氛围'],
+            ['camera', '机位']
+        ];
+        const lines = fields
+            .map(([key, label]) => {
+                const val = String(previousVisual[key] || '').trim();
+                return val ? `- ${label}：${val}` : '';
+            })
+            .filter(Boolean);
+        return lines.length ? lines.join('\n') : '';
+    }
+
+    continuityInstruction(previousVisual, changeIntent = {}) {
+        const prevStructured = this.formatPreviousVisualStructured(previousVisual);
+        const prevFlat = !prevStructured && previousVisual
+            ? (typeof previousVisual === 'string' ? previousVisual.trim() : String(previousVisual.prompt || '').trim())
+            : '';
+        const prev = prevStructured || prevFlat;
         if (!prev) return '';
+
+        const sceneRule = changeIntent.sceneChange
+            ? '2. 【换场景】用户本轮明确要求更换地点/环境，必须重写 scene 与 atmosphere，禁止保留 bedroom、cozy bedroom 等上一张图场景 tags。'
+            : '2. 【保场景】用户未要求换场景/地点/时间，必须沿用上一张图的 scene 与 atmosphere tags。';
+
+        const outfitRule = changeIntent.outfitChange
+            ? '1. 【换装】用户本轮明确要求更换服装，必须重写 outfit。'
+            : '1. 【保服饰】用户未要求换装，必须沿用上一张图的 outfit 类型（可追加 wet/soaked/wrinkled 等穿着状态，但服装主体不变）。';
+
         return `
 #连续性（必须遵守）
-上一张图的英文提示词是：
+上一张图各字段：
 ${prev}
 
 规则：
-1. 若用户本轮没有明确要求更换服装/穿搭，必须沿用上一张图的服装相关 tags（可微调褶皱/角度，但服装类型与主体不变）。
-2. 若用户本轮没有明确要求更换场景/地点/时间，必须沿用上一张图的场景与光影氛围 tags。
-3. 本轮优先更新：表情、动作、姿势、机位，使其贴合当前对白。
-4. 只有用户明确要求换衣服或换场景时，才改对应部分；未要求的部分保持上一张图。`;
+${outfitRule}
+${sceneRule}
+3. 本轮必须更新：expression、action、camera，使其贴合当前对白与用户动作。
+4. 只有用户明确要求时才改 outfit 或 scene；未要求的部分按上面规则继承。`;
     }
 
-    buildVisualInstruction(previousVisual = null) {
-        // put continuity FIRST so it is visible in logs and models weight it higher
-        return `${this.continuityInstruction(previousVisual)}
+    buildVisualInstruction(previousVisual = null, changeIntent = {}, userMessage = '') {
+        const changeHint = this.visualChangeHint(changeIntent, userMessage);
+        return `${this.continuityInstruction(previousVisual, changeIntent)}
+${changeHint}
 
 ${this.sceneTagExpertPrompt()}
 
 #输出格式
-先写角色对白。对白结束后另起一行写 ### ，再只输出一组英文提示词，格式和上面输出示例相同（不要用 --- 输出多组）。`;
+先写角色对白。对白结束后另起一行写 ### ，再只输出一个 JSON 对象（不要 markdown 代码块），字段固定为：
+action, outfit, expression, scene, atmosphere, camera
+顺序不可乱，六个字段都必须有值。`;
+    }
+
+    visualFieldOrder() {
+        return ['action', 'outfit', 'expression', 'scene', 'atmosphere', 'camera'];
+    }
+
+    assembleVisualPrompt(visual) {
+        if (!visual || typeof visual !== 'object') return '';
+        return this.visualFieldOrder()
+            .map((key) => String(visual[key] || '').trim())
+            .filter(Boolean)
+            .join(', ');
+    }
+
+    normalizeVisual(visual) {
+        if (!visual || typeof visual !== 'object') return null;
+        const normalized = {};
+        for (const key of this.visualFieldOrder()) {
+            normalized[key] = String(visual[key] || '').trim();
+        }
+        normalized.prompt = this.assembleVisualPrompt(normalized);
+        if (!normalized.prompt) return null;
+        return normalized;
     }
 
     async generateSceneTags({
         reply,
+        userMessage = '',
         provider,
         model,
         apiKey,
         baseUrl,
         previousVisual = null
     }) {
+        const changeIntent = this.detectVisualChangeIntent(userMessage);
         const messages = [
             {
                 role: 'system',
                 content: `${this.sceneTagExpertPrompt()}
-${this.continuityInstruction(previousVisual)}
+${this.continuityInstruction(previousVisual, changeIntent)}
+${this.visualChangeHint(changeIntent, userMessage)}
 
-这一次只输出一组。格式：
+这一次只输出 JSON（不要对白，不要 markdown 代码块），六个字段都要有值。
 
-###
-white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft natural lighting, bright airy atmosphere, dreamy lighting, pale skin glowing, subtle pink tones, innocent, charming, cute little sister, gentle, pure, wholesome summer, gentle freckled beauty`
+示例：
+{"action":"standing under shower spray, water droplets on skin","outfit":"oversized white dress shirt, wet fabric clinging","expression":"deep blush, embarrassed","scene":"bathroom interior, shower area, tiled walls, steam","atmosphere":"warm bathroom lighting, soft steam haze","camera":"medium close-up, front view"}`
             },
             {
                 role: 'user',
-                content: `用户的需求为：\n${reply}`
+                content: `用户最新消息：\n${userMessage || '(无)'}\n\n角色本轮对白：\n${reply}`
             }
         ];
         const raw = await this.completeText(messages, provider, model, apiKey, baseUrl);
@@ -528,17 +633,10 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
             }
             const parsed = JSON.parse(cleaned);
             if (!parsed || typeof parsed !== 'object') return null;
-            const visual = {
-                expression: String(parsed.expression || '').trim(),
-                action: String(parsed.action || '').trim(),
-                outfit: String(parsed.outfit || '').trim(),
-                scene: String(parsed.scene || '').trim()
-            };
-            if (!visual.expression && !visual.action && !visual.outfit && !visual.scene) return null;
-            visual.prompt = [visual.expression, visual.action, visual.outfit, visual.scene]
-                .filter(Boolean)
-                .join(', ');
-            return visual;
+            const visual = this.normalizeVisual(parsed);
+            if (!visual) return null;
+            const hasCore = visual.action || visual.outfit || visual.expression || visual.scene;
+            return hasCore ? visual : null;
         } catch (e) {
             return null;
         }
@@ -568,13 +666,16 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
         };
         const prompt = this.sanitizeEnglishTags(raw);
         if (!prompt) return null;
-        return {
-            prompt,
-            expression: pick('expression'),
+        const visual = {
             action: pick('action'),
             outfit: pick('outfit'),
-            scene: pick('scene')
+            expression: pick('expression'),
+            scene: pick('scene'),
+            atmosphere: pick('atmosphere'),
+            camera: pick('camera'),
+            prompt
         };
+        return this.normalizeVisual(visual) || visual;
     }
 
     splitReplyAndVisual(raw) {
@@ -602,7 +703,7 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
                 visual: this.visualFromTagBlock(block[1])
             };
         }
-        const jsonMatch = text.match(/\{[\s\S]*"(expression|action|scene|outfit)"[\s\S]*\}\s*$/);
+        const jsonMatch = text.match(/\{[\s\S]*"(expression|action|scene|outfit|atmosphere|camera)"[\s\S]*\}\s*$/);
         if (jsonMatch) {
             const visual = this.parseVisualJson(jsonMatch[0]);
             if (visual) {
@@ -932,6 +1033,11 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
         const prevVisualText = this.formatPreviousVisual(previousVisual);
         console.log('   上一轮出图提示词:', prevVisualText ? prevVisualText.slice(0, 120) : '(无)');
 
+        const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
+        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
+        if (changeIntent.sceneChange) console.log('   检测到用户要求换场景');
+        if (changeIntent.outfitChange) console.log('   检测到用户要求换装');
+
         // 构建系统提示词 = 角色设定 + 情绪分析 + 历史摘要（如果有更早历史）
         const summaryText = conversationSummary ? `\n\n【对话历史摘要】\n${conversationSummary}` : '';
         const emotionInfo = `
@@ -943,9 +1049,9 @@ white frilly bikini, thin strings, mid-jump, spinning, dynamic side view, soft n
 - 回复要点：${emotionResult.responseSuggestion.keyPoints.join('；') || '无'}
 `.trim();
 
-        const continuityBlock = this.continuityInstruction(previousVisual);
+        const continuityBlock = this.continuityInstruction(previousVisual, changeIntent);
         // continuity is already inside buildVisualInstruction; keep one clear copy before it for log visibility
-        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction(previousVisual)}`;
+        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${summaryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
         if (continuityBlock) {
             console.log('   已注入服饰/场景连续性指令');
         } else {

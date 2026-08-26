@@ -274,7 +274,8 @@ app.post('/api/chat-history/:characterId', (req, res) => {
             imageTurnPrompt: m.imageTurnPrompt || '',
             imageNegative: m.imageNegative || '',
             checkpointName: m.checkpointName || '',
-            timing: m.timing
+            timing: m.timing,
+            debugInfo: m.debugInfo || null
         }));
         // 兼容旧数据格式（纯数组）
         if (Array.isArray(chatData[characterId])) {
@@ -525,6 +526,7 @@ app.post('/api/character-image', async (req, res) => {
         messageId,
         visual: visualFromChat,
         previousVisual,
+        userMessage,
         provider,
         model,
         apiKey,
@@ -553,6 +555,7 @@ app.post('/api/character-image', async (req, res) => {
         try {
             const generated = await aiService.generateSceneTags({
                 reply: replySnippet,
+                userMessage: userMessage || '',
                 provider: provider || 'deepseek',
                 model,
                 apiKey,

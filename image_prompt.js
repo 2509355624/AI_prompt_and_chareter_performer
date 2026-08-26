@@ -75,7 +75,7 @@ function tagsFromVisual(visual) {
     if (!visual || typeof visual !== 'object') return '';
     if (visual.prompt) return stripChineseFromTags(visual.prompt);
     return stripChineseFromTags(
-        ['expression', 'action', 'outfit', 'scene']
+        ['action', 'outfit', 'expression', 'scene', 'atmosphere', 'camera']
             .map((key) => String(visual[key] || '').trim())
             .filter(Boolean)
             .join(', ')

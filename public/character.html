@@ -541,7 +541,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=7">
+    <link rel="stylesheet" href="styles/character-paper.css?v=8">
 </head>
 <body>
 
@@ -762,7 +762,7 @@
                 <!-- Force Prompt -->
                 <div class="form-group wf-full">
                     <label>强制提示词 / Force Prompt</label>
-                    <textarea id="forcePrompt" placeholder="输入强制提示词，例如：我是和泉纱雾最信任的人" style="height: 80px; resize: vertical;"></textarea>
+                    <textarea id="forcePrompt" placeholder="输入强制提示词，例如：我是和泉纱雾最信任的人" style="height: 80px; resize: vertical;" oninput="saveForcePrompt()"></textarea>
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
                         强制提示词会覆盖角色的部分设定，让AI按照你的要求回应
                     </div>
@@ -790,6 +790,43 @@
     let emotionHistory = [];
     let conversationSummary = '';
     let lastVisualCache = null; // session cache so outfit/scene continuity does not wait for Comfy
+    const FORCE_PROMPT_STORAGE_KEY = 'characterForcePrompts';
+
+    function loadForcePromptMap() {
+        try {
+            const raw = localStorage.getItem(FORCE_PROMPT_STORAGE_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function saveForcePromptMap(map) {
+        try {
+            localStorage.setItem(FORCE_PROMPT_STORAGE_KEY, JSON.stringify(map));
+        } catch (e) {
+            console.warn('Failed to save force prompt', e);
+        }
+    }
+
+    function loadForcePromptForCharacter(characterId) {
+        const box = document.getElementById('forcePrompt');
+        if (!box) return;
+        const map = loadForcePromptMap();
+        box.value = characterId && map[characterId] ? map[characterId] : '';
+    }
+
+    function saveForcePrompt() {
+        if (!currentCharacter) return;
+        const text = document.getElementById('forcePrompt')?.value || '';
+        const map = loadForcePromptMap();
+        if (text.trim()) {
+            map[currentCharacter.id] = text;
+        } else {
+            delete map[currentCharacter.id];
+        }
+        saveForcePromptMap(map);
+    }
 
     function rememberVisual(visual) {
         if (!visual) return;
@@ -797,7 +834,7 @@
             lastVisualCache = { prompt: visual.trim() };
             return;
         }
-        if (visual.prompt || visual.outfit || visual.scene || visual.action || visual.expression) {
+        if (visual.prompt || visual.outfit || visual.scene || visual.action || visual.expression || visual.atmosphere) {
             lastVisualCache = visual;
         }
     }
@@ -1210,6 +1247,7 @@
         
         // Update system prompt display
         document.getElementById('currentSystemPrompt').value = currentCharacter.systemPrompt;
+        loadForcePromptForCharacter(characterId);
         
         // Load chat history
         try {
@@ -1259,7 +1297,14 @@
             if (msg.role === 'user') {
                 return `<div class="message user">${escapeHtml(msg.content).replace(/\n/g, '<br>')}</div>`;
             } else {
-                const hasDebugInfo = msg.debugInfo;
+                const canShowLog = Boolean(
+                    msg.debugInfo
+                    || msg.visual
+                    || msg.imagePrompt
+                    || msg.imageTurnPrompt
+                    || msg.timing
+                    || msg.emotionAnalysis
+                );
                 const emotion = msg.emotionAnalysis?.emotionAnalysis || msg.emotionAnalysis;
                 let imageBlock = '';
                 if (msg.imageStatus === 'pending') {
@@ -1273,9 +1318,9 @@
                     <div class="message ai">
                         ${escapeHtml(msg.content).replace(/\n/g, '<br>')}
                         ${imageBlock}
-                        ${hasDebugInfo ? `<button class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
+                        ${canShowLog ? `<button type="button" class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
                         ${emotion && emotion.primaryEmotion ? `<div class="emotion-tag">${emotion.primaryEmotion} ${emotion.intensity || 0}/10</div>` : ''}
-                        ${msg.visual ? `<div class="emotion-tag">出图：${escapeHtml(msg.visual.prompt || [msg.visual.expression, msg.visual.action, msg.visual.outfit, msg.visual.scene].filter(Boolean).join(' · '))}</div>` : ''}
+                        ${msg.visual ? `<div class="emotion-tag">出图：${escapeHtml(msg.visual.prompt || [msg.visual.action, msg.visual.outfit, msg.visual.expression, msg.visual.scene, msg.visual.atmosphere].filter(Boolean).join(' · '))}</div>` : ''}
                         ${msg.timing ? `
                         <div class="timing-info">
                             <span class="timing-item">情感: ${(msg.timing.emotionTimeMs / 1000).toFixed(1)}s</span>
@@ -1345,7 +1390,7 @@
                         <pre>${escapeHtml(msg.visual ? JSON.stringify(msg.visual, null, 2) : (msg.imageStatus === 'pending' ? '出图尚未完成' : '无'))}</pre>
                     </div>
                     <div class="debug-section">
-                        <h4>本轮服饰 / 动作 / 表情 / 场景（不含底模）</h4>
+                        <h4>本轮动作 / 服饰 / 表情 / 场景 / 氛围（不含底模）</h4>
                         <pre>${escapeHtml(msg.imageTurnPrompt || msg.visual?.prompt || (msg.imageStatus === 'pending' ? '出图尚未完成，请出图后再打开日志' : '无'))}</pre>
                     </div>
                     <div class="debug-section">
@@ -1475,7 +1520,7 @@
             
             renderCharacterChat();
             await saveChatHistory();
-            requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual);
+            requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual, text);
             
         } catch (e) {
             const thinking = document.getElementById(thinkingId);
@@ -1504,7 +1549,7 @@
         }
     }
 
-    async function requestCharacterImage(messageId, emotionBlock, reply, visual, previousVisual = null) {
+    async function requestCharacterImage(messageId, emotionBlock, reply, visual, previousVisual = null, userMessage = '') {
         if (!currentCharacter) return;
         const provider = document.getElementById('provider').value;
         let model = document.getElementById('model') ? document.getElementById('model').value : '';
@@ -1518,6 +1563,7 @@
                     emotion: emotionBlock.primaryEmotion || '平静',
                     intensity: emotionBlock.intensity,
                     replySnippet: reply,
+                    userMessage: userMessage || '',
                     visual: visual || null,
                     previousVisual: previousVisual || null,
                     provider,

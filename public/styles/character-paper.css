@@ -567,6 +567,52 @@ body {
   border: 1px solid rgba(38, 34, 28, 0.18) !important;
 }
 
+.debug-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  background: #fff !important;
+  border: 2px solid var(--text) !important;
+  border-radius: 999px;
+  color: var(--text) !important;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.55);
+  transition: transform 0.12s ease;
+}
+.debug-btn:hover {
+  transform: translateY(-1px);
+  background: var(--accent-soft) !important;
+}
+
+/* debug log modal — sticker readable */
+.debug-modal {
+  background: rgba(38, 34, 28, 0.45) !important;
+}
+.debug-modal-content {
+  background: var(--card) !important;
+  border: 3px solid var(--text) !important;
+  box-shadow: 6px 7px 0 rgba(38, 34, 28, 0.9) !important;
+  color: var(--text) !important;
+}
+.debug-modal-header h3 {
+  color: var(--text) !important;
+  font-family: var(--font-display);
+}
+.debug-section h4 {
+  color: var(--text-2) !important;
+}
+.debug-section pre {
+  background: #fff !important;
+  border: 2px solid var(--text) !important;
+  color: var(--text) !important;
+  box-shadow: 2px 2px 0 rgba(38, 34, 28, 0.35);
+}
+
 /* modal keep readable on kraft */
 .modal-overlay .modal-content,
 .modal-content {
