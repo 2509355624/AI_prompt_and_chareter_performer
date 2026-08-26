@@ -102,7 +102,7 @@ function buildTurnPrompt({ visual }) {
         if (outfit && rest) return `${outfit}\n${rest}`;
         return fromAi;
     }
-    return 'standing, front view, soft natural lighting, cozy indoor atmosphere';
+    return 'standing, from_front, soft_light, cozy, indoors';
 }
 
 function buildPositivePrompt(args) {

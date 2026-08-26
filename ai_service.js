@@ -216,59 +216,94 @@ class AIService {
         return response.data?.choices?.[0]?.message?.content || '';
     }
 
+    sd15TagFormatRules() {
+        return `# SD 1.5 提示词规范（必须严格遵守）
+下游为 Stable Diffusion 1.5 / ComfyUI（CLIP 约 75 token 上限）。你必须输出 **Danbooru / SD1.5 标签串**，禁止自然语言句子。
+
+## 格式铁律
+1. **只用英文逗号分隔的 tags**，每个 tag 是 1～4 个词的短关键词，不是完整句。
+2. **多词 tag 用下划线连接**：blue_hair, school_uniform, medium_shot, looking_at_viewer（不要写 "girl with blue hair"）。
+3. **禁止**冠词/介词/连词堆砌：不要用 a, an, the, with, and then, who is, that has。
+4. **禁止**中文、JSON、markdown 代码块、解释性散文。
+5. **只 tag 画面里看得见的内容**（tag what you see）：脚不出镜就不要写 footwear。
+6. **字段内 tag 顺序**：较重要的放前面（SD1.5 对靠前 token 更敏感）；本系统 Comfy 侧会按 outfit → action → expression → scene → atmosphere → camera 拼接。
+7. **权重语法**（可选、少用）：重要 tag 可写 (tag:1.1)，不要滥用。
+8. 角色固定外貌（发色、瞳色、角色名触发词）**不要写**——已在底模 prompt；你只写本轮变化的 action/outfit/expression/scene/atmosphere/camera。
+
+## 推荐 tag 类型（参考 Danbooru）
+- 动作/姿势：standing, sitting, leaning_forward, arms_behind_back, holding, pointing
+- 服饰：white_shirt, denim_skirt, wet_clothes, clinging, long_sleeves
+- 表情：blush, smile, parted_lips, averted_eyes, teary_eyes
+- 场景：indoors, clothing_store, cake_shop, bathroom, tile_wall, mirror, display_case
+- 氛围/光：warm_lighting, soft_light, fluorescent_light, steam, bokeh, depth_of_field
+- 机位：medium_shot, close-up, cowboy_shot, from_front, three-quarter_view, upper_body
+
+## 错误 vs 正确（务必对照）
+❌ leaning toward glass display case, finger pointing at strawberry cake
+✅ leaning_forward, pointing, finger_on_glass, strawberry_cake, shy_pose
+
+❌ casual home wear, soft cotton t-shirt, comfortable shorts, relaxed fit
+✅ t-shirt, shorts, casual, cotton, loose_clothes
+
+❌ cake shop interior, glass display counter with colorful cakes, wooden tables
+✅ indoors, cake_shop, display_case, cake, wooden_table, pendant_light, chair
+
+❌ medium close-up, front three-quarter view
+✅ medium_close-up, from_front, three-quarter_view, upper_body`;
+    }
+
     sceneTagExpertPrompt() {
         return `#角色
-你是「分镜出图提示词专家」。根据当前对白与用户最新动作，输出结构化英文 tags，供 Stable Diffusion / ComfyUI 使用。
+你是「分镜出图提示词专家」。根据当前对白与用户最新动作，输出 **SD 1.5 / Danbooru 风格** 的结构化英文 tags，供 Stable Diffusion 1.5 / ComfyUI 使用。
 
-#字段说明（必须全部填写，英文逗号分隔的 tag 串）
-1. action — 动作、姿势、肢体语言、与道具/环境的互动（如 standing, water splashing, hands gripping hem）
-2. outfit — 服装类型与穿着状态（同一套衣服变湿/皱了仍写在这里，加 wet fabric, clinging 等，不算换装）
-3. expression — 面部表情与眼神（blush, biting lip, averted eyes）
-4. scene — 人物**此刻物理所在**的具体地点（不是对白里聊到的地方）
-   - 必须写：地点类型 + 该地点特有的 4～6 个可见物件/陈设（例如服装店 → clothing store interior, clothing racks, mannequins, mirror, fitting room curtain, folded garments on shelves）
-   - 禁止只写 indoor / room / bedroom 等模糊词
-   - 禁止因对白出现「蛋糕/吃饭/游戏」等就把 scene 改成餐厅/咖啡厅，除非用户明确已换地点
-5. atmosphere — 光影、色调、空气感、情绪基调（须与 scene 地点类型一致）
-6. camera — 机位、景别、构图（medium close-up, three-quarter view, respectful distance）
+${this.sd15TagFormatRules()}
+
+#字段说明（必须全部填写；每字段一行，值为英文逗号分隔 SD1.5 tags）
+1. action — 姿势、动作、与道具/环境的可见互动（standing, pointing, holding_hanger, water_splash）
+2. outfit — 服装类型与穿着/湿透/皱褶等状态（white_blouse, wet_shirt, clinging；换装才改，否则沿用上一轮）
+3. expression — 面部表情与眼神（blush, smile, biting_lip, looking_away）
+4. scene — 人物**此刻物理所在**地点 + 4～6 个该处可见物件 tag
+   - 例：indoors, clothing_store, clothes_rack, mannequin, mirror, fitting_room, sale_sign
+   - 禁止只写 indoor, room, bedroom 等模糊词
+   - 禁止因对白提到「蛋糕/吃饭」就把 scene 改成 restaurant；互动写进 action
+5. atmosphere — 光影、色调、空气感（warm_lighting, soft_glow, steam, bokeh, cozy）
+6. camera — 景别与机位（medium_shot, cowboy_shot, from_front, three-quarter_view, depth_of_field）
 
 #场景锚定（极重要）
 - scene/atmosphere 描述的是「这一帧相机拍到的空间」，不是对话主题
-- 用户在服装店里聊蛋糕 → scene 仍是 clothing store，最多在 action 里写 holding cake box
-- 沿用上一张图场景时：scene 与 atmosphere **逐词复制**，只改 action / expression / camera
+- 用户在服装店里聊蛋糕 → scene 仍是 clothing_store，蛋糕写进 action: holding_cake_box
+- 沿用上一张图场景时：scene 与 atmosphere **逐 tag 复制**，只改 action / expression / camera
 - 换场景时：scene 必须换一整套地点 + 配套物件，atmosphere 跟着换，禁止留上一场景的 tags
 
 #禁止事项
-- 禁止写角色固定外貌（发色、瞳色、身材、角色名触发词等）
-- 禁止中文
-- 禁止 JSON；禁止 markdown 代码块
-- 禁止在 ### 块外再输出解释
+- 禁止自然语言句子、禁止中文、禁止 JSON、禁止在 ### 块外输出解释
 
-#输出示例（### 包裹，每组六行字段；示例仅说明格式，勿无脑复制场景）
+#输出示例（### 包裹；六行字段；tags 均为 SD1.5 格式，勿无脑复制场景）
 ###
-action: leaning toward glass display case, finger pointing at strawberry cake, hesitant shy gesture
-outfit: casual home wear, soft cotton t-shirt, comfortable shorts, relaxed fit
-expression: blush, shy smile, curious eyes, lips slightly parted
-scene: cake shop interior, glass display counter with colorful cakes, wooden tables, warm pendant lights, cozy seating
-atmosphere: cozy evening, sweet scent of baked goods, soft warm glow, intimate mood
-camera: medium shot, front view, upper body and shop background
-###
----
-###
-action: browsing clothes rack, holding dress on hanger, turning to mirror
-outfit: casual white blouse, denim skirt, flat shoes
-expression: curious smile, comparing options, slightly excited
-scene: clothing store interior, metal clothing racks, mannequins, full-length mirror, fitting room curtains, sale signs
-atmosphere: bright retail fluorescent lighting, clean commercial interior, busy shopping mood
-camera: medium shot, three-quarter view, store aisle depth
+action: standing, leaning_forward, pointing, finger_on_glass, holding_cake_box, shy_pose
+outfit: t-shirt, shorts, casual, cotton, loose_clothes
+expression: blush, shy_smile, parted_lips, curious, looking_at_object
+scene: indoors, cake_shop, display_case, cake, wooden_table, pendant_light, chair
+atmosphere: warm_lighting, soft_glow, cozy, evening, bokeh
+camera: medium_shot, from_front, upper_body, depth_of_field
 ###
 ---
 ###
-action: standing under shower spray, water droplets on skin, hands nervously twisting wet shirt hem
-outfit: oversized white men's dress shirt, wet cotton fabric, clinging to body, long sleeves
-expression: deep blush, embarrassed, biting lower lip, eyes cast downward
-scene: bathroom interior, shower area, white tiles, glass shower door, steam, wet floor
-atmosphere: warm bathroom lighting, soft steam haze, intimate shy mood
-camera: medium close-up, front three-quarter view
+action: standing, browsing, holding_clothes, clothes_hanger, turning, looking_at_mirror
+outfit: white_blouse, denim_skirt, flat_shoes, casual
+expression: smile, curious, excited, comparing
+scene: indoors, clothing_store, clothes_rack, mannequin, mirror, fitting_room, sale_sign
+atmosphere: fluorescent_light, bright, clean, commercial, busy
+camera: medium_shot, three-quarter_view, depth_of_field
+###
+---
+###
+action: standing, showering, wet, water_drop, hands_on_shirt, twisting_clothes
+outfit: white_shirt, dress_shirt, wet_clothes, wet_shirt, clinging, long_sleeves, oversized_shirt
+expression: blush, embarrassed, biting_lip, looking_down
+scene: indoors, bathroom, shower, tile_wall, glass_door, steam, wet_floor
+atmosphere: warm_lighting, steam, haze, intimate, soft_light
+camera: medium_close-up, from_front, three-quarter_view
 ###`;
     }
 
@@ -281,7 +316,7 @@ camera: medium close-up, front three-quarter view
 
         // 仅当用户明确「换地点/去某处」才算换场景；对白里顺带提到地点不算
         const explicitRelocate = /换(?:个|到)?(?:地方|场景|地点|房间)|离开(?:这里|这儿|店|家)|出门|去(?:外面|户外)/i.test(text);
-        const relocateVerb = /(?:我们|一起|带你?|跟我|要)?(?:去|来到|走进|进入|换到|移到|带到|回)/i.test(text);
+        const relocateVerb = /(?:我们|一起|带你?|跟我|要)?(?:去|来到|走进|进入|换到|移到|带到|回)/i;
         const placeTarget = /(?:服装|蛋糕|甜品|咖啡|书|便利|百货|宠物)?店|餐厅|饭店|食堂|酒馆|酒吧|浴室|卫生间|厕所|淋浴|厨房|客厅|卧室|房间|学校|教室|走廊|泳池|游泳池|公园|商场|地铁|办公室|工作室|画桌|海边|沙滩|森林|阳台|天台|clothing store|restaurant|bathroom|bedroom|kitchen|pool|park|school|outdoor|shower|beach|mall|cafe|office/i.test(text);
         const goEatOut = /去.*(?:吃饭|用餐|吃点|吃夜宵)|(?:一起|去)吃(?:个|点)?(?:饭|餐|蛋糕|东西)/i.test(text);
 
@@ -298,13 +333,13 @@ camera: medium close-up, front three-quarter view
         if (changeIntent.sceneChange) {
             lines.push('- 用户明确要求更换场景/地点 → 必须重写 scene（含该地点特有物件 4～6 个）与 atmosphere，禁止保留上一张图的地点 tags');
         } else {
-            lines.push('- 用户未要求换场景 → scene 与 atmosphere **逐词复制**上一张图（禁止因对白话题改成餐厅/户外等）');
+            lines.push('- 用户未要求换场景 → scene 与 atmosphere **逐 tag 复制**上一张图（禁止因对白话题改成 restaurant, outdoor 等）');
             lines.push('- 对白里出现食物/活动/物品 ≠ 换场景；相关互动写在 action 里即可');
         }
         if (changeIntent.outfitChange) {
             lines.push('- 用户明确要求更换服装 → 必须重写 outfit');
         } else {
-            lines.push('- 用户未要求换装 → outfit **逐词复制**上一张图（仅可追加 wet/soaked/wrinkled 等状态词）');
+            lines.push('- 用户未要求换装 → outfit **逐 tag 复制**上一张图（仅可追加 wet, soaked, wrinkled, clinging 等状态 tag）');
         }
         lines.push('- 本轮必须更新：action、expression、camera，贴合当前对白与用户动作');
         lines.push(`- 用户原话：${userMessage.slice(0, 300)}`);
@@ -352,11 +387,11 @@ camera: medium close-up, front three-quarter view
 
         const sceneRule = changeIntent.sceneChange
             ? '2. 【换场景】用户本轮明确要求更换地点，必须重写 scene（地点类型 + 4～6 个该处特有物件）与 atmosphere，禁止保留上一张图的 scene/atmosphere tags。'
-            : '2. 【保场景】用户未要求换地点，scene 与 atmosphere 必须**原样复制**上一张图（逐词复制，禁止改成 restaurant/outdoor/bedroom 等其他地点；对白话题不能驱动换场景）。';
+            : '2. 【保场景】用户未要求换地点，scene 与 atmosphere 必须**原样复制**上一张图（逐 tag 复制，禁止改成 restaurant, outdoor, bedroom 等其他地点；对白话题不能驱动换场景）。';
 
         const outfitRule = changeIntent.outfitChange
             ? '1. 【换装】用户本轮明确要求更换服装，必须重写 outfit。'
-            : '1. 【保服饰】用户未要求换装，必须原样沿用上一张图的 outfit（逐词复制，仅可追加 wet/soaked/wrinkled 等状态词，禁止改成 dress/skirt/pajamas 等其他服装）。';
+            : '1. 【保服饰】用户未要求换装，必须原样沿用上一张图的 outfit（逐 tag 复制，仅可追加 wet, soaked, wrinkled, clinging 等状态 tag，禁止改成 dress, skirt, pajamas 等其他服装）。';
 
         return `
 #连续性（必须遵守 — 违反则视为失败）
@@ -367,8 +402,9 @@ ${prev}
 ${outfitRule}
 ${sceneRule}
 3. 本轮必须更新：action、expression、camera，使其贴合当前对白与用户动作。
-4. 只有用户明确要求时才改 outfit 或 scene；未要求的部分逐词复制，不得擅自发挥。
-5. scene 写物件清单时， inherited 场景的所有关键物件 tags 必须保留（如服装店的 racks, mannequins, mirror）。`;
+4. 只有用户明确要求时才改 outfit 或 scene；未要求的部分逐 tag 复制，不得擅自发挥。
+5. scene 写物件清单时， inherited 场景的所有关键 tags 必须保留（如服装店的 clothes_rack, mannequin, mirror）。
+6. 所有字段必须是 SD 1.5 / Danbooru 逗号分隔 tags，禁止自然语言句子。`;
     }
 
     buildVisualInstruction(previousVisual = null, changeIntent = {}, userMessage = '') {
@@ -379,18 +415,18 @@ ${changeHint}
 ${this.sceneTagExpertPrompt()}
 
 #输出格式
-先写角色对白。对白结束后另起一行，用 ### 包裹分镜字段（每行一个字段，英文逗号分隔 tags）：
+先写角色对白。对白结束后另起一行，用 ### 包裹分镜字段（每行一个字段；值为 **SD1.5 英文逗号分隔 tags**，禁止自然语言句子）：
 
 ###
-action: ...
-outfit: ...
-expression: ...
-scene: ...
-atmosphere: ...
-camera: ...
+action: standing, pointing, ...
+outfit: white_blouse, denim_skirt, ...
+expression: blush, smile, ...
+scene: indoors, clothing_store, clothes_rack, ...
+atmosphere: warm_lighting, soft_glow, ...
+camera: medium_shot, from_front, ...
 ###
 
-六个字段都必须有值，顺序不可乱。`;
+六个字段都必须有值，顺序不可乱。每个字段内用下划线连接多词 tag（如 medium_shot, looking_away）。`;
     }
 
     visualFieldOrder() {
@@ -439,15 +475,15 @@ ${this.continuityInstruction(previousVisual, changeIntent)}
 ${this.visualChangeHint(changeIntent, userMessage)}
 
 这一次只输出 ### 包裹的分镜块（不要对白，不要 JSON，不要代码块）。
-未换场景时 scene/atmosphere 必须与上一张图逐词一致。
+未换场景时 scene/atmosphere 必须与上一张图逐 tag 一致。所有字段必须是 SD1.5 逗号分隔 tags。
 
 ###
-action: browsing clothes rack, holding dress on hanger
-outfit: casual white blouse, denim skirt
-expression: curious smile, comparing options
-scene: clothing store interior, metal clothing racks, mannequins, full-length mirror, fitting room curtains, sale signs
-atmosphere: bright retail fluorescent lighting, clean commercial interior, busy shopping mood
-camera: medium shot, three-quarter view
+action: standing, browsing, holding_clothes, clothes_hanger, turning, looking_at_mirror
+outfit: white_blouse, denim_skirt, flat_shoes, casual
+expression: smile, curious, excited, comparing
+scene: indoors, clothing_store, clothes_rack, mannequin, mirror, fitting_room, sale_sign
+atmosphere: fluorescent_light, bright, clean, commercial, busy
+camera: medium_shot, three-quarter_view, depth_of_field
 ###`
             },
             {

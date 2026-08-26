@@ -541,7 +541,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=15">
+    <link rel="stylesheet" href="styles/character-paper.css?v=16">
 </head>
 <body>
 
@@ -581,6 +581,7 @@
                 </div>
             </div>
             <div class="chat-topbar-actions">
+                <button class="btn-icon" onclick="openVisualRefEditor()" title="查看/编辑发给 AI 的上轮生图参考">🎨</button>
                 <button class="btn-icon" onclick="openExportModal()" title="导出对话截图">📸</button>
                 <button class="btn-icon" onclick="editCurrentCharacter()" title="编辑角色">✎</button>
                 <button class="btn-icon" onclick="clearCurrentChat()" title="清空对话">🗑️</button>
@@ -876,6 +877,52 @@
         saveForcePromptMap(map);
     }
 
+    const VISUAL_REF_FIELDS = [
+        ['outfit', '服饰 outfit'],
+        ['scene', '场景 scene'],
+        ['atmosphere', '氛围 atmosphere'],
+        ['action', '动作 action'],
+        ['expression', '表情 expression'],
+        ['camera', '机位 camera'],
+        ['prompt', '综合 prompt（结构化字段为空时使用）']
+    ];
+    let visualRefSaveTimer = null;
+
+    function cloneVisualRef(obj) {
+        if (!obj) return null;
+        try {
+            return JSON.parse(JSON.stringify(obj));
+        } catch (e) {
+            return { ...obj };
+        }
+    }
+
+    function deriveVisualRefSource(msg) {
+        if (!msg) return null;
+        if (msg.visual && (msg.visual.prompt || msg.visual.outfit || msg.visual.scene || msg.visual.action || msg.visual.expression || msg.visual.atmosphere)) {
+            return cloneVisualRef(msg.visual);
+        }
+        if (msg.imageTurnPrompt && String(msg.imageTurnPrompt).trim()) {
+            return { prompt: String(msg.imageTurnPrompt).trim() };
+        }
+        return null;
+    }
+
+    function findLastVisualSourceMessage() {
+        for (let i = characterChatMessages.length - 1; i >= 0; i--) {
+            const msg = characterChatMessages[i];
+            if (msg.role !== 'assistant') continue;
+            if (msg.visualRefForAi || deriveVisualRefSource(msg)) return msg;
+        }
+        return null;
+    }
+
+    function syncVisualRefFromMessage(msg) {
+        if (!msg || msg.visualRefEdited) return;
+        const source = deriveVisualRefSource(msg);
+        if (source) msg.visualRefForAi = source;
+    }
+
     function rememberVisual(visual) {
         if (!visual) return;
         if (typeof visual === 'string' && visual.trim()) {
@@ -888,20 +935,142 @@
     }
 
     function getLastVisualContext() {
-        for (let i = characterChatMessages.length - 1; i >= 0; i--) {
-            const msg = characterChatMessages[i];
-            if (msg.role !== 'assistant') continue;
-            if (msg.visual && (msg.visual.prompt || msg.visual.outfit || msg.visual.scene || msg.visual.action)) {
-                rememberVisual(msg.visual);
-                return msg.visual;
-            }
-            if (msg.imageTurnPrompt) {
-                const v = { prompt: msg.imageTurnPrompt };
-                rememberVisual(v);
-                return v;
+        const msg = findLastVisualSourceMessage();
+        if (msg) {
+            const ref = msg.visualRefForAi || deriveVisualRefSource(msg);
+            if (ref) {
+                rememberVisual(ref);
+                return ref;
             }
         }
         return lastVisualCache;
+    }
+
+    function collectVisualRefFromEditor(msgId) {
+        const ref = {};
+        for (const [key] of VISUAL_REF_FIELDS) {
+            const el = document.getElementById(`visualRef_${msgId}_${key}`);
+            if (!el) continue;
+            const val = String(el.value || '').trim();
+            if (val) ref[key] = val;
+        }
+        return ref;
+    }
+
+    function fillVisualRefEditor(msgId, ref) {
+        const data = ref || {};
+        for (const [key] of VISUAL_REF_FIELDS) {
+            const el = document.getElementById(`visualRef_${msgId}_${key}`);
+            if (el) el.value = data[key] || '';
+        }
+    }
+
+    async function saveVisualRefFromEditor(msgId, { silent = false } = {}) {
+        const msg = characterChatMessages.find((m) => m.id === msgId);
+        if (!msg) return;
+        const ref = collectVisualRefFromEditor(msgId);
+        if (!Object.keys(ref).length) {
+            if (!silent) {
+                const statusEl = document.getElementById('visualRefSaveStatus');
+                if (statusEl) statusEl.textContent = '至少填写一个字段';
+            }
+            return;
+        }
+        msg.visualRefForAi = ref;
+        msg.visualRefEdited = true;
+        rememberVisual(ref);
+        await saveChatHistory();
+        const statusEl = document.getElementById('visualRefSaveStatus');
+        if (statusEl) {
+            statusEl.textContent = silent ? '已自动保存' : '已保存';
+        }
+    }
+
+    function scheduleVisualRefSave(msgId) {
+        clearTimeout(visualRefSaveTimer);
+        const statusEl = document.getElementById('visualRefSaveStatus');
+        if (statusEl) statusEl.textContent = '保存中…';
+        visualRefSaveTimer = setTimeout(() => {
+            saveVisualRefFromEditor(msgId, { silent: true });
+        }, 450);
+    }
+
+    async function resetVisualRefToAuto(msgId) {
+        const msg = characterChatMessages.find((m) => m.id === msgId);
+        if (!msg) return;
+        msg.visualRefEdited = false;
+        delete msg.visualRefForAi;
+        syncVisualRefFromMessage(msg);
+        const ref = msg.visualRefForAi || deriveVisualRefSource(msg);
+        if (ref) rememberVisual(ref);
+        fillVisualRefEditor(msgId, ref);
+        await saveChatHistory();
+        const statusEl = document.getElementById('visualRefSaveStatus');
+        if (statusEl) statusEl.textContent = '已恢复为出图原始参考';
+    }
+
+    function closeVisualRefEditor() {
+        const modal = document.getElementById('visualRefModal');
+        if (modal) modal.remove();
+        clearTimeout(visualRefSaveTimer);
+    }
+
+    function openVisualRefEditor() {
+        if (!currentCharacter) {
+            alert('请先选择一个角色');
+            return;
+        }
+        const existing = document.getElementById('visualRefModal');
+        if (existing) {
+            closeVisualRefEditor();
+            return;
+        }
+        const msg = findLastVisualSourceMessage();
+        if (!msg) {
+            alert('暂无上一轮生图参考\n\n需要先完成至少一轮对话（最好等出图完成后再编辑）');
+            return;
+        }
+        syncVisualRefFromMessage(msg);
+        const ref = msg.visualRefForAi || deriveVisualRefSource(msg) || {};
+        const msgId = msg.id;
+        const fieldsHtml = VISUAL_REF_FIELDS.map(([key, label]) => `
+            <div class="visual-ref-field">
+                <label for="visualRef_${msgId}_${key}">${escapeHtml(label)}</label>
+                <textarea id="visualRef_${msgId}_${key}" class="visual-ref-input" rows="${key === 'prompt' ? 3 : 2}" placeholder="SD1.5 tags，英文逗号分隔，多词用下划线"></textarea>
+            </div>
+        `).join('');
+
+        const modal = document.createElement('div');
+        modal.id = 'visualRefModal';
+        modal.className = 'system-prompt-modal visual-ref-modal';
+        modal.onclick = (e) => { if (e.target === modal) closeVisualRefEditor(); };
+        modal.innerHTML = `
+            <div class="visual-ref-sheet sticker" onclick="event.stopPropagation()">
+                <div class="tape warm"></div>
+                <div class="system-prompt-head">
+                    <div>
+                        <h3>上轮生图参考 · ${escapeHtml(currentCharacter.name || '')}</h3>
+                        <p class="visual-ref-sub">修改后会自动保存，并作为<strong>下一轮</strong>发给 AI 的 continuity 参考（不影响已发出的对话）</p>
+                    </div>
+                    <button type="button" class="btn-icon" onclick="closeVisualRefEditor()" title="关闭">✕</button>
+                </div>
+                <div class="visual-ref-fields">${fieldsHtml}</div>
+                <div class="visual-ref-footer">
+                    <span id="visualRefSaveStatus" class="visual-ref-status">${msg.visualRefEdited ? '已手动修改' : '跟随出图结果'}</span>
+                    <div class="visual-ref-actions">
+                        <button type="button" class="btn-secondary visual-ref-btn" onclick="resetVisualRefToAuto('${msgId}')">恢复出图原始</button>
+                        <button type="button" class="btn-primary-gradient visual-ref-btn" onclick="saveVisualRefFromEditor('${msgId}')">立即保存</button>
+                    </div>
+                </div>
+                <div class="ticket">VISUAL REF · NEXT TURN</div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        fillVisualRefEditor(msgId, ref);
+        for (const [key] of VISUAL_REF_FIELDS) {
+            const el = document.getElementById(`visualRef_${msgId}_${key}`);
+            if (el) el.addEventListener('input', () => scheduleVisualRefSave(msgId));
+        }
     }
 
     function makeMessageId() {
@@ -2290,10 +2459,12 @@ ${debugInfo.visualBeforeEnforce ? '\nAI 原输出：\n' + escapeHtml(JSON.string
         if (data.checkpointName) msg.checkpointName = data.checkpointName;
         if (data.visual) {
             msg.visual = data.visual;
-            rememberVisual(data.visual);
         } else if (msg.imageTurnPrompt) {
-            rememberVisual({ prompt: msg.imageTurnPrompt });
+            msg.visual = msg.visual || { prompt: msg.imageTurnPrompt };
         }
+        syncVisualRefFromMessage(msg);
+        const refForAi = msg.visualRefForAi || deriveVisualRefSource(msg);
+        if (refForAi) rememberVisual(refForAi);
         if (data.ok && data.imageUrl) {
             msg.imageUrl = data.imageUrl;
             msg.imageStatus = 'ready';

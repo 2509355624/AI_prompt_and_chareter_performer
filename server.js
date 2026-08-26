@@ -289,6 +289,8 @@ app.post('/api/chat-history/:characterId', (req, res) => {
             imageError: m.imageError || '',
             emotionAnalysis: m.emotionAnalysis,
             visual: m.visual || null,
+            visualRefForAi: m.visualRefForAi || null,
+            visualRefEdited: Boolean(m.visualRefEdited),
             imagePrompt: m.imagePrompt || '',
             imageTurnPrompt: m.imageTurnPrompt || '',
             imageNegative: m.imageNegative || '',
