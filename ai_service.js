@@ -231,14 +231,36 @@ class AIService {
 #禁止事项
 - 禁止写角色固定外貌（发色、瞳色、身材、角色名触发词等）
 - 禁止中文
-- 禁止 JSON 外再输出解释
+- 禁止 JSON；禁止 markdown 代码块
+- 禁止在 ### 块外再输出解释
 
-#输出示例（JSON，一组）
-{"action":"standing under shower spray, water droplets on skin, hands nervously twisting wet shirt hem","outfit":"oversized white men's dress shirt, wet cotton fabric, clinging to body, long sleeves, semi-transparent when wet","expression":"deep blush, embarrassed, biting lower lip, eyes cast downward","scene":"bathroom interior, shower area, white tiles, glass shower door, steam, wet floor","atmosphere":"warm bathroom lighting, soft steam haze, intimate shy mood, water droplets glistening","camera":"medium close-up, front three-quarter view"}
+#输出示例（### 包裹，每组六行字段）
+###
+action: standing under shower spray, water droplets on skin, hands nervously twisting wet shirt hem
+outfit: oversized white men's dress shirt, wet cotton fabric, clinging to body, long sleeves
+expression: deep blush, embarrassed, biting lower lip, eyes cast downward
+scene: bathroom interior, shower area, white tiles, glass shower door, steam, wet floor
+atmosphere: warm bathroom lighting, soft steam haze, intimate shy mood, water droplets glistening
+camera: medium close-up, front three-quarter view
+###
 ---
-{"action":"mid-jump, spinning, arms spread","outfit":"white frilly bikini, thin strings","expression":"bright smile, excited eyes","scene":"beach shoreline, shallow waves, clear blue sky","atmosphere":"soft natural sunlight, bright airy summer, refreshing breeze","camera":"dynamic side view, full body"}
+###
+action: mid-jump, spinning, arms spread
+outfit: white frilly bikini, thin strings
+expression: bright smile, excited eyes
+scene: beach shoreline, shallow waves, clear blue sky
+atmosphere: soft natural sunlight, bright airy summer, refreshing breeze
+camera: dynamic side view, full body
+###
 ---
-{"action":"sitting, legs together, hands on lap","outfit":"navy blue school swimsuit, white trim","expression":"shy smile, slight blush","scene":"pool edge, lane lines, water reflections","atmosphere":"warm afternoon sunlight, ripples, energetic youthful summer","camera":"three-quarter front view, waist up"}`;
+###
+action: sitting, legs together, hands on lap
+outfit: navy blue school swimsuit, white trim
+expression: shy smile, slight blush
+scene: pool edge, lane lines, water reflections
+atmosphere: warm afternoon sunlight, ripples, energetic youthful summer
+camera: three-quarter front view, waist up
+###`;
     }
 
     /** Detect whether the latest user message asks to change scene or outfit. */
@@ -340,9 +362,18 @@ ${changeHint}
 ${this.sceneTagExpertPrompt()}
 
 #输出格式
-先写角色对白。对白结束后另起一行写 ### ，再只输出一个 JSON 对象（不要 markdown 代码块），字段固定为：
-action, outfit, expression, scene, atmosphere, camera
-顺序不可乱，六个字段都必须有值。`;
+先写角色对白。对白结束后另起一行，用 ### 包裹分镜字段（每行一个字段，英文逗号分隔 tags）：
+
+###
+action: ...
+outfit: ...
+expression: ...
+scene: ...
+atmosphere: ...
+camera: ...
+###
+
+六个字段都必须有值，顺序不可乱。`;
     }
 
     visualFieldOrder() {
@@ -385,10 +416,16 @@ action, outfit, expression, scene, atmosphere, camera
 ${this.continuityInstruction(previousVisual, changeIntent)}
 ${this.visualChangeHint(changeIntent, userMessage)}
 
-这一次只输出 JSON（不要对白，不要 markdown 代码块），六个字段都要有值。
+这一次只输出 ### 包裹的分镜块（不要对白，不要 JSON，不要代码块）：
 
-示例：
-{"action":"standing under shower spray, water droplets on skin","outfit":"oversized white dress shirt, wet fabric clinging","expression":"deep blush, embarrassed","scene":"bathroom interior, shower area, tiled walls, steam","atmosphere":"warm bathroom lighting, soft steam haze","camera":"medium close-up, front view"}`
+###
+action: standing under shower spray, water droplets on skin
+outfit: oversized white dress shirt, wet fabric clinging
+expression: deep blush, embarrassed
+scene: bathroom interior, shower area, tiled walls, steam
+atmosphere: warm bathroom lighting, soft steam haze
+camera: medium close-up, front view
+###`
             },
             {
                 role: 'user',
@@ -623,6 +660,31 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         };
     }
 
+    parseVisualMarkdownBlock(raw) {
+        let body = String(raw || '').trim();
+        if (!body) return null;
+
+        const fenced = body.match(/###\s*([\s\S]*?)\s*###/);
+        if (fenced) {
+            body = fenced[1].trim();
+        } else if (/^#{3}\s*/.test(body)) {
+            body = body.replace(/^#{3}\s*/, '').trim();
+        }
+
+        const visual = {};
+        for (const key of this.visualFieldOrder()) {
+            const re = new RegExp(`^${key}\\s*[:：]\\s*(.+)$`, 'im');
+            const match = body.match(re);
+            if (match) {
+                visual[key] = match[1].trim().replace(/\*\*/g, '').trim();
+            }
+        }
+
+        const hasCore = visual.action || visual.outfit || visual.expression || visual.scene;
+        if (!hasCore) return null;
+        return this.normalizeVisual(visual);
+    }
+
     parseVisualJson(raw) {
         try {
             let cleaned = String(raw || '')
@@ -650,6 +712,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             .replace(/```(?:json|prompt|text)?/gi, '')
             .replace(/```/g, '')
             .trim();
+        const asMarkdown = this.parseVisualMarkdownBlock(text);
+        if (asMarkdown?.prompt) return asMarkdown.prompt;
         const asJson = this.parseVisualJson(text);
         if (asJson?.prompt) return asJson.prompt;
         const heading = /^(prompt|image\s*prompt|tags|visual|绘图提示词|出图提示词)\s*[:：-]?\s*/i;
@@ -661,6 +725,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
     }
 
     visualFromTagBlock(raw) {
+        const asMarkdown = this.parseVisualMarkdownBlock(raw);
+        if (asMarkdown) return asMarkdown;
         const asJson = this.parseVisualJson(raw);
         if (asJson) return asJson;
         const pick = (key) => {
@@ -683,6 +749,16 @@ ${this.visualChangeHint(changeIntent, userMessage)}
 
     splitReplyAndVisual(raw) {
         const text = String(raw || '').replace(/\r\n/g, '\n');
+
+        const fencedMatch = text.match(/###\s*([\s\S]*?)\s*###/);
+        if (fencedMatch) {
+            const displayReply = text.slice(0, fencedMatch.index).trim();
+            const visual = this.parseVisualMarkdownBlock(fencedMatch[0]);
+            if (visual) {
+                return { displayReply, visual };
+            }
+        }
+
         const headingMatches = [...text.matchAll(/(^|\n)(#{3}[^\n]*)/g)];
         if (headingMatches.length) {
             const last = headingMatches[headingMatches.length - 1];
