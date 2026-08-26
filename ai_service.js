@@ -340,7 +340,7 @@ camera: three-quarter front view, waist up
 
         const outfitRule = changeIntent.outfitChange
             ? '1. 【换装】用户本轮明确要求更换服装，必须重写 outfit。'
-            : '1. 【保服饰】用户未要求换装，必须沿用上一张图的 outfit 类型（可追加 wet/soaked/wrinkled 等穿着状态，但服装主体不变）。';
+            : '1. 【保服饰】用户未要求换装，必须原样沿用上一张图的 outfit（逐词复制，仅可追加 wet/soaked/wrinkled 等状态词，禁止改成 dress/skirt/pajamas 等其他服装）。';
 
         return `
 #连续性（必须遵守）
@@ -380,9 +380,14 @@ camera: ...
         return ['action', 'outfit', 'expression', 'scene', 'atmosphere', 'camera'];
     }
 
+    /** Comfy/SD tag order — outfit first for stronger clothing continuity */
+    comfyTagFieldOrder() {
+        return ['outfit', 'action', 'expression', 'scene', 'atmosphere', 'camera'];
+    }
+
     assembleVisualPrompt(visual) {
         if (!visual || typeof visual !== 'object') return '';
-        return this.visualFieldOrder()
+        return this.comfyTagFieldOrder()
             .map((key) => String(visual[key] || '').trim())
             .filter(Boolean)
             .join(', ');

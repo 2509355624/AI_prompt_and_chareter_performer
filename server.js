@@ -640,6 +640,47 @@ app.post('/api/character-image-sync', async (req, res) => {
     }
 });
 
+app.post('/api/export-chat-strips', (req, res) => {
+    const { folderPath, files } = req.body || {};
+    if (!folderPath || typeof folderPath !== 'string') {
+        return res.status(400).json({ error: 'folderPath is required' });
+    }
+    if (!Array.isArray(files) || !files.length) {
+        return res.status(400).json({ error: 'files array is required' });
+    }
+
+    const resolved = path.resolve(folderPath.trim());
+    try {
+        if (!fs.existsSync(resolved)) {
+            fs.mkdirSync(resolved, { recursive: true });
+        }
+    } catch (e) {
+        return res.status(400).json({ error: `无法创建文件夹: ${e.message}` });
+    }
+
+    const saved = [];
+    try {
+        for (const file of files) {
+            if (!file?.name || !file?.data) continue;
+            const safeName = path.basename(String(file.name)).replace(/[^\w.\-]/g, '_');
+            if (!safeName.toLowerCase().endsWith('.png')) continue;
+            const base64 = String(file.data).replace(/^data:image\/\w+;base64,/, '');
+            const buf = Buffer.from(base64, 'base64');
+            fs.writeFileSync(path.join(resolved, safeName), buf);
+            saved.push(safeName);
+        }
+    } catch (e) {
+        return res.status(500).json({ error: `写入文件失败: ${e.message}` });
+    }
+
+    if (!saved.length) {
+        return res.status(400).json({ error: '没有成功写入任何文件' });
+    }
+
+    console.log('[Export] saved', saved.length, 'strips to', resolved);
+    res.json({ ok: true, folderPath: resolved, saved });
+});
+
 app.post('/api/generate', async (req, res) => {
     const { 
         provider,

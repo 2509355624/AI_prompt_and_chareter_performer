@@ -74,8 +74,10 @@ function stripChineseFromTags(text) {
 function tagsFromVisual(visual) {
     if (!visual || typeof visual !== 'object') return '';
     if (visual.prompt) return stripChineseFromTags(visual.prompt);
+    // outfit first — SD/Comfy weights earlier tokens more; keeps clothing continuity stable
+    const turnTagOrder = ['outfit', 'action', 'expression', 'scene', 'atmosphere', 'camera'];
     return stripChineseFromTags(
-        ['action', 'outfit', 'expression', 'scene', 'atmosphere', 'camera']
+        turnTagOrder
             .map((key) => String(visual[key] || '').trim())
             .filter(Boolean)
             .join(', ')
@@ -92,6 +94,12 @@ function isScenePromptUsable(visual) {
 function buildTurnPrompt({ visual }) {
     const fromAi = tagsFromVisual(visual);
     if (fromAi) {
+        const outfit = stripChineseFromTags(String(visual?.outfit || '').trim());
+        const restOrder = ['action', 'expression', 'scene', 'atmosphere', 'camera'];
+        const rest = stripChineseFromTags(
+            restOrder.map((key) => String(visual?.[key] || '').trim()).filter(Boolean).join(', ')
+        );
+        if (outfit && rest) return `${outfit}\n${rest}`;
         return fromAi;
     }
     return 'standing, front view, soft natural lighting, cozy indoor atmosphere';

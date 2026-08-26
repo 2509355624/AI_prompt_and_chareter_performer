@@ -541,7 +541,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=10">
+    <link rel="stylesheet" href="styles/character-paper.css?v=13">
 </head>
 <body>
 
@@ -581,6 +581,7 @@
                 </div>
             </div>
             <div class="chat-topbar-actions">
+                <button class="btn-icon" onclick="openExportModal()" title="导出对话截图">📸</button>
                 <button class="btn-icon" onclick="editCurrentCharacter()" title="编辑角色">✎</button>
                 <button class="btn-icon" onclick="clearCurrentChat()" title="清空对话">🗑️</button>
                 <button class="btn-icon" onclick="toggleSystemPrompt()" title="查看原始提示词">📝</button>
@@ -782,6 +783,38 @@
     </aside>
 </div>
 
+<div id="exportRenderHost" class="export-render-host" aria-hidden="true"></div>
+
+<div id="exportModalOverlay" class="export-modal-overlay" hidden onclick="if(event.target===this)closeExportModal()">
+    <div class="export-modal sticker" role="dialog" aria-labelledby="exportModalTitle">
+        <div class="export-modal-header">
+            <div>
+                <h3 id="exportModalTitle">导出对话截图</h3>
+                <p class="export-modal-sub">勾选要导出的轮次，生成竖图条（用户气泡 + AI 回复 + 配图），按顺序编号保存</p>
+            </div>
+            <button type="button" class="modal-close-btn" onclick="closeExportModal()">&times;</button>
+        </div>
+        <div class="export-modal-toolbar">
+            <label class="export-select-all"><input type="checkbox" id="exportSelectAll" onchange="toggleExportSelectAll(this.checked)"> 全选</label>
+            <span id="exportTurnCount" class="export-turn-count"></span>
+        </div>
+        <div id="exportTurnList" class="export-turn-list"></div>
+        <div class="export-folder-row">
+            <label for="exportFolderPath">保存文件夹</label>
+            <div class="export-folder-picker">
+                <input type="text" id="exportFolderPath" class="form-input" placeholder="点击「选择文件夹」或粘贴完整路径" oninput="clearExportDirHandle()">
+                <button type="button" class="btn-secondary export-pick-folder-btn" onclick="pickExportFolder()">选择文件夹</button>
+            </div>
+            <p class="export-folder-hint">推荐点按钮选择；Edge / Chrome 可直接写入所选文件夹</p>
+        </div>
+        <div class="export-modal-footer">
+            <button type="button" class="btn-secondary" onclick="closeExportModal()">取消</button>
+            <button type="button" class="btn-primary-gradient" id="exportSubmitBtn" onclick="exportSelectedStrips()">导出 PNG</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
     // --- Global State ---
     let characters = [];
@@ -794,6 +827,8 @@
     let activeChatTurnStream = null;
     let activeChatTurn = null;
     const FORCE_PROMPT_STORAGE_KEY = 'characterForcePrompts';
+    const EXPORT_FOLDER_STORAGE_KEY = 'chatExportFolderPath';
+    let exportDirHandle = null;
 
     function loadForcePromptMap() {
         try {
@@ -1547,7 +1582,6 @@
                         ${imageBlock}
                         ${canShowLog ? `<button type="button" class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
                         ${emotion && emotion.primaryEmotion ? `<div class="emotion-tag">${emotion.primaryEmotion} ${emotion.intensity || 0}/10</div>` : ''}
-                        ${msg.visual ? `<div class="emotion-tag">出图：${escapeHtml(msg.visual.prompt || [msg.visual.action, msg.visual.outfit, msg.visual.expression, msg.visual.scene, msg.visual.atmosphere].filter(Boolean).join(' · '))}</div>` : ''}
                         ${msg.timing ? `
                         <div class="timing-info">
                             <span class="timing-item">情感: ${(msg.timing.emotionTimeMs / 1000).toFixed(1)}s</span>
@@ -1574,6 +1608,241 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function getChatTurnsForExport() {
+        const turns = [];
+        for (let i = 0; i < characterChatMessages.length - 1; i++) {
+            const userMsg = characterChatMessages[i];
+            const assistantMsg = characterChatMessages[i + 1];
+            if (userMsg.role === 'user' && assistantMsg.role === 'assistant') {
+                turns.push({
+                    turnNo: turns.length + 1,
+                    userMsg,
+                    assistantMsg
+                });
+            }
+        }
+        return turns;
+    }
+
+    function previewText(text, maxLen = 48) {
+        const t = String(text || '').replace(/\s+/g, ' ').trim();
+        if (t.length <= maxLen) return t;
+        return t.slice(0, maxLen) + '…';
+    }
+
+    function clearExportDirHandle() {
+        exportDirHandle = null;
+    }
+
+    async function pickExportFolder() {
+        if (!('showDirectoryPicker' in window)) {
+            alert('当前浏览器不支持文件夹选择，请手动粘贴完整路径（如 D:\\抖音素材\\纱雾对话）');
+            document.getElementById('exportFolderPath').focus();
+            return;
+        }
+        try {
+            exportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            const input = document.getElementById('exportFolderPath');
+            input.value = exportDirHandle.name;
+            localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, exportDirHandle.name);
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                alert('选择文件夹失败: ' + e.message);
+            }
+        }
+    }
+
+    async function saveBlobToPickedDir(dirHandle, filename, blob) {
+        const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+    }
+
+    function openExportModal() {
+        if (!currentCharacter) {
+            alert('请先选择角色');
+            return;
+        }
+        const turns = getChatTurnsForExport();
+        if (!turns.length) {
+            alert('还没有可导出的对话轮次（需要至少一轮用户消息 + AI 回复）');
+            return;
+        }
+        const savedFolder = localStorage.getItem(EXPORT_FOLDER_STORAGE_KEY);
+        if (savedFolder) {
+            document.getElementById('exportFolderPath').value = savedFolder;
+        }
+        const list = document.getElementById('exportTurnList');
+        list.innerHTML = turns.map((turn) => {
+            const hasImage = turn.assistantMsg.imageUrl && turn.assistantMsg.imageStatus === 'ready';
+            return `
+                <label class="export-turn-item">
+                    <input type="checkbox" class="export-turn-cb" data-turn-no="${turn.turnNo}" checked>
+                    <span class="export-turn-no">${String(turn.turnNo).padStart(2, '0')}</span>
+                    <span class="export-turn-preview">
+                        <strong>你：</strong>${escapeHtml(previewText(turn.userMsg.content))}<br>
+                        <strong>${escapeHtml(currentCharacter.name)}：</strong>${escapeHtml(previewText(turn.assistantMsg.content))}
+                        ${hasImage ? '<span class="export-has-img">📷 有配图</span>' : '<span class="export-no-img">无配图</span>'}
+                    </span>
+                </label>
+            `;
+        }).join('');
+        document.getElementById('exportTurnCount').textContent = `共 ${turns.length} 轮`;
+        document.getElementById('exportSelectAll').checked = true;
+        document.getElementById('exportModalOverlay').hidden = false;
+    }
+
+    function closeExportModal() {
+        document.getElementById('exportModalOverlay').hidden = true;
+    }
+
+    function toggleExportSelectAll(checked) {
+        document.querySelectorAll('.export-turn-cb').forEach((cb) => { cb.checked = checked; });
+    }
+
+    function loadImageForExport(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('图片加载失败: ' + src));
+            img.src = src;
+        });
+    }
+
+    function buildExportStripElement(turn) {
+        const host = document.getElementById('exportRenderHost');
+        host.innerHTML = '';
+        const strip = document.createElement('div');
+        strip.className = 'export-strip';
+        const charName = currentCharacter?.name || 'AI';
+        const aiText = String(turn.assistantMsg.content || '').trim();
+        const imageUrl = turn.assistantMsg.imageUrl;
+        const hasImage = imageUrl && turn.assistantMsg.imageStatus === 'ready';
+
+        strip.innerHTML = `
+            <div class="export-strip-inner">
+                <div class="export-user-bubble">${escapeHtml(turn.userMsg.content).replace(/\n/g, '<br>')}</div>
+                <div class="export-ai-block">
+                    <div class="export-ai-name">${escapeHtml(charName)}</div>
+                    <div class="export-ai-text">${escapeHtml(aiText).replace(/\n/g, '<br>')}</div>
+                    ${hasImage ? `<img class="export-ai-image" src="${escapeHtml(imageUrl)}" alt="">` : ''}
+                </div>
+            </div>
+        `;
+        host.appendChild(strip);
+        return strip;
+    }
+
+    async function renderTurnToPngBlob(turn) {
+        const strip = buildExportStripElement(turn);
+        const imgEl = strip.querySelector('.export-ai-image');
+        if (imgEl) {
+            await loadImageForExport(imgEl.src);
+        }
+        if (typeof html2canvas !== 'function') {
+            throw new Error('html2canvas 未加载，请检查网络');
+        }
+        const canvas = await html2canvas(strip, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#f6edda',
+            logging: false
+        });
+        return new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => {
+                if (blob) resolve(blob);
+                else reject(new Error('生成 PNG 失败'));
+            }, 'image/png');
+        });
+    }
+
+    function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    async function exportSelectedStrips() {
+        const folderPath = document.getElementById('exportFolderPath').value.trim();
+        if (!exportDirHandle && !folderPath) {
+            alert('请选择或填写保存文件夹');
+            return;
+        }
+        const selectedTurnNos = [...document.querySelectorAll('.export-turn-cb:checked')]
+            .map((cb) => Number(cb.dataset.turnNo))
+            .sort((a, b) => a - b);
+        if (!selectedTurnNos.length) {
+            alert('请至少选择一轮对话');
+            return;
+        }
+        const allTurns = getChatTurnsForExport();
+        const selectedTurns = selectedTurnNos
+            .map((no) => allTurns.find((t) => t.turnNo === no))
+            .filter(Boolean);
+
+        const btn = document.getElementById('exportSubmitBtn');
+        btn.disabled = true;
+        btn.textContent = '导出中…';
+
+        try {
+            const saved = [];
+
+            if (exportDirHandle) {
+                const perm = await exportDirHandle.requestPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') {
+                    throw new Error('没有所选文件夹的写入权限，请重新选择');
+                }
+                for (let i = 0; i < selectedTurns.length; i++) {
+                    btn.textContent = `导出中 ${i + 1}/${selectedTurns.length}…`;
+                    const blob = await renderTurnToPngBlob(selectedTurns[i]);
+                    const name = `${String(i + 1).padStart(3, '0')}.png`;
+                    await saveBlobToPickedDir(exportDirHandle, name, blob);
+                    saved.push(name);
+                }
+                localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, exportDirHandle.name);
+                alert(`已导出 ${saved.length} 张到文件夹：\n${exportDirHandle.name}`);
+            } else {
+                const files = [];
+                for (let i = 0; i < selectedTurns.length; i++) {
+                    btn.textContent = `导出中 ${i + 1}/${selectedTurns.length}…`;
+                    const blob = await renderTurnToPngBlob(selectedTurns[i]);
+                    const data = await blobToBase64(blob);
+                    files.push({
+                        name: `${String(i + 1).padStart(3, '0')}.png`,
+                        data
+                    });
+                }
+
+                localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, folderPath);
+
+                const res = await fetch('/api/export-chat-strips', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folderPath, files })
+                });
+                const result = await res.json();
+                if (!res.ok || !result.ok) {
+                    throw new Error(result.error || '导出失败');
+                }
+                saved.push(...result.saved);
+                alert(`已导出 ${result.saved.length} 张到：\n${result.folderPath}`);
+            }
+
+            closeExportModal();
+        } catch (e) {
+            alert('导出失败: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '导出 PNG';
+            document.getElementById('exportRenderHost').innerHTML = '';
+        }
     }
     
     function showDebugInfo(index) {
