@@ -67,7 +67,7 @@ class AIService {
 6. 需要全身/站立/特定姿势 → action/camera 写清楚（full_body, standing, legs 等）；不要擅自改成更安全保守的姿势。
 7. continuity 快照只继承服饰与场景类型；action/expression 必须根据本轮对话重写，禁止复制上一轮动作。`;
 
-        this.outfitVisualAnalysisPrompt = `你是 SD 1.5 出图 tag 策划。根据【本轮对话】决定本帧 outfitPlan 与 visualPlan。
+        this.outfitVisualAnalysisPrompt = `你是 SD 1.5 出图 tag 策划。根据【本轮对话】决定本帧各字段的英文 SD tags。
 
 {sd15_handbook}
 
@@ -80,29 +80,35 @@ class AIService {
 【本轮角色回复】
 {assistant_reply}
 
-【输出格式】
-{
-  "analysisVersion": "1.0",
-  "outfitPlan": {
-    "changeOutfit": false,
-    "outfitTags": "nude",
-    "note": "一句话（中文）"
-  },
-  "visualPlan": {
-    "action": "standing, full_body, arms_outstretched",
-    "expression": "blush, embarrassed",
-    "scene": "indoors, art_studio",
-    "atmosphere": "soft_morning_light, calm",
-    "camera": "full_body_shot, from_front, eye_level"
-  }
-}
+【输出格式 — 严格按以下 ### 分段输出，不要 JSON，不要 markdown 代码块】
+
+###服饰
+light_blue_dress, casual_home_clothes
+
+###动作
+standing, full_body, looking_down, adjusting_skirt
+
+###表情
+blush, embarrassed, shy
+
+###场景
+changing_room
+
+###氛围
+intimate, flustered, soft_morning_light
+
+###机位
+full_body_shot, from_front, eye_level
 
 【规则】
-- 只根据【本轮用户】和【本轮角色回复】决定 action / expression / camera；用户要求的姿势必须如实写入 action。
-- 未在本轮要求换装 → outfitTags 复制 continuity 快照中的服饰。
-- 本轮明确要求换装/脱衣 → 更新 outfitTags。
-- 未在本轮要求换地点 → scene 继承 continuity 中的场景类型（保持抽象，不加道具 tag）。
-- 只输出 JSON。`;
+- 只输出上述 ### 分段；每段下方写英文逗号分隔 tags。
+- 动作/表情/机位：只根据【本轮用户】和【本轮角色回复】决定。
+- 服饰（最重要）：
+  · 若角色回复已描述当前穿着（如「换好了」「穿着…连衣裙/居家服」）→ 必须写入对应英文服饰 tags，即使 continuity 是 nude。
+  · 若用户明确要求换装/脱衣 → 更新服饰 tags。
+  · 仅当本轮对话未提及穿着变化、角色也未描述新穿着 → 才复制 continuity 快照中的服饰。
+- 场景：未换地点则继承 continuity 场景类型（保持抽象，不加 desk/tablet 等道具 tag）。
+- 只输出 ### 分段内容，不要解释。`;
     }
 
     // 解析火山引擎模型别名
@@ -261,7 +267,55 @@ class AIService {
         return response.data?.choices?.[0]?.message?.content || '';
     }
 
-    /** 统一 JSON 分析调用（情感 / 服饰分镜） */
+    /** 统一纯文本分析调用（生图 ### 分段） */
+    async callTextAnalysis(prompt, provider, model, apiKey, baseUrl) {
+        const messages = [{ role: 'user', content: prompt }];
+        if (provider === 'ollama') {
+            const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+            const response = await axios.post(`${url}/api/chat`, {
+                model,
+                messages,
+                stream: false,
+                keep_alive: 0
+            }, { timeout: 600000 });
+            return response.data?.message?.content || '';
+        }
+        if (provider === 'doubao') {
+            const key = process.env.VOLC_API_KEY;
+            const url = (process.env.VOLC_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3').replace(/\/$/, '');
+            const endpoint = url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
+            const response = await axios.post(endpoint, {
+                model: this.resolveDoubaoModel(model),
+                messages,
+                stream: false
+            }, {
+                headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 60000
+            });
+            return response.data?.choices?.[0]?.message?.content || '';
+        }
+        const isDeepseek = provider === 'deepseek';
+        const key = isDeepseek ? process.env.DEEPSEEK_API_KEY : apiKey;
+        const url = (isDeepseek
+            ? (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com')
+            : (baseUrl || 'https://api.openai.com/v1')
+        ).replace(/\/$/, '');
+        const endpoint = url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
+        const response = await axios.post(endpoint, {
+            model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
+            messages,
+            stream: false
+        }, {
+            headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+            timeout: 600000
+        });
+        return response.data?.choices?.[0]?.message?.content || '';
+    }
+
+    /** 统一 JSON 分析调用（情感） */
     async callJsonAnalysis(prompt, provider, model, apiKey, baseUrl) {
         const messages = [{ role: 'user', content: prompt }];
         if (provider === 'ollama') {
@@ -519,35 +573,61 @@ camera: medium_shot, from_front, upper_body
         return /不需要.{0,10}(?:衣服|衣物|服饰|服装|穿)|不要.{0,10}(?:衣服|衣物|服饰|服装)|不穿衣服|不用穿|没穿衣服|脱(?:掉|了|光|下)?(?:衣服|光)?|去掉(?:所有)?(?:衣服|服饰|服装)|全裸|裸体|赤裸|\bnude\b|\bnaked\b|把衣服换掉|换掉衣服|衣服换掉|脱掉/i.test(combined);
     }
 
-    shouldStripClothing(emotionResult, lastUserMsg) {
+    shouldStripClothing(emotionResult, lastUserMsg, assistantReply = '') {
         if (this.detectRemoveClothingIntent(lastUserMsg)) return true;
+        if (this.detectOutfitFromReply(assistantReply).wearingClothes) return false;
         const tags = String(emotionResult?.outfitPlan?.outfitTags || '').trim().toLowerCase();
         return tags === 'nude' || tags === 'naked' || /^nude(?:,|$)/.test(tags);
     }
 
-    stripClothingFromVisualPlan(visualPlan) {
-        if (!visualPlan || typeof visualPlan !== 'object') return;
-        for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
-            visualPlan[key] = this.stripClothingTags(visualPlan[key]);
+    /** 从角色对白中识别是否已穿着/换好衣服，并映射为 SD 服饰 tags */
+    detectOutfitFromReply(assistantReply) {
+        const text = String(assistantReply || '').trim();
+        if (!text) {
+            return { wearingClothes: false, outfitChange: false, outfitTags: '' };
         }
+
+        const undressed = /(?:全裸|裸体|没穿|未穿|光着|赤裸|\bnude\b|\bnaked\b)/i.test(text);
+        const wearingClothes = !undressed && (
+            /换好了|穿好|穿着|换上了|整理着.*?裙|居家服|连衣裙|裙子|睡衣|制服|连帽|T恤|衬衫|卫衣|和服|泳装/i.test(text)
+            || /(?:我|已经).{0,8}(?:换|穿)/i.test(text)
+        );
+        const outfitChange = wearingClothes || /换(?:好|完|上)|去换|正在换|换衣/i.test(text);
+
+        let outfitTags = '';
+        if (/浅蓝.*?连衣裙|蓝色.*?连衣裙|light.?blue.*dress/i.test(text)) {
+            outfitTags = 'light_blue_dress, casual_home_clothes';
+        } else if (/蕾丝.*?连衣裙|lace.*dress/i.test(text)) {
+            outfitTags = 'lace_dress';
+        } else if (/蕾丝.*?睡衣|lace.*pajama/i.test(text)) {
+            outfitTags = 'lace_pajamas, pajamas';
+        } else if (/居家服|home.?clothes|loungewear/i.test(text)) {
+            outfitTags = 'casual_home_clothes, loungewear';
+        } else if (/水手服|sailor/i.test(text)) {
+            outfitTags = 'sailor_uniform, pleated_skirt';
+        } else if (/连衣裙|\bdress\b/i.test(text)) {
+            outfitTags = 'dress, casual_dress';
+        } else if (/睡衣|pajama/i.test(text)) {
+            outfitTags = 'pajamas';
+        } else if (/短裙|skirt/i.test(text)) {
+            outfitTags = 'skirt, casual_clothes';
+        } else if (wearingClothes) {
+            outfitTags = 'casual_clothes';
+        }
+
+        return { wearingClothes, outfitChange, outfitTags };
     }
 
-    stripClothingFromVisual(visual) {
-        if (!visual || typeof visual !== 'object') return visual;
-        const result = { ...visual };
-        for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
-            result[key] = this.stripClothingTags(this.stripNegationTags(result[key]));
-        }
-        if (String(result.prompt || '').trim()) {
-            result.prompt = this.assembleVisualPrompt(result);
-        }
-        return result;
+    isNudeOutfitTags(tags) {
+        const t = String(tags || '').trim().toLowerCase();
+        return !t || t === 'nude' || t === 'naked' || /^nude(?:,|$)/.test(t);
     }
 
-    resolveChangeIntent(lastUserMsg, emotionResult, previousVisual) {
+    resolveChangeIntent(lastUserMsg, emotionResult, previousVisual, assistantReply = '') {
         const fromRegex = this.detectVisualChangeIntent(lastUserMsg);
+        const fromReply = this.detectOutfitFromReply(assistantReply);
         const removeClothing = this.detectRemoveClothingIntent(lastUserMsg);
-        const outfitChange = fromRegex.outfitChange || removeClothing;
+        const outfitChange = fromRegex.outfitChange || removeClothing || fromReply.outfitChange;
 
         return {
             outfitChange,
@@ -573,6 +653,25 @@ camera: medium_shot, from_front, upper_body
             ? `\n\n【当前穿着（叙事参考）】\n${outfitDesc}`
             : '';
         return `${characterSystemPrompt}\n\n${emotionInfo}${outfitBlock}${memoryText}`.trim();
+    }
+
+    stripClothingFromVisualPlan(visualPlan) {
+        if (!visualPlan || typeof visualPlan !== 'object') return;
+        for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
+            visualPlan[key] = this.stripClothingTags(visualPlan[key]);
+        }
+    }
+
+    stripClothingFromVisual(visual) {
+        if (!visual || typeof visual !== 'object') return visual;
+        const result = { ...visual };
+        for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
+            result[key] = this.stripClothingTags(this.stripNegationTags(result[key]));
+        }
+        if (String(result.prompt || '').trim()) {
+            result.prompt = this.assembleVisualPrompt(result);
+        }
+        return result;
     }
 
     formatPreviousVisualForEmotionAnalysis(previousVisual, userMessage = '') {
@@ -627,13 +726,47 @@ camera: medium_shot, from_front, upper_body
             .join(', ');
     }
 
-    ensureOutfitPlan(visualResult, previousVisual, lastUserMsg) {
+    outfitVisualSectionAliases() {
+        return {
+            outfit: ['服饰', '服装', 'outfit', 'clothing'],
+            action: ['动作', 'action', '姿势'],
+            expression: ['表情', 'expression'],
+            scene: ['场景', 'scene'],
+            atmosphere: ['氛围', 'atmosphere', '光线'],
+            camera: ['机位', '镜头', 'camera', '构图']
+        };
+    }
+
+    parseOutfitVisualSections(content) {
+        const raw = String(content || '').trim();
+        const fields = { outfit: '', action: '', expression: '', scene: '', atmosphere: '', camera: '' };
+        const aliases = this.outfitVisualSectionAliases();
+        const re = /###\s*([^\n#]+)\s*\r?\n([\s\S]*?)(?=###\s*|$)/g;
+        let match;
+        while ((match = re.exec(raw)) !== null) {
+            const title = match[1].trim().toLowerCase();
+            const body = match[2].trim().replace(/\*\*/g, '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || '';
+            for (const [key, names] of Object.entries(aliases)) {
+                if (names.some((name) => title === name.toLowerCase() || title.includes(name))) {
+                    if (body) fields[key] = body;
+                    break;
+                }
+            }
+        }
+        return fields;
+    }
+
+    ensureOutfitPlan(visualResult, previousVisual, lastUserMsg, assistantReply = '') {
         if (!visualResult) return;
         if (!visualResult.outfitPlan || typeof visualResult.outfitPlan !== 'object') {
             visualResult.outfitPlan = { changeOutfit: false, outfitTags: '', note: '' };
         }
         const plan = visualResult.outfitPlan;
-        const intent = this.detectVisualChangeIntent(lastUserMsg);
+        const userIntent = this.detectVisualChangeIntent(lastUserMsg);
+        const replyOutfit = this.detectOutfitFromReply(assistantReply);
+        const prev = this.formatPreviousOutfitTags(previousVisual);
+        const prevIsNude = this.isNudeOutfitTags(prev);
+        const aiTags = String(plan.outfitTags || '').trim();
 
         if (this.detectRemoveClothingIntent(lastUserMsg)) {
             plan.changeOutfit = true;
@@ -642,33 +775,48 @@ camera: medium_shot, from_front, upper_body
             return;
         }
 
-        if (!intent.outfitChange) {
-            const prev = this.formatPreviousOutfitTags(previousVisual);
-            if (prev && prev !== '（无，首轮）' && prev !== '（无）') {
-                plan.changeOutfit = false;
-                plan.outfitTags = prev;
-                plan.note = '沿用上一张已出图服饰';
+        if (replyOutfit.wearingClothes && replyOutfit.outfitTags) {
+            if (this.isNudeOutfitTags(aiTags) || prevIsNude) {
+                plan.changeOutfit = true;
+                plan.outfitTags = this.isNudeOutfitTags(aiTags) ? replyOutfit.outfitTags : aiTags;
+                plan.note = plan.note || '角色回复已描述穿着，更新服饰';
                 return;
             }
         }
 
-        if (String(plan.outfitTags || '').trim()) return;
+        if (replyOutfit.wearingClothes && prevIsNude && aiTags && !this.isNudeOutfitTags(aiTags)) {
+            plan.changeOutfit = true;
+            plan.note = plan.note || '本轮角色已换装';
+            return;
+        }
 
-        const prev = this.formatPreviousOutfitTags(previousVisual);
-        if (prev && prev !== '（无，首轮）' && prev !== '（无）') {
+        if (!userIntent.outfitChange && !replyOutfit.outfitChange) {
+            if (prev && prev !== '（无，首轮）' && prev !== '（无）') {
+                if (!(prevIsNude && replyOutfit.wearingClothes)) {
+                    plan.changeOutfit = false;
+                    plan.outfitTags = prev;
+                    plan.note = '沿用上一张已出图服饰';
+                    return;
+                }
+            }
+        }
+
+        if (aiTags) return;
+
+        if (prev && prev !== '（无，首轮）' && prev !== '（无）' && !(prevIsNude && replyOutfit.wearingClothes)) {
             plan.changeOutfit = false;
             plan.outfitTags = prev;
             plan.note = plan.note || '沿用上一张服饰';
         }
     }
 
-    ensureVisualPlan(visualResult, previousVisual, lastUserMsg) {
+    ensureVisualPlan(visualResult, previousVisual, lastUserMsg, assistantReply = '') {
         if (!visualResult) return;
         if (!visualResult.visualPlan || typeof visualResult.visualPlan !== 'object') {
             visualResult.visualPlan = {};
         }
         const plan = visualResult.visualPlan;
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualResult, previousVisual);
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualResult, previousVisual, assistantReply);
         const prev = previousVisual && typeof previousVisual === 'object' ? previousVisual : {};
 
         if (!changeIntent.sceneChange) {
@@ -690,12 +838,12 @@ camera: medium_shot, from_front, upper_body
                 plan.action = 'arms_outstretched, shy_pose';
             }
         }
-        if (this.shouldStripClothing(visualResult, lastUserMsg)) {
+        if (this.shouldStripClothing(visualResult, lastUserMsg, assistantReply)) {
             this.stripClothingFromVisualPlan(plan);
         }
     }
 
-    buildVisualFromEmotionPlan(visualAnalysisResult, previousVisual, changeIntent, lastUserMsg = '') {
+    buildVisualFromEmotionPlan(visualAnalysisResult, previousVisual, changeIntent, lastUserMsg = '', assistantReply = '') {
         const vp = visualAnalysisResult?.visualPlan || {};
         const merged = {
             action: this.stripNegationTags(this.sanitizeEnglishTags(vp.action) || String(vp.action || '').trim()),
@@ -713,7 +861,7 @@ camera: medium_shot, from_front, upper_body
         );
         let visual = withOutfit;
         const clothingEnforced = [];
-        if (this.shouldStripClothing(visualAnalysisResult, lastUserMsg)) {
+        if (this.shouldStripClothing(visualAnalysisResult, lastUserMsg, assistantReply)) {
             visual = this.stripClothingFromVisual(visual);
             clothingEnforced.push('clothing_purge_all_fields');
         }
@@ -1315,6 +1463,28 @@ ${this.visualChangeHint(changeIntent, userMessage)}
     }
 
     parseOutfitVisualResponse(content) {
+        const sections = this.parseOutfitVisualSections(content);
+        const hasSections = sections.outfit || sections.action || sections.scene || sections.expression;
+        if (hasSections) {
+            const outfitRaw = sections.outfit;
+            const outfitTags = this.sanitizeEnglishTags(outfitRaw) || outfitRaw;
+            return {
+                analysisVersion: '1.0',
+                outfitPlan: {
+                    changeOutfit: Boolean(outfitTags && !this.isNudeOutfitTags(outfitTags)),
+                    outfitTags,
+                    note: ''
+                },
+                visualPlan: {
+                    action: this.sanitizeEnglishTags(sections.action) || sections.action,
+                    expression: this.sanitizeEnglishTags(sections.expression) || sections.expression,
+                    scene: this.sanitizeEnglishTags(sections.scene) || sections.scene,
+                    atmosphere: this.sanitizeEnglishTags(sections.atmosphere) || sections.atmosphere,
+                    camera: this.sanitizeEnglishTags(sections.camera) || sections.camera
+                }
+            };
+        }
+
         try {
             const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
             const parsed = JSON.parse(cleanContent);
@@ -1326,7 +1496,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                 };
             }
         } catch (e) {
-            console.warn('Outfit/Visual JSON parsing failed:', e.message);
+            console.warn('Outfit/Visual parse failed:', e.message);
         }
         return {
             analysisVersion: '1.0',
@@ -1556,8 +1726,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             ? outfitResultRaw
             : this.parseOutfitVisualResponse('');
 
-        this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg);
-        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg);
+        this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg, displayReply);
+        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg, displayReply);
         const visualAnalysis = outfitOnly;
         const emotionResult = this.mergeVisualAnalysis(emotionOnly, outfitOnly);
 
@@ -1568,9 +1738,9 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         });
         emitFn('phase', { phase: 'parsing_visual' });
 
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualAnalysis, previousVisual);
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualAnalysis, previousVisual, displayReply);
         const { visual, enforced: allEnforced, visualFromPlan } = this.buildVisualFromEmotionPlan(
-            visualAnalysis, previousVisual, changeIntent, lastUserMsg
+            visualAnalysis, previousVisual, changeIntent, lastUserMsg, displayReply
         );
         const replyTimeMs = Date.now() - replyStartTime;
         const totalTimeMs = Date.now() - totalStartTime;
@@ -1696,7 +1866,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         };
 
         try {
-            const raw = await this.callJsonAnalysis(prompt, provider, model, apiKey, baseUrl);
+            const raw = await this.callTextAnalysis(prompt, provider, model, apiKey, baseUrl);
             if (raw) return { ...this.parseOutfitVisualResponse(raw), debugInfo };
         } catch (e) {
             console.error('Outfit/Visual Analysis Error:', e.message);
