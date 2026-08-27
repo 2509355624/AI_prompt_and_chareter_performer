@@ -46,6 +46,36 @@ const PRESETS_FILE = path.join(dataDir, 'presets.json');
 const CHARACTERS_FILE = path.join(dataDir, 'characters.json');
 const CHAT_HISTORY_FILE = path.join(dataDir, 'chat_history.json');
 const EMOTION_HISTORY_FILE = path.join(dataDir, 'emotion_history.json');
+const COMFY_WORKFLOW_FILE = path.join(dataDir, 'comfy_workflow_settings.json');
+
+const DEFAULT_COMFY_WORKFLOW_STATE = {
+    settings: null,
+    activePresetId: '',
+    presets: []
+};
+
+function readComfyWorkflowState() {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(COMFY_WORKFLOW_FILE, 'utf8') || '{}');
+        return {
+            settings: parsed.settings ?? null,
+            activePresetId: parsed.activePresetId || '',
+            presets: Array.isArray(parsed.presets) ? parsed.presets : []
+        };
+    } catch (e) {
+        return { ...DEFAULT_COMFY_WORKFLOW_STATE };
+    }
+}
+
+function writeComfyWorkflowState(state) {
+    const normalized = {
+        settings: state.settings ?? null,
+        activePresetId: state.activePresetId || '',
+        presets: Array.isArray(state.presets) ? state.presets : []
+    };
+    fs.writeFileSync(COMFY_WORKFLOW_FILE, JSON.stringify(normalized, null, 2), 'utf8');
+    return normalized;
+}
 
 const imageQueue = new AsyncQueue();
 const imageJobStore = new ImageJobStore();
@@ -72,6 +102,9 @@ if (!fs.existsSync(CHAT_HISTORY_FILE)) {
 }
 if (!fs.existsSync(EMOTION_HISTORY_FILE)) {
     fs.writeFileSync(EMOTION_HISTORY_FILE, '{}', 'utf8');
+}
+if (!fs.existsSync(COMFY_WORKFLOW_FILE)) {
+    fs.writeFileSync(COMFY_WORKFLOW_FILE, JSON.stringify(DEFAULT_COMFY_WORKFLOW_STATE, null, 2), 'utf8');
 }
 
 app.get('/api/presets', (req, res) => {
@@ -489,6 +522,29 @@ app.get('/api/comfy/checkpoints', async (req, res) => {
             defaultCheckpoint: chatImageConfig.checkpointName,
             error: error.message
         });
+    }
+});
+
+app.get('/api/comfy/workflow-settings', (req, res) => {
+    try {
+        res.json(readComfyWorkflowState());
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load workflow settings' });
+    }
+});
+
+app.put('/api/comfy/workflow-settings', (req, res) => {
+    try {
+        const current = readComfyWorkflowState();
+        const body = req.body || {};
+        const next = writeComfyWorkflowState({
+            settings: body.settings !== undefined ? body.settings : current.settings,
+            activePresetId: body.activePresetId !== undefined ? body.activePresetId : current.activePresetId,
+            presets: body.presets !== undefined ? body.presets : current.presets
+        });
+        res.json(next);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to save workflow settings' });
     }
 });
 

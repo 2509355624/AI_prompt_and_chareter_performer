@@ -112,7 +112,7 @@ LAN access (same Wi‑Fi):
 
 ### 右侧配置项（与代码默认值）
 
-与 `chat_image_config.js` / `.env` 一致，可在页面调整并 **存为预设**（浏览器 localStorage）：
+与 `chat_image_config.js` / `.env` 一致，可在页面调整并 **存为预设**（保存到 `data/comfy_workflow_settings.json`，换浏览器 / 手机 LAN 访问也会同步）：
 
 - **Checkpoint**：主模型文件名
 - **LoRA 1～3**：名称、Model 强度、CLIP 强度（选 `(none)` 或强度 0 即关闭）

@@ -37,6 +37,7 @@ Thumbs.db
 # Project specific / local runtime data (do not commit user chat or uploads)
 data/chat_history.json
 data/emotion_history.json
+data/comfy_workflow_settings.json
 data/characters.local.json
 public/uploads/
 !public/uploads/.gitkeep
