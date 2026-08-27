@@ -20,8 +20,8 @@ class AIService {
 5. **纯净输出**：严禁输出Markdown代码块、解释或前言，只返回JSON数组。
 `;
 
-        // 情感分析 + 出图分镜（单轮 JSON；对话阶段不再生成 visual）
-        this.emotionAnalysisPrompt = `你是一个专业的情感分析师兼 SD1.5 分镜策划，请分析对话并输出本轮情绪与出图 tags。
+        // 阶段1：纯情感分析（不含服饰/出图）
+        this.emotionAnalysisPrompt = `你是一个专业的情感分析师，请分析以下对话中的用户情感状态。
 
 【对话历史】
 {chat_history}
@@ -32,65 +32,76 @@ class AIService {
 【分析要求】
 1. 识别用户当前的核心情绪、强度、趋势
 2. 识别导致情绪变化的关键事件
-3. 给出角色对白语气建议（tone / avoidTones / keyPoints）
-4. 决定本轮服饰 outfitPlan 与其余分镜 visualPlan（见下方规则）
+3. 给出角色对白语气建议（tone / keyPoints）
 
 【输出格式】
 {
   "analysisVersion": "1.0",
   "emotionAnalysis": {
     "primaryEmotion": "主情绪标签",
-    "secondaryEmotions": ["次要情绪1", "次要情绪2"],
+    "secondaryEmotions": ["次要情绪1"],
     "intensity": 0-10,
     "trend": "上升/下降/稳定",
     "confidence": 0-100
   },
   "contextAnalysis": {
-    "keyEvents": ["事件1", "事件2"],
+    "keyEvents": ["事件1"],
     "relationshipTendency": "亲密/疏远/稳定",
     "topicFocus": "当前话题"
   },
   "responseSuggestion": {
     "tone": "建议语气",
-    "avoidTones": ["避免语气1", "避免语气2"],
-    "keyPoints": ["要点1", "要点2"]
-  },
+    "keyPoints": ["要点1"]
+  }
+}
+
+【注意】只分析情绪与对白语气；不要输出服饰、动作、场景或任何 SD 出图 tags。只输出 JSON。`;
+
+        // 阶段2：服饰 + 分镜（以【当前已出图状态】为权威基准）
+        this.outfitVisualAnalysisPrompt = `你是 SD1.5 服饰与分镜策划。根据【当前已出图状态】与【当前用户消息】决定本轮 outfitPlan 与 visualPlan。
+
+【对话历史（语境参考；旧服装描述不得覆盖已出图状态）】
+{chat_history}
+
+【当前用户消息（唯一可触发换装/脱衣/换场景的指令来源）】
+{user_message}
+
+【当前已出图状态 — 最高优先级基准】
+{current_visual_state}
+
+【输出格式】
+{
+  "analysisVersion": "1.0",
   "outfitPlan": {
-    "changeOutfit": true,
-    "outfitTags": "sailor_uniform, pleated_skirt, white_thighhighs, skindentation",
-    "note": "一句话说明为何选这套（中文）"
+    "changeOutfit": false,
+    "outfitTags": "nude",
+    "note": "一句话说明（中文）"
   },
   "visualPlan": {
-    "action": "standing, clutching_skirt_hem, shy_pose",
+    "action": "arms_outstretched, shy_pose",
     "expression": "blush, averted_eyes, embarrassed",
-    "scene": "indoors, art_studio, desk, drawing_tablet, window",
-    "atmosphere": "soft_morning_light, calm, cozy, warm_tone",
+    "scene": "indoors, art_studio, desk, window",
+    "atmosphere": "soft_morning_light, calm, cozy",
     "camera": "full_body_shot, from_front, eye_level"
   }
 }
 
-【outfitPlan 规则】
-1. 输出 SD1.5 英文逗号 tags，多词用下划线；只写服装与穿着状态，不写发色瞳色。
-2. 用户指定要穿什么 → changeOutfit=true，outfitTags 写目标服装（如 sailor_uniform, pleated_skirt）。
-3. 用户仅说「快点」「ok」等，但前几轮已在讨论换装 → changeOutfit=true，outfitTags 沿用已确定服装。
-4. 无换装意图 → changeOutfit=false，outfitTags **逐 tag 复制**【上一张图服饰 tags】。
-5. **用户要求去掉/不要衣服、脱光、把衣服换掉（且未指定新服装）** → changeOutfit=true，outfitTags **仅写** nude（或 naked），不要写任何其它服饰 tag。
+【连续性 — 最重要】
+1. 默认延续【当前已出图状态】：changeOutfit=false 时 outfitTags 逐 tag 复制上方服饰；未换场景时 scene/atmosphere 逐 tag 复制上方分镜。
+2. 对话历史中的水手服、短裙等，若与【当前已出图状态】冲突，以已出图状态为准。
+3. 仅【当前用户消息】明确要求换装/脱衣/指定穿着/换场景，才可 changeOutfit=true 或重写 scene。
+4. 当前消息只是姿势/展示要求（如「张开双手」「我看看」）→ 不得改 outfit，只更新 action/expression/camera。
 
-【visualPlan 规则 — action / expression / scene / atmosphere / camera】
-1. 英文短 tags，逗号分隔，多词用下划线；只写本轮可见内容，不写角色固定外貌。
-2. scene = 相机拍到的空间（地点 + 4～6 个可见物件），不是对白话题。
-3. 用户未要求换场景 → scene、atmosphere **逐 tag 复制**【上一张图分镜 tags】，但须先剔除与当前 outfitPlan 冲突的 tag（见下）。
-4. 用户明确要求去别处/换场景 → 重写 scene + atmosphere。
-5. action / expression / camera 贴合当前对白；未换场景时也可更新。
-6. visualPlan 不含 outfit 字段；服饰只写在 outfitPlan。
+【outfitPlan】
+SD1.5 英文逗号 tags；指定穿着写对应 tags；脱光/不要衣服 → 仅 nude；只脱上衣则保留下装 tags。
 
-【粉色大象 — 全 prompt 一致性】
-SD 按**整段** tags 生图。用户说「不要 X」时：**禁止**写 no_X、without_X、not_X 等否定 tag（提了 X 反而会出现 X）。
-正确做法：从 outfitPlan 与 visualPlan **全部五个字段**中**直接删除**与 X 相关的 tag，只保留用户**想要出现**的内容。
-例：不要浴巾 → 所有字段删除 towel、bath_towel、holding_towel，也不要写 no_towel。
-例：不要衣服 → outfitTags 仅 nude；action/expression/scene/atmosphere/camera 中不得出现 uniform、skirt、dress、stockings、thighhighs、hoodie、clothing、clothes_rack、mannequin、clutching_skirt_hem、adjusting_clothes 等任何穿戴相关 tag；动作改用 covering_breasts、arms_crossed 等与裸体相容的 pose。
+【visualPlan】
+英文 tags；不写外貌；不含 outfit。用户说「不要拿东西/空手」→ 全部字段删除 holding_*、carrying_*，改用 arms_outstretched 等空手 pose。
 
-【注意】请只输出 JSON，不要输出任何其他解释性文字。`;
+【粉色大象】
+用户说「不要 X」→ 从全部字段直接删除 X 相关 tag；禁止 no_X、without_X。
+
+【注意】只输出 JSON。`;
     }
 
     // 解析火山引擎模型别名
@@ -98,7 +109,7 @@ SD 按**整段** tags 生图。用户说「不要 X」时：**禁止**写 no_X�
         if (model === '1.6') return process.env.VOLC_MODEL_1_6;
         if (model === '2.0') return process.env.VOLC_MODEL_2_0;
         if (model === '1.8') return process.env.VOLC_MODEL_1_8 || process.env.VOLC_MODEL;
-        return model || process.env.VOLC_MODEL_1_8 || process.env.VOLC_MODEL; // 直接使用模型名
+        return model || process.env.VOLC_MODEL_1_8 || process.env.VOLC_MODEL || 'deepseek-v4-flash-ga-260731';
     }
 
     async getOllamaModels(baseUrl) {
@@ -169,7 +180,7 @@ SD 按**整段** tags 生图。用户说「不要 X」时：**禁止**写 no_X�
             const url = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
             try {
                 const response = await axios.post(`${url}/chat/completions`, {
-                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
                     messages: chatMessages,
                     stream: false
                 }, {
@@ -236,7 +247,7 @@ SD 按**整段** tags 生图。用户说「不要 X」时：**禁止**写 no_X�
         ).replace(/\/$/, '');
         const endpoint = url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
         const response = await axios.post(endpoint, {
-            model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+            model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
             messages,
             stream: false
         }, {
@@ -247,6 +258,81 @@ SD 按**整段** tags 生图。用户说「不要 X」时：**禁止**写 no_X�
             timeout: 60000
         });
         return response.data?.choices?.[0]?.message?.content || '';
+    }
+
+    /** 统一 JSON 分析调用（情感 / 服饰分镜） */
+    async callJsonAnalysis(prompt, provider, model, apiKey, baseUrl) {
+        const messages = [{ role: 'user', content: prompt }];
+        if (provider === 'ollama') {
+            const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+            const response = await axios.post(`${url}/api/chat`, {
+                model,
+                messages,
+                stream: false,
+                format: 'json',
+                keep_alive: 0
+            }, { timeout: 600000 });
+            return response.data?.message?.content || '';
+        }
+        if (provider === 'doubao') {
+            const key = process.env.VOLC_API_KEY;
+            const url = (process.env.VOLC_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3').replace(/\/$/, '');
+            const endpoint = url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
+            const response = await axios.post(endpoint, {
+                model: this.resolveDoubaoModel(model),
+                messages,
+                stream: false,
+                response_format: { type: 'json_object' }
+            }, {
+                headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 60000
+            });
+            return response.data?.choices?.[0]?.message?.content || '';
+        }
+        const isDeepseek = provider === 'deepseek';
+        const key = isDeepseek ? process.env.DEEPSEEK_API_KEY : apiKey;
+        const url = (isDeepseek
+            ? (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com')
+            : (baseUrl || 'https://api.openai.com/v1')
+        ).replace(/\/$/, '');
+        const endpoint = url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
+        const body = {
+            model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
+            messages,
+            stream: false
+        };
+        if (isDeepseek) body.response_format = { type: 'json_object' };
+        const response = await axios.post(endpoint, body, {
+            headers: {
+                Authorization: `Bearer ${key}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 600000
+        });
+        return response.data?.choices?.[0]?.message?.content || '';
+    }
+
+    formatCurrentVisualStateBlock(previousVisual) {
+        const outfit = this.formatPreviousOutfitTags(previousVisual);
+        const structured = this.formatPreviousVisualStructured(previousVisual, {}, { skipOutfit: true });
+        if (!structured && outfit === '（无，首轮）') {
+            return '（首轮，无上一张出图）';
+        }
+        const lines = [];
+        if (outfit && outfit !== '（无，首轮）') lines.push(`- 服饰：${outfit}`);
+        if (structured) lines.push(structured.replace(/^/gm, '').trim());
+        return lines.length ? lines.join('\n') : '（无上一张出图）';
+    }
+
+    mergeVisualAnalysis(emotionResult, outfitVisualResult) {
+        return {
+            ...emotionResult,
+            outfitPlan: outfitVisualResult?.outfitPlan || { changeOutfit: false, outfitTags: '', note: '' },
+            visualPlan: outfitVisualResult?.visualPlan || {}
+        };
     }
 
     sceneTagExpertPrompt() {
@@ -359,17 +445,8 @@ camera: medium_shot, from_front, upper_body
 
     resolveChangeIntent(lastUserMsg, emotionResult, previousVisual) {
         const fromRegex = this.detectVisualChangeIntent(lastUserMsg);
-        const plan = emotionResult?.outfitPlan;
-        const prevOutfit = this.formatPreviousOutfitTags(previousVisual);
-        const plannedTags = String(plan?.outfitTags || '').trim();
-
-        let outfitChange = fromRegex.outfitChange;
-        if (plan && typeof plan.changeOutfit === 'boolean') {
-            outfitChange = plan.changeOutfit;
-        } else if (plannedTags && prevOutfit && prevOutfit !== '（无，首轮）' && prevOutfit !== '（无）') {
-            const norm = (s) => s.toLowerCase().replace(/\s+/g, '');
-            if (norm(plannedTags) !== norm(prevOutfit)) outfitChange = true;
-        }
+        const removeClothing = this.detectRemoveClothingIntent(lastUserMsg);
+        const outfitChange = fromRegex.outfitChange || removeClothing;
 
         return {
             outfitChange,
@@ -388,7 +465,6 @@ camera: medium_shot, from_front, upper_body
 - 主情绪：${ea.primaryEmotion || '平静'}（强度：${ea.intensity ?? 3}/10）
 - 情绪趋势：${ea.trend || '稳定'}
 - 建议语气：${rs.tone || '温柔'}
-- 避免语气：${Array.isArray(rs.avoidTones) ? rs.avoidTones.join(', ') : '无'}
 - 回复要点：${Array.isArray(rs.keyPoints) ? rs.keyPoints.join('；') : '无'}
 `.trim();
         return `${characterSystemPrompt}\n\n${emotionInfo}${memoryText}`.trim();
@@ -428,12 +504,31 @@ camera: medium_shot, from_front, upper_body
         return { visual: result, outfitEnforced: enforced };
     }
 
-    ensureOutfitPlan(emotionResult, previousVisual, lastUserMsg) {
-        if (!emotionResult) return;
-        if (!emotionResult.outfitPlan || typeof emotionResult.outfitPlan !== 'object') {
-            emotionResult.outfitPlan = { changeOutfit: false, outfitTags: '', note: '' };
+    detectRemoveHeldPropIntent(userText) {
+        const text = String(userText || '').trim();
+        if (!text) return false;
+        return /不要拿|别拿|不要持|空手|不要东西|别拿东西|不要拿东西|张开双手|伸出手|展开双手/i.test(text);
+    }
+
+    heldPropTagPattern() {
+        return /(?:holding|carrying|clutching|gripping|hugging_object|holding_object|holding_clothes|holding_towel|holding_item)/i;
+    }
+
+    stripHeldPropTags(raw) {
+        return String(raw || '')
+            .split(/[\n,;，；]+/)
+            .map((part) => part.trim())
+            .filter((part) => part && !this.heldPropTagPattern().test(part))
+            .join(', ');
+    }
+
+    ensureOutfitPlan(visualResult, previousVisual, lastUserMsg) {
+        if (!visualResult) return;
+        if (!visualResult.outfitPlan || typeof visualResult.outfitPlan !== 'object') {
+            visualResult.outfitPlan = { changeOutfit: false, outfitTags: '', note: '' };
         }
-        const plan = emotionResult.outfitPlan;
+        const plan = visualResult.outfitPlan;
+        const intent = this.detectVisualChangeIntent(lastUserMsg);
 
         if (this.detectRemoveClothingIntent(lastUserMsg)) {
             plan.changeOutfit = true;
@@ -442,24 +537,33 @@ camera: medium_shot, from_front, upper_body
             return;
         }
 
+        if (!intent.outfitChange) {
+            const prev = this.formatPreviousOutfitTags(previousVisual);
+            if (prev && prev !== '（无，首轮）' && prev !== '（无）') {
+                plan.changeOutfit = false;
+                plan.outfitTags = prev;
+                plan.note = '沿用上一张已出图服饰';
+                return;
+            }
+        }
+
         if (String(plan.outfitTags || '').trim()) return;
 
         const prev = this.formatPreviousOutfitTags(previousVisual);
-        const intent = this.detectVisualChangeIntent(lastUserMsg);
-        if (!intent.outfitChange && prev && prev !== '（无，首轮）' && prev !== '（无）') {
+        if (prev && prev !== '（无，首轮）' && prev !== '（无）') {
             plan.changeOutfit = false;
             plan.outfitTags = prev;
             plan.note = plan.note || '沿用上一张服饰';
         }
     }
 
-    ensureVisualPlan(emotionResult, previousVisual, lastUserMsg) {
-        if (!emotionResult) return;
-        if (!emotionResult.visualPlan || typeof emotionResult.visualPlan !== 'object') {
-            emotionResult.visualPlan = {};
+    ensureVisualPlan(visualResult, previousVisual, lastUserMsg) {
+        if (!visualResult) return;
+        if (!visualResult.visualPlan || typeof visualResult.visualPlan !== 'object') {
+            visualResult.visualPlan = {};
         }
-        const plan = emotionResult.visualPlan;
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
+        const plan = visualResult.visualPlan;
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualResult, previousVisual);
         const prev = previousVisual && typeof previousVisual === 'object' ? previousVisual : {};
 
         for (const key of ['action', 'expression', 'camera']) {
@@ -478,7 +582,15 @@ camera: medium_shot, from_front, upper_body
         for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
             plan[key] = this.stripNegationTags(plan[key]);
         }
-        if (this.shouldStripClothing(emotionResult, lastUserMsg)) {
+        if (this.detectRemoveHeldPropIntent(lastUserMsg)) {
+            for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
+                plan[key] = this.stripHeldPropTags(plan[key]);
+            }
+            if (!String(plan.action || '').trim()) {
+                plan.action = 'arms_outstretched, shy_pose';
+            }
+        }
+        if (this.shouldStripClothing(visualResult, lastUserMsg)) {
             this.stripClothingFromVisualPlan(plan);
         }
     }
@@ -621,7 +733,7 @@ camera: medium_shot, from_front, upper_body
                 const key = provider === 'deepseek' ? process.env.DEEPSEEK_API_KEY : apiKey;
                 const url = (baseUrl || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
                 const response = await axios.post(`${url}/chat/completions`, {
-                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
                     messages: [{ role: 'user', content: briefPrompt }],
                     stream: false
                 }, {
@@ -1070,47 +1182,56 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         try {
             const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
             const parsed = JSON.parse(cleanContent);
-            
-            // 验证必要字段
             if (parsed.emotionAnalysis && parsed.responseSuggestion) {
-                return parsed;
+                return {
+                    analysisVersion: parsed.analysisVersion || '1.0',
+                    emotionAnalysis: parsed.emotionAnalysis,
+                    contextAnalysis: parsed.contextAnalysis || {},
+                    responseSuggestion: parsed.responseSuggestion
+                };
             }
         } catch (e) {
             console.warn('Emotion JSON parsing failed:', e.message);
         }
-
-        // 返回默认值
         return {
-            analysisVersion: "1.0",
+            analysisVersion: '1.0',
             emotionAnalysis: {
-                primaryEmotion: "平静",
+                primaryEmotion: '平静',
                 secondaryEmotions: [],
                 intensity: 3,
-                trend: "稳定",
+                trend: '稳定',
                 confidence: 50
             },
             contextAnalysis: {
                 keyEvents: [],
-                relationshipTendency: "稳定",
-                topicFocus: "未知"
+                relationshipTendency: '稳定',
+                topicFocus: '未知'
             },
             responseSuggestion: {
-                tone: "温柔",
-                avoidTones: [],
+                tone: '温柔',
                 keyPoints: []
-            },
-            outfitPlan: {
-                changeOutfit: false,
-                outfitTags: "",
-                note: ""
-            },
-            visualPlan: {
-                action: "",
-                expression: "",
-                scene: "",
-                atmosphere: "",
-                camera: ""
             }
+        };
+    }
+
+    parseOutfitVisualResponse(content) {
+        try {
+            const cleanContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleanContent);
+            if (parsed.outfitPlan || parsed.visualPlan) {
+                return {
+                    analysisVersion: parsed.analysisVersion || '1.0',
+                    outfitPlan: parsed.outfitPlan || { changeOutfit: false, outfitTags: '', note: '' },
+                    visualPlan: parsed.visualPlan || {}
+                };
+            }
+        } catch (e) {
+            console.warn('Outfit/Visual JSON parsing failed:', e.message);
+        }
+        return {
+            analysisVersion: '1.0',
+            outfitPlan: { changeOutfit: false, outfitTags: '', note: '' },
+            visualPlan: {}
         };
     }
 
@@ -1306,9 +1427,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         baseUrl,
         emotionResult,
         emotionDebugInfo,
+        outfitVisualDebugInfo,
         fullSystemPrompt,
         chatMessages,
         emotionTimeMs,
+        outfitVisualTimeMs = 0,
         replyStartTime,
         totalStartTime,
         previousVisual = null
@@ -1352,12 +1475,15 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             emotionAnalysis: emotionResult,
             timing: {
                 emotionTimeMs,
+                outfitVisualTimeMs,
                 replyTimeMs,
                 totalTimeMs
             },
             debugInfo: {
                 emotionPrompt: emotionDebugInfo?.emotionPrompt || '',
                 emotionMessages: emotionDebugInfo?.emotionMessages || [],
+                outfitVisualPrompt: outfitVisualDebugInfo?.outfitVisualPrompt || '',
+                outfitVisualMessages: outfitVisualDebugInfo?.outfitVisualMessages || [],
                 sentPrompt: fullSystemPrompt,
                 sentMessages: chatMessages,
                 rawResponse: replyContent,
@@ -1374,152 +1500,89 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         };
     }
 
-    // 情感分析方法
-    async analyzeEmotion(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '', previousVisual = null) {
-        const cleanMessages = Array.isArray(messages)
-            ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
-            : [];
-        const { recentTurns: recentMessages } = this.extractRecentTurns(cleanMessages, EMOTION_CONTEXT_ROUNDS);
-        // 将消息数组转换为文本格式
-        const chatHistory = recentMessages.map(m => 
-            `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`
-        ).join('\n');
-
-        // 获取最后一条用户消息
-        const userMessage = messages.length > 0 && messages[messages.length - 1].role === 'user' 
-            ? messages[messages.length - 1].content 
-            : '';
-
-        // 提取角色名称和强制提示词（从角色设定中提取）
+    buildRoleInfoBlock(characterSystemPrompt) {
         let characterName = '';
         let forcePrompt = '';
         if (characterSystemPrompt) {
-            // 尝试从角色设定中提取角色名称
             const nameMatch = characterSystemPrompt.match(/你是(?:一个名叫)?([^，。！？]+)(?:的女孩|的角色)?/);
-            if (nameMatch) {
-                characterName = nameMatch[1].trim();
-            }
-            // 尝试提取强制提示词
+            if (nameMatch) characterName = nameMatch[1].trim();
             const forceMarker = '**强制提示词**：';
             const forceIndex = characterSystemPrompt.indexOf(forceMarker);
             if (forceIndex >= 0) {
                 forcePrompt = characterSystemPrompt.substring(forceIndex + forceMarker.length).trim();
             }
         }
+        if (!characterName && !forcePrompt) return '';
+        let roleInfo = '【角色信息】\n';
+        if (characterName) roleInfo += `角色名称：${characterName}\n`;
+        if (forcePrompt) roleInfo += `强制提示词：${forcePrompt}\n`;
+        return `${roleInfo}\n`;
+    }
 
-        // 构建分析提示词
+    // 阶段1：情感分析
+    async analyzeEmotion(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '') {
+        const cleanMessages = Array.isArray(messages)
+            ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
+            : [];
+        const { recentTurns: recentMessages } = this.extractRecentTurns(cleanMessages, EMOTION_CONTEXT_ROUNDS);
+        const chatHistory = recentMessages.map(m =>
+            `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`
+        ).join('\n');
+        const userMessage = messages.length > 0 && messages[messages.length - 1].role === 'user'
+            ? messages[messages.length - 1].content
+            : '';
+
         let prompt = this.emotionAnalysisPrompt
             .replace('{chat_history}', chatHistory)
             .replace('{user_message}', userMessage);
-
-        const prevOutfitBlock = `\n【上一张图服饰 tags（outfitPlan.changeOutfit=false 时必须逐 tag 复制）】\n${this.formatPreviousOutfitTags(previousVisual)}\n`;
-        const prevVisualBlock = this.formatPreviousVisualForEmotionAnalysis(previousVisual, userMessage);
-        prompt = `${prevOutfitBlock}${prevVisualBlock}${prompt}`;
-        
-        // 如果有角色信息，添加到提示词中
-        if (characterName || forcePrompt) {
-            let roleInfo = '【角色信息】\n';
-            if (characterName) {
-                roleInfo += `角色名称：${characterName}\n`;
-            }
-            if (forcePrompt) {
-                roleInfo += `强制提示词：${forcePrompt}\n`;
-            }
-            prompt = `${roleInfo}\n${prompt}`;
-        }
+        prompt = `${this.buildRoleInfoBlock(characterSystemPrompt)}${prompt}`;
 
         const debugInfo = {
             emotionPrompt: prompt,
             emotionMessages: [{ role: 'user', content: prompt }]
         };
 
-        if (provider === 'ollama') {
-            const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
-            try {
-                const response = await axios.post(`${url}/api/chat`, {
-                    model: model,
-                    messages: [{ role: 'user', content: prompt }],
-                    stream: false,
-                    format: 'json',
-                    keep_alive: 0
-                }, { timeout: 600000 });
-                
-                if (response.data && response.data.message) {
-                    return { ...this.parseEmotionResponse(response.data.message.content), debugInfo };
-                }
-            } catch (e) {
-                console.error('Ollama Emotion Analysis Error:', e.message);
-            }
-        } else if (provider === 'doubao') {
-            const key = process.env.VOLC_API_KEY;
-            const url = (process.env.VOLC_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3').replace(/\/$/, '');
-            const endpoint = url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
-            
-            const targetModel = this.resolveDoubaoModel(model);
-            
-            try {
-                const response = await axios.post(endpoint, {
-                    model: targetModel,
-                    messages: [{ role: 'user', content: prompt }],
-                    stream: false
-                }, {
-                    headers: { 
-                        'Authorization': `Bearer ${key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 60000
-                });
-                
-                if (response.data?.choices?.[0]?.message?.content) {
-                    return { ...this.parseEmotionResponse(response.data.choices[0].message.content), debugInfo };
-                }
-            } catch (e) {
-                console.error('Doubao Emotion Analysis Error:', e.message);
-            }
-        } else if (provider === 'deepseek') {
-            const key = process.env.DEEPSEEK_API_KEY;
-            const url = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
-            try {
-                const response = await axios.post(`${url}/chat/completions`, {
-                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
-                    messages: [{ role: 'user', content: prompt }],
-                    stream: false,
-                    response_format: { type: 'json_object' }
-                }, {
-                    headers: { 
-                        'Authorization': `Bearer ${key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 600000
-                });
-                
-                if (response.data?.choices?.[0]?.message?.content) {
-                    return { ...this.parseEmotionResponse(response.data.choices[0].message.content), debugInfo };
-                }
-            } catch (e) {
-                console.error('DeepSeek Emotion Analysis Error:', e.message);
-            }
-        } else {
-            const url = (baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
-            try {
-                const response = await axios.post(`${url}/chat/completions`, {
-                    model: model,
-                    messages: [{ role: 'user', content: prompt }]
-                }, {
-                    headers: { 'Authorization': `Bearer ${apiKey}` },
-                    timeout: 60000
-                });
-                
-                if (response.data?.choices?.[0]?.message?.content) {
-                    return { ...this.parseEmotionResponse(response.data.choices[0].message.content), debugInfo };
-                }
-            } catch (e) {
-                console.error('API Emotion Analysis Error:', e.message);
-            }
+        try {
+            const raw = await this.callJsonAnalysis(prompt, provider, model, apiKey, baseUrl);
+            if (raw) return { ...this.parseEmotionResponse(raw), debugInfo };
+        } catch (e) {
+            console.error('Emotion Analysis Error:', e.message);
         }
-
-        // 返回默认分析结果
         return { ...this.parseEmotionResponse(''), debugInfo };
+    }
+
+    // 阶段2：服饰 + 分镜分析
+    async analyzeOutfitVisual(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '', previousVisual = null) {
+        const cleanMessages = Array.isArray(messages)
+            ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
+            : [];
+        const { recentTurns: recentMessages } = this.extractRecentTurns(cleanMessages, EMOTION_CONTEXT_ROUNDS);
+        const chatHistory = recentMessages.map(m =>
+            `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`
+        ).join('\n');
+        const userMessage = messages.length > 0 && messages[messages.length - 1].role === 'user'
+            ? messages[messages.length - 1].content
+            : '';
+        const currentState = this.formatCurrentVisualStateBlock(previousVisual);
+
+        let prompt = this.outfitVisualAnalysisPrompt
+            .replace('{chat_history}', chatHistory)
+            .replace('{user_message}', userMessage)
+            .replace('{current_visual_state}', currentState);
+        prompt = `${this.buildRoleInfoBlock(characterSystemPrompt)}${prompt}`;
+
+        const debugInfo = {
+            outfitVisualPrompt: prompt,
+            outfitVisualMessages: [{ role: 'user', content: prompt }]
+        };
+
+        try {
+            const raw = await this.callJsonAnalysis(prompt, provider, model, apiKey, baseUrl);
+            if (raw) return { ...this.parseOutfitVisualResponse(raw), debugInfo };
+        } catch (e) {
+            console.error('Outfit/Visual Analysis Error:', e.message);
+        }
+        return { ...this.parseOutfitVisualResponse(''), debugInfo };
     }
 
     // 生成对话摘要
@@ -1553,7 +1616,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
              const url = (baseUrl || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
              try {
                  const response = await axios.post(`${url}/chat/completions`, {
-                     model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+                     model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
                     messages: [{ role: 'user', content: summaryPrompt }],
                     stream: false
                 }, {
@@ -1572,70 +1635,101 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         }
     }
 
-    // 带情感分析的对话方法（两轮调用 + 摘要）
+    /** 阶段1+2：情感分析 + 服饰分镜分析 */
+    async prepareThreePhaseAnalysis(cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, previousVisual, emit) {
+        const emitFn = typeof emit === 'function' ? emit : () => {};
+
+        emitFn('phase', { phase: 'emotion_analyzing' });
+        const emotionStartTime = Date.now();
+        const emotionResultWithDebug = await this.analyzeEmotion(
+            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt
+        );
+        const emotionTimeMs = Date.now() - emotionStartTime;
+        const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
+        const emotionOnly = emotionResultRaw?.emotionAnalysis && emotionResultRaw?.responseSuggestion
+            ? emotionResultRaw
+            : this.parseEmotionResponse('');
+
+        emitFn('emotion_done', { emotionAnalysis: emotionOnly, emotionTimeMs });
+
+        emitFn('phase', { phase: 'outfit_analyzing' });
+        const outfitStartTime = Date.now();
+        const outfitResultWithDebug = await this.analyzeOutfitVisual(
+            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, previousVisual
+        );
+        const outfitVisualTimeMs = Date.now() - outfitStartTime;
+        const { debugInfo: outfitVisualDebugInfo, ...outfitResultRaw } = outfitResultWithDebug || {};
+        const outfitOnly = outfitResultRaw?.outfitPlan
+            ? outfitResultRaw
+            : this.parseOutfitVisualResponse('');
+
+        emitFn('outfit_visual_done', {
+            outfitPlan: outfitOnly.outfitPlan,
+            visualPlan: outfitOnly.visualPlan,
+            outfitVisualTimeMs
+        });
+
+        const { recentTurns, hasOlderHistory } = this.extractRecentTurns(cleanMessages, RECENT_FULL_ROUNDS);
+        const lastUserMsg = [...recentTurns].reverse().find((m) => m.role === 'user')?.content || '';
+
+        this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg);
+        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg);
+        const turnAnalysis = this.mergeVisualAnalysis(emotionOnly, outfitOnly);
+
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, turnAnalysis, previousVisual);
+        if (changeIntent.sceneChange) {
+            console.log('[scene] user requested scene change', changeIntent.sceneTargetHint || '(no hint)');
+        }
+        console.log('[outfit] plan:', turnAnalysis.outfitPlan?.outfitTags || '(沿用)');
+
+        return {
+            emotionOnly,
+            outfitOnly,
+            turnAnalysis,
+            emotionDebugInfo,
+            outfitVisualDebugInfo,
+            emotionTimeMs,
+            outfitVisualTimeMs,
+            recentTurns,
+            hasOlderHistory,
+            lastUserMsg
+        };
+    }
+
+    // 带情感分析的三阶段对话（情感 → 服饰分镜 → 对白）
     async chatWithEmotion(messages, characterSystemPrompt, provider, model, apiKey, baseUrl, conversationSummary, appearancePrompt = '', outfitPrompt = '', previousVisual = null, turnMemory = []) {
-        console.log('=== 开始两轮AI调用 ===');
+        console.log('=== 开始三阶段 AI 调用 ===');
         const totalStartTime = Date.now();
 
         const cleanMessages = Array.isArray(messages)
             ? messages
                 .filter(m => m && typeof m === 'object')
                 .map(m => ({ role: m.role, content: m.content }))
-            : [];
-        
-        // 第一轮：情感分析
-        console.log('1. 第一轮调用：情感分析');
-        const emotionStartTime = Date.now();
-        const emotionResultWithDebug = await this.analyzeEmotion(
-            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, previousVisual
-        );
-        const emotionTimeMs = Date.now() - emotionStartTime;
-        const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
-        const emotionResult = emotionResultRaw?.emotionAnalysis && emotionResultRaw?.responseSuggestion
-            ? emotionResultRaw
-            : this.parseEmotionResponse('');
-        
-        const { recentTurns, hasOlderHistory } = this.extractRecentTurns(cleanMessages, RECENT_FULL_ROUNDS);
-        
-        console.log('   情感分析完成，主情绪:', emotionResult.emotionAnalysis?.primaryEmotion || '未知');
-        const prevVisualText = this.formatPreviousVisual(previousVisual);
-        console.log('   上一轮出图提示词:', prevVisualText ? prevVisualText.slice(0, 120) : '(无)');
+            : {};
 
-        const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
-        this.ensureOutfitPlan(emotionResult, previousVisual, lastUserMsg);
-        this.ensureVisualPlan(emotionResult, previousVisual, lastUserMsg);
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
-        if (changeIntent.sceneChange) {
-            console.log('   检测到用户要求换场景', changeIntent.sceneTargetHint ? `→ ${changeIntent.sceneTargetHint}` : '');
-        }
-        if (changeIntent.outfitChange || emotionResult.outfitPlan?.changeOutfit) {
-            console.log('   服饰计划:', emotionResult.outfitPlan?.outfitTags || '(沿用)');
-        }
-        if (emotionResult.visualPlan) {
-            console.log('   分镜计划:', JSON.stringify(emotionResult.visualPlan).slice(0, 120));
-        }
+        console.log('1. 情感分析');
+        const prep = await this.prepareThreePhaseAnalysis(
+            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, previousVisual
+        );
+        const {
+            turnAnalysis: emotionResult,
+            emotionDebugInfo,
+            outfitVisualDebugInfo,
+            emotionTimeMs,
+            outfitVisualTimeMs,
+            recentTurns,
+            hasOlderHistory
+        } = prep;
+
+        console.log('   情感分析完成，主情绪:', emotionResult.emotionAnalysis?.primaryEmotion || '未知');
+        console.log('2. 服饰分镜已完成');
+        console.log('3. 生成对白');
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
             characterSystemPrompt, emotionResult, turnMemory, conversationSummary
         );
-
-        const systemMessage = {
-            role: 'system',
-            content: enhancedSystemPrompt
-        };
-
-        // 发送给AI：系统提示词 + 最近4轮完整对话
-        const chatMessages = [systemMessage, ...recentTurns];
-
-        // 构建完整的系统提示词（用于返回给前端调试）
+        const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
-        console.log('   完整Prompt已构建，长度:', fullSystemPrompt.length);
-        console.log('   角色设定长度:', characterSystemPrompt.length);
-        console.log('   对话系统提示（纯对白，无出图指令）');
-        console.log('   最近轮次消息数:', recentTurns.length);
-
-        // 第二轮：生成回复
-        console.log('2. 第二轮调用：生成回复');
         const replyStartTime = Date.now();
 
         if (provider === 'ollama') {
@@ -1660,9 +1754,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     baseUrl,
                     emotionResult,
                     emotionDebugInfo,
+                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
+                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -1702,9 +1798,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     baseUrl,
                     emotionResult,
                     emotionDebugInfo,
+                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
+                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -1718,7 +1816,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             const url = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
             try {
                 const response = await axios.post(`${url}/chat/completions`, {
-                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+                    model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
                     messages: chatMessages,
                     stream: false
                 }, {
@@ -1741,9 +1839,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     baseUrl,
                     emotionResult,
                     emotionDebugInfo,
+                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
+                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -1774,9 +1874,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     baseUrl,
                     emotionResult,
                     emotionDebugInfo,
+                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
+                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -1872,7 +1974,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             const key = process.env.DEEPSEEK_API_KEY;
             const url = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
             const response = await axios.post(`${url}/chat/completions`, {
-                model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+                model: model || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash-ga-260731',
                 messages: chatMessages,
                 stream: false
             }, {
@@ -1913,40 +2015,23 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
             : [];
 
-        emit('phase', { phase: 'emotion_analyzing' });
-        const emotionStartTime = Date.now();
-        const emotionResultWithDebug = await this.analyzeEmotion(
-            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, previousVisual
+        const prep = await this.prepareThreePhaseAnalysis(
+            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, previousVisual, emit
         );
-        const emotionTimeMs = Date.now() - emotionStartTime;
-        const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
-        const emotionResult = emotionResultRaw?.emotionAnalysis && emotionResultRaw?.responseSuggestion
-            ? emotionResultRaw
-            : this.parseEmotionResponse('');
-
-        emit('emotion_done', {
-            emotionAnalysis: emotionResult,
-            emotionTimeMs
-        });
-
-        const { recentTurns, hasOlderHistory } = this.extractRecentTurns(cleanMessages, RECENT_FULL_ROUNDS);
-
-        const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
-        this.ensureOutfitPlan(emotionResult, previousVisual, lastUserMsg);
-        this.ensureVisualPlan(emotionResult, previousVisual, lastUserMsg);
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
-        if (changeIntent.sceneChange) {
-            console.log('[scene] user requested scene change', changeIntent.sceneTargetHint || '(no hint)');
-        }
-        if (changeIntent.outfitChange || emotionResult.outfitPlan?.changeOutfit) {
-            console.log('[outfit] plan:', emotionResult.outfitPlan?.outfitTags || '(from continuity)');
-        }
+        const {
+            turnAnalysis: emotionResult,
+            emotionDebugInfo,
+            outfitVisualDebugInfo,
+            emotionTimeMs,
+            outfitVisualTimeMs,
+            recentTurns,
+            hasOlderHistory
+        } = prep;
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
             characterSystemPrompt, emotionResult, turnMemory, conversationSummary
         );
-        const systemMessage = { role: 'system', content: enhancedSystemPrompt };
-        const chatMessages = [systemMessage, ...recentTurns];
+        const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
 
         emit('phase', { phase: 'reply_generating' });
@@ -1991,9 +2076,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             baseUrl,
             emotionResult,
             emotionDebugInfo,
+            outfitVisualDebugInfo,
             fullSystemPrompt,
             chatMessages,
             emotionTimeMs,
+            outfitVisualTimeMs,
             replyStartTime,
             totalStartTime,
             previousVisual: previousVisual || null

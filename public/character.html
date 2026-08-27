@@ -619,9 +619,9 @@
                 <div class="form-group">
                     <label>AI Provider</label>
                     <select id="provider" onchange="toggleProviderSettings()">
-                        <option value="doubao">Doubao (火山引擎)</option>
+                        <option value="doubao" selected>Doubao (火山引擎)</option>
                         <option value="ollama">Local Ollama</option>
-                        <option value="deepseek" selected>DeepSeek</option>
+                        <option value="deepseek">DeepSeek</option>
                         <option value="openai">OpenAI / Compatible</option>
                     </select>
                 </div>
@@ -630,10 +630,11 @@
                 <div id="doubaoInfo" class="form-group">
                     <label>Doubao Model</label>
                     <select id="doubaoModel">
+                        <option value="deepseek-v4-flash-ga-260731" selected>DeepSeek v4 Flash GA (火山引擎)</option>
                         <option value="deepseek-v4-flash-260425">DeepSeek v4 Flash (火山引擎)</option>
                         <option value="doubao-seed-2-0-mini-260428">Doubao Seed 2.0 Mini</option>
                         <option value="doubao-seed-2-0-lite-260428">Doubao Seed 2.0 Lite</option>
-                        <option value="2.0" selected>Doubao 2.0 Pro</option>
+                        <option value="2.0">Doubao 2.0 Pro</option>
                         <option value="1.8">Doubao 1.8 Pro</option>
                         <option value="1.6">Doubao 1.6 Flash (Vision Support)</option>
                     </select>
@@ -1665,6 +1666,8 @@
                 return '准备中…';
             case 'emotion_analyzing':
                 return '分析情绪中…';
+            case 'outfit_analyzing':
+                return '分析服饰与分镜中…';
             case 'reply_generating':
                 return '生成回复中…';
             case 'parsing_visual':
@@ -2297,6 +2300,10 @@
                     <div class="debug-section">
                         <h4>发送给AI的完整情感提示词messages</h4>
                         <pre>${escapeHtml(emotionMessagesText || 'N/A')}</pre>
+                    </div>
+                    <div class="debug-section">
+                        <h4>发送给AI的完整服饰分镜提示词messages</h4>
+                        <pre>${escapeHtml(debugInfo.outfitVisualMessages ? JSON.stringify(debugInfo.outfitVisualMessages, null, 2) : 'N/A')}</pre>
                     </div>
                     <div class="debug-section">
                         <h4>AI分析的情感结果</h4>
