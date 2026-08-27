@@ -741,7 +741,28 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Internal Server Error', message: err.message });
 });
 
-app.listen(PORT, () => {
+const os = require('os');
+
+function listLanUrls(port) {
+    const urls = [];
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets || {})) {
+        for (const net of nets[name] || []) {
+            if (net.family !== 'IPv4' || net.internal) continue;
+            urls.push(`http://${net.address}:${port}`);
+        }
+    }
+    return urls;
+}
+
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    const lan = listLanUrls(PORT);
+    if (lan.length) {
+        console.log('LAN access (same Wi‑Fi):');
+        lan.forEach((url) => console.log(`  ${url}/character.html`));
+    } else {
+        console.log('LAN: no non-loopback IPv4 found; check network adapter.');
+    }
     console.log(`[ImageWorker] VRAM gate: ${chatImageConfig.imageMinVramMb}MB free required when provider=ollama`);
 });

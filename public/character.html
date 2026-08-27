@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
     <title>AI 角色扮演 | 角色互动</title>
     
     <!-- Google Fonts -->
@@ -54,6 +54,7 @@
             background-attachment: fixed;
             color: var(--text-main);
             height: 100vh;
+            height: 100dvh;
             overflow: hidden;
             display: flex;
             justify-content: center;
@@ -65,6 +66,7 @@
             width: 100%;
             max-width: 1440px;
             height: 100vh;
+            height: 100dvh;
             padding: 20px;
             gap: 20px;
         }
@@ -319,19 +321,12 @@
     input:checked + .slider { background-color: var(--primary); }
     input:checked + .slider:before { transform: translateX(16px); }
         
-        /* Responsive */
+        /* Responsive — desktop fallback only; phone layout lives in character-paper.css */
         @media (max-width: 768px) {
             .app-container {
                 flex-direction: column;
                 padding: 10px;
                 gap: 10px;
-            }
-            .sidebar {
-                width: 100%;
-                max-height: 200px;
-            }
-            .main-content {
-                height: calc(100vh - 240px);
             }
         }
 
@@ -541,18 +536,26 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=16">
+    <link rel="stylesheet" href="styles/character-paper.css?v=19">
 </head>
 <body>
 
-<a href="index.html" class="back-home">
+<a href="index.html" class="back-home" id="backHomeBtn">
     <span>🏠</span>
-    <span>返回主页</span>
+    <span class="back-home-label">返回主页</span>
 </a>
 
+<button type="button" class="mobile-mode-toggle" id="mobileModeToggle" onclick="toggleForcedMobileMode()" title="切换手机布局">📱</button>
+
+<div class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" onclick="closeMobileDrawers()" hidden></div>
+
 <div class="app-container">
-    <aside class="sidebar sticker tilt-l">
+    <aside class="sidebar sticker tilt-l" id="characterSidebar">
         <div class="tape"></div>
+        <div class="mobile-drawer-head">
+            <span>选择角色</span>
+            <button type="button" class="btn-icon mobile-drawer-close" onclick="closeMobileDrawers()" aria-label="关闭">✕</button>
+        </div>
         <div class="brand">
             <span class="kicker">角色本</span>
             <span class="brand-title">角色选择</span>
@@ -572,6 +575,25 @@
     <main class="main-content chat-main sticker">
         <div class="tape warm"></div>
         <div class="chat-topbar chat-topbar-slim">
+            <div class="chat-topbar-mobile-nav" id="chatMobileNav">
+                <button type="button" class="btn-icon mobile-nav-btn" onclick="toggleMobileDrawer('chars')" title="角色" aria-label="选择角色">👤</button>
+                <button type="button" class="mobile-char-chip" id="mobileCharChip" onclick="toggleMobileDrawer('chars')" title="点按切换角色">
+                    <span id="mobileCharAvatar" class="mobile-char-avatar">🎭</span>
+                    <span id="mobileCharName" class="mobile-char-name">点这里选角色</span>
+                </button>
+                <button type="button" class="btn-icon mobile-nav-btn" onclick="toggleMobileDrawer('settings')" title="配置" aria-label="配置">⚙️</button>
+                <details class="mobile-more-menu" id="mobileMoreMenu">
+                    <summary class="btn-icon mobile-nav-btn" title="更多">···</summary>
+                    <div class="mobile-more-panel">
+                        <button type="button" class="mobile-more-item" onclick="openVisualRefEditor(); closeMobileMoreMenu();">🎨 上轮生图参考</button>
+                        <button type="button" class="mobile-more-item" onclick="openExportModal(); closeMobileMoreMenu();">📸 导出截图</button>
+                        <button type="button" class="mobile-more-item" onclick="editCurrentCharacter(); closeMobileMoreMenu();">✎ 编辑角色</button>
+                        <button type="button" class="mobile-more-item" onclick="clearCurrentChat(); closeMobileMoreMenu();">🗑️ 清空对话</button>
+                        <button type="button" class="mobile-more-item" onclick="toggleSystemPrompt(); closeMobileMoreMenu();">📝 原始提示词</button>
+                        <a class="mobile-more-item" href="index.html">🏠 返回主页</a>
+                    </div>
+                </details>
+            </div>
             <div class="chat-topbar-left" hidden aria-hidden="true">
                 <span id="currentCharAvatar" class="chat-avatar">🎭</span>
                 <div class="chat-topbar-text">
@@ -580,7 +602,7 @@
                     <div id="currentCharBase" class="chat-base"></div>
                 </div>
             </div>
-            <div class="chat-topbar-actions">
+            <div class="chat-topbar-actions desktop-only-actions">
                 <button class="btn-icon" onclick="openVisualRefEditor()" title="查看/编辑发给 AI 的上轮生图参考">🎨</button>
                 <button class="btn-icon" onclick="openExportModal()" title="导出对话截图">📸</button>
                 <button class="btn-icon" onclick="editCurrentCharacter()" title="编辑角色">✎</button>
@@ -591,16 +613,16 @@
         <div class="chat-section">
             <div class="chat-container">
                 <div id="charChatHistory" class="chat-history">
-                    <div class="message ai" style="text-align: center; color: var(--text-muted);">
-                        请选择左侧的角色开始对话
+                    <div class="message ai chat-empty-hint" style="text-align: center; color: var(--text-muted);">
+                        点上方角色名或 👤 选择角色开始对话
                     </div>
                 </div>
                 
                 <div class="chat-input-wrapper">
-                    <textarea id="charChatInput" placeholder="输入消息开始对话..." style="flex: 1; height: 60px; resize: none;"></textarea>
-                    <button class="btn-primary" onclick="sendCharacterMessage()" style="padding: 0 24px;">
+                    <textarea id="charChatInput" placeholder="输入消息…" rows="1" style="flex: 1; height: 48px; resize: none;"></textarea>
+                    <button class="btn-primary send-char-btn" onclick="sendCharacterMessage()">
                         <span>🚀</span>
-                        <span>发送</span>
+                        <span class="send-label">发送</span>
                     </button>
                 </div>
             </div>
@@ -609,6 +631,10 @@
 
     <aside class="settings-panel sticker" id="characterInfoPanel">
         <div class="tape"></div>
+        <div class="mobile-drawer-head">
+            <span>配置贴纸</span>
+            <button type="button" class="btn-icon mobile-drawer-close" onclick="closeMobileDrawers()" aria-label="关闭">✕</button>
+        </div>
         <div class="settings-header">
             <h2>配置贴纸</h2>
             <span class="kicker kicker-sm">AI + Comfy</span>
@@ -1119,7 +1145,105 @@
     }
     
     // --- Initialization ---
+    const MOBILE_FORCE_KEY = 'character_force_mobile';
+
+    function isMobileShellActive() {
+        return document.body.classList.contains('mobile-shell');
+    }
+
+    function syncMobileShellClass() {
+        const forced = localStorage.getItem(MOBILE_FORCE_KEY) === '1';
+        const narrow = window.matchMedia('(max-width: 1100px)').matches;
+        document.body.classList.toggle('force-mobile', forced);
+        document.body.classList.toggle('is-narrow', narrow);
+        document.body.classList.toggle('mobile-shell', forced || narrow);
+        const toggle = document.getElementById('mobileModeToggle');
+        if (toggle) {
+            toggle.title = forced ? '切回桌面三栏布局' : '预览手机布局';
+            toggle.textContent = forced ? '💻' : '📱';
+        }
+        if (!document.body.classList.contains('mobile-shell')) {
+            closeMobileDrawers();
+            closeMobileMoreMenu();
+        }
+    }
+
+    function initMobileShell() {
+        syncMobileShellClass();
+        window.addEventListener('resize', syncMobileShellClass);
+        try {
+            window.matchMedia('(max-width: 1100px)').addEventListener('change', syncMobileShellClass);
+        } catch (_) {
+            window.matchMedia('(max-width: 1100px)').addListener(syncMobileShellClass);
+        }
+        if (isMobileShellActive() && !currentCharacter) {
+            setTimeout(() => toggleMobileDrawer('chars'), 250);
+        }
+    }
+
+    function toggleForcedMobileMode() {
+        const next = localStorage.getItem(MOBILE_FORCE_KEY) !== '1';
+        localStorage.setItem(MOBILE_FORCE_KEY, next ? '1' : '0');
+        syncMobileShellClass();
+        closeMobileDrawers();
+        closeMobileMoreMenu();
+    }
+
+    function closeMobileMoreMenu() {
+        const menu = document.getElementById('mobileMoreMenu');
+        if (menu) menu.open = false;
+    }
+
+    function toggleMobileDrawer(which) {
+        if (!isMobileShellActive()) return;
+        const charsOpen = document.body.classList.contains('drawer-chars-open');
+        const settingsOpen = document.body.classList.contains('drawer-settings-open');
+        const backdrop = document.getElementById('mobileDrawerBackdrop');
+        if (which === 'chars') {
+            if (charsOpen) {
+                closeMobileDrawers();
+            } else {
+                document.body.classList.add('drawer-chars-open');
+                document.body.classList.remove('drawer-settings-open');
+                if (backdrop) backdrop.hidden = false;
+            }
+        } else if (which === 'settings') {
+            if (settingsOpen) {
+                closeMobileDrawers();
+            } else {
+                document.body.classList.add('drawer-settings-open');
+                document.body.classList.remove('drawer-chars-open');
+                if (backdrop) backdrop.hidden = false;
+            }
+        }
+    }
+
+    function closeMobileDrawers() {
+        document.body.classList.remove('drawer-chars-open', 'drawer-settings-open');
+        const backdrop = document.getElementById('mobileDrawerBackdrop');
+        if (backdrop) backdrop.hidden = true;
+        closeMobileMoreMenu();
+    }
+
+    function updateMobileCharChip(character) {
+        const nameEl = document.getElementById('mobileCharName');
+        const avatarEl = document.getElementById('mobileCharAvatar');
+        if (!nameEl || !avatarEl) return;
+        if (!character) {
+            nameEl.textContent = '点这里选角色';
+            avatarEl.textContent = '🎭';
+            return;
+        }
+        nameEl.textContent = character.name || '角色';
+        if (character.avatar && String(character.avatar).includes('http')) {
+            avatarEl.innerHTML = `<img src="${escapeHtml(character.avatar)}" alt="">`;
+        } else {
+            avatarEl.textContent = character.avatar || '🎭';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
+        initMobileShell();
         loadCharacters();
         toggleProviderSettings();
         loadWorkflowOptions();
@@ -1651,6 +1775,8 @@
         // Render chat
         renderCharacterChat();
         renderCharactersList(); // Update selection highlight
+        updateMobileCharChip(currentCharacter);
+        if (isMobileShellActive()) closeMobileDrawers();
         
         // Scroll to bottom
         setTimeout(() => {
@@ -1957,14 +2083,26 @@
     function renderCharacterChat() {
         const history = document.getElementById('charChatHistory');
         
+        if (!currentCharacter) {
+            history.innerHTML = `
+                <div class="message ai chat-empty-hint" style="text-align: center; color: var(--text-muted);">
+                    点上方角色名或 👤 选择角色开始对话
+                </div>
+            `;
+            return;
+        }
+
         if (characterChatMessages.length === 0) {
+            const avatarHtml = currentCharacter.avatar && String(currentCharacter.avatar).includes('http')
+                ? `<img src="${escapeHtml(currentCharacter.avatar)}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;">`
+                : escapeHtml(currentCharacter.avatar || '🎭');
             history.innerHTML = `
                 <div class="message ai" style="text-align: center;">
-                    <div style="font-size: 48px; margin-bottom: 12px;">${currentCharacter.avatar}</div>
-                    <div style="font-weight: 600; margin-bottom: 8px;">${currentCharacter.name}</div>
+                    <div style="font-size: 48px; margin-bottom: 12px;">${avatarHtml}</div>
+                    <div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(currentCharacter.name || '')}</div>
                     <div style="font-size: 13px; color: var(--text-muted); max-width: 400px; margin: 0 auto; line-height: 1.6;">
-                        ${currentCharacter.description}<br>
-                        性格：${currentCharacter.personality}<br><br>
+                        ${escapeHtml(currentCharacter.description || '')}<br>
+                        性格：${escapeHtml(currentCharacter.personality || '')}<br><br>
                         开始对话吧！✨
                     </div>
                 </div>
@@ -3036,16 +3174,13 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             if (currentCharacter && currentCharacter.id === characterId) {
                 currentCharacter = null;
                 characterChatMessages = [];
-                document.getElementById('charChatHistory').innerHTML = `
-                    <div class="message ai" style="text-align: center; color: var(--text-muted);">
-                        请选择左侧的角色开始对话
-                    </div>
-                `;
+                updateMobileCharChip(null);
                 document.getElementById('currentCharName').innerText = '选择角色';
                 document.getElementById('currentCharDesc').innerText = '与喜欢的角色互动吧';
                 const baseEl = document.getElementById('currentCharBase');
                 if (baseEl) baseEl.innerText = '';
                 document.getElementById('currentCharAvatar').innerText = '🎭';
+                renderCharacterChat();
             }
             renderCharactersList();
         } catch (e) {
