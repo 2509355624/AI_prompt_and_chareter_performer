@@ -57,17 +57,28 @@ class AIService {
 
 【注意】只分析情绪与对白语气；不要输出服饰、动作、场景或任何 SD 出图 tags。只输出 JSON。`;
 
-        // 阶段2：服饰 + 分镜（以【当前已出图状态】为权威基准）
-        this.outfitVisualAnalysisPrompt = `你是 SD1.5 服饰与分镜策划。根据【当前已出图状态】与【当前用户消息】决定本轮 outfitPlan 与 visualPlan。
+        // 阶段3（对白之后）：生图 tags — 仅本轮一问一答 + continuity 快照
+        this.sd15PhotographerHandbook = `【SD 1.5 摄影师手册】
+1. 输出会拼成一条 tag 串给 SD 1.5；模型不懂字段分区，靠前 tag 权重更高。
+2. 本轮用户原话 + 角色本轮回复中的动作/姿势，优先级最高；与 continuity 冲突时以本轮为准。
+3. 不要写角色固定外貌（发色瞳色等由底模负责）。
+4. 可手持物（tablet, phone, book, pen, cup）只写在 action 且角色确实拿着；禁止写在 scene。
+5. scene 只用 2～4 个环境级 tag（如 indoors, art_studio），不要 desk, window, drawing_tablet, computer, chair。
+6. 需要全身/站立/特定姿势 → action/camera 写清楚（full_body, standing, legs 等）；不要擅自改成更安全保守的姿势。
+7. continuity 快照只继承服饰与场景类型；action/expression 必须根据本轮对话重写，禁止复制上一轮动作。`;
 
-【对话历史（语境参考；旧服装描述不得覆盖已出图状态）】
-{chat_history}
+        this.outfitVisualAnalysisPrompt = `你是 SD 1.5 出图 tag 策划。根据【本轮对话】决定本帧 outfitPlan 与 visualPlan。
 
-【当前用户消息（唯一可触发换装/脱衣/换场景的指令来源）】
+{sd15_handbook}
+
+【上一轮 continuity 快照（仅服饰 + 场景类型 + 氛围；无动作）】
+{continuity_snapshot}
+
+【本轮用户】
 {user_message}
 
-【当前已出图状态 — 最高优先级基准】
-{current_visual_state}
+【本轮角色回复】
+{assistant_reply}
 
 【输出格式】
 {
@@ -75,33 +86,23 @@ class AIService {
   "outfitPlan": {
     "changeOutfit": false,
     "outfitTags": "nude",
-    "note": "一句话说明（中文）"
+    "note": "一句话（中文）"
   },
   "visualPlan": {
-    "action": "arms_outstretched, shy_pose",
-    "expression": "blush, averted_eyes, embarrassed",
-    "scene": "indoors, art_studio, desk, window",
-    "atmosphere": "soft_morning_light, calm, cozy",
+    "action": "standing, full_body, arms_outstretched",
+    "expression": "blush, embarrassed",
+    "scene": "indoors, art_studio",
+    "atmosphere": "soft_morning_light, calm",
     "camera": "full_body_shot, from_front, eye_level"
   }
 }
 
-【连续性 — 最重要】
-1. 默认延续【当前已出图状态】：changeOutfit=false 时 outfitTags 逐 tag 复制上方服饰；未换场景时 scene/atmosphere 逐 tag 复制上方分镜。
-2. 对话历史中的水手服、短裙等，若与【当前已出图状态】冲突，以已出图状态为准。
-3. 仅【当前用户消息】明确要求换装/脱衣/指定穿着/换场景，才可 changeOutfit=true 或重写 scene。
-4. 当前消息只是姿势/展示要求（如「张开双手」「我看看」）→ 不得改 outfit，只更新 action/expression/camera。
-
-【outfitPlan】
-SD1.5 英文逗号 tags；指定穿着写对应 tags；脱光/不要衣服 → 仅 nude；只脱上衣则保留下装 tags。
-
-【visualPlan】
-英文 tags；不写外貌；不含 outfit。用户说「不要拿东西/空手」→ 全部字段删除 holding_*、carrying_*，改用 arms_outstretched 等空手 pose。
-
-【粉色大象】
-用户说「不要 X」→ 从全部字段直接删除 X 相关 tag；禁止 no_X、without_X。
-
-【注意】只输出 JSON。`;
+【规则】
+- 只根据【本轮用户】和【本轮角色回复】决定 action / expression / camera；用户要求的姿势必须如实写入 action。
+- 未在本轮要求换装 → outfitTags 复制 continuity 快照中的服饰。
+- 本轮明确要求换装/脱衣 → 更新 outfitTags。
+- 未在本轮要求换地点 → scene 继承 continuity 中的场景类型（保持抽象，不加道具 tag）。
+- 只输出 JSON。`;
     }
 
     // 解析火山引擎模型别名
@@ -315,16 +316,34 @@ SD1.5 英文逗号 tags；指定穿着写对应 tags；脱光/不要衣服 → �
         return response.data?.choices?.[0]?.message?.content || '';
     }
 
-    formatCurrentVisualStateBlock(previousVisual) {
+    scenePropTagPattern() {
+        return /(?:drawing_tablet|tablet|ipad|phone|smartphone|computer|monitor|laptop|keyboard|mouse|desk|table|chair|stool|bed|window|bookshelf|book|pen|pencil|cup|mug|bottle|art_supplies|sketches_on_wall|mannequin|clothes_rack|hanger|mirror|lamp|pendant_light|curtain|door|closet|wardrobe)/i;
+    }
+
+    abstractTagsFromField(raw) {
+        return String(raw || '')
+            .split(/[\n,;，；]+/)
+            .map((part) => part.trim())
+            .filter((part) => part && !this.scenePropTagPattern().test(part) && !this.isNegationTag(part));
+    }
+
+    formatContinuitySnapshotForImageAI(previousVisual) {
+        if (!previousVisual) return '（首轮，无上一轮）';
         const outfit = this.formatPreviousOutfitTags(previousVisual);
-        const structured = this.formatPreviousVisualStructured(previousVisual, {}, { skipOutfit: true });
-        if (!structured && outfit === '（无，首轮）') {
-            return '（首轮，无上一张出图）';
-        }
+        const prev = typeof previousVisual === 'object' ? previousVisual : {};
+        const sceneAbstract = this.abstractTagsFromField(prev.scene).join(', ');
+        const atmosphereAbstract = this.abstractTagsFromField(prev.atmosphere).join(', ');
         const lines = [];
-        if (outfit && outfit !== '（无，首轮）') lines.push(`- 服饰：${outfit}`);
-        if (structured) lines.push(structured.replace(/^/gm, '').trim());
-        return lines.length ? lines.join('\n') : '（无上一张出图）';
+        if (outfit && outfit !== '（无，首轮）' && outfit !== '（无）') {
+            lines.push(`- 服饰：${outfit}`);
+        }
+        if (sceneAbstract) lines.push(`- 场景类型：${sceneAbstract}`);
+        if (atmosphereAbstract) lines.push(`- 氛围：${atmosphereAbstract}`);
+        return lines.length ? lines.join('\n') : '（首轮，无上一轮）';
+    }
+
+    formatCurrentVisualStateBlock(previousVisual) {
+        return this.formatContinuitySnapshotForImageAI(previousVisual);
     }
 
     mergeVisualAnalysis(emotionResult, outfitVisualResult) {
@@ -566,26 +585,21 @@ camera: medium_shot, from_front, upper_body
         const changeIntent = this.resolveChangeIntent(lastUserMsg, visualResult, previousVisual);
         const prev = previousVisual && typeof previousVisual === 'object' ? previousVisual : {};
 
-        for (const key of ['action', 'expression', 'camera']) {
-            if (!String(plan[key] || '').trim() && prev[key]) {
-                plan[key] = String(prev[key]).trim();
-            }
-        }
         if (!changeIntent.sceneChange) {
-            for (const key of ['scene', 'atmosphere']) {
-                if (!String(plan[key] || '').trim() && prev[key]) {
-                    plan[key] = String(prev[key]).trim();
-                }
+            if (!String(plan.scene || '').trim() && prev.scene) {
+                plan.scene = this.abstractTagsFromField(prev.scene).join(', ');
+            }
+            if (!String(plan.atmosphere || '').trim() && prev.atmosphere) {
+                plan.atmosphere = this.abstractTagsFromField(prev.atmosphere).join(', ');
             }
         }
 
         for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
             plan[key] = this.stripNegationTags(plan[key]);
         }
+        plan.scene = this.abstractTagsFromField(plan.scene).join(', ');
         if (this.detectRemoveHeldPropIntent(lastUserMsg)) {
-            for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
-                plan[key] = this.stripHeldPropTags(plan[key]);
-            }
+            plan.action = this.stripHeldPropTags(plan.action);
             if (!String(plan.action || '').trim()) {
                 plan.action = 'arms_outstretched, shy_pose';
             }
@@ -595,25 +609,25 @@ camera: medium_shot, from_front, upper_body
         }
     }
 
-    buildVisualFromEmotionPlan(emotionResult, previousVisual, changeIntent, lastUserMsg = '') {
-        const vp = emotionResult?.visualPlan || {};
+    buildVisualFromEmotionPlan(visualAnalysisResult, previousVisual, changeIntent, lastUserMsg = '') {
+        const vp = visualAnalysisResult?.visualPlan || {};
         const merged = {
             action: this.stripNegationTags(this.sanitizeEnglishTags(vp.action) || String(vp.action || '').trim()),
             outfit: '',
             expression: this.stripNegationTags(this.sanitizeEnglishTags(vp.expression) || String(vp.expression || '').trim()),
-            scene: this.stripNegationTags(this.sanitizeEnglishTags(vp.scene) || String(vp.scene || '').trim()),
+            scene: this.abstractTagsFromField(this.sanitizeEnglishTags(vp.scene) || String(vp.scene || '')).join(', '),
             atmosphere: this.stripNegationTags(this.sanitizeEnglishTags(vp.atmosphere) || String(vp.atmosphere || '').trim()),
             camera: this.stripNegationTags(this.sanitizeEnglishTags(vp.camera) || String(vp.camera || '').trim())
         };
         const { visual: afterContinuity, enforced } = this.enforceVisualContinuity(
-            merged, previousVisual, changeIntent, { skipOutfit: true }
+            merged, previousVisual, changeIntent, { skipOutfit: true, skipSceneContinuity: true }
         );
         const { visual: withOutfit, outfitEnforced } = this.applyOutfitPlanToVisual(
-            afterContinuity, emotionResult, previousVisual, changeIntent
+            afterContinuity, visualAnalysisResult, previousVisual, changeIntent
         );
         let visual = withOutfit;
         const clothingEnforced = [];
-        if (this.shouldStripClothing(emotionResult, lastUserMsg)) {
+        if (this.shouldStripClothing(visualAnalysisResult, lastUserMsg)) {
             visual = this.stripClothingFromVisual(visual);
             clothingEnforced.push('clothing_purge_all_fields');
         }
@@ -1389,7 +1403,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                 enforced.push('outfit');
             }
         }
-        if (!changeIntent.sceneChange) {
+        if (!changeIntent.sceneChange && !options.skipSceneContinuity) {
             if (previousVisual.scene) {
                 const prev = String(previousVisual.scene).trim();
                 const cur = String(merged.scene || '').trim();
@@ -1425,22 +1439,52 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         model,
         apiKey,
         baseUrl,
-        emotionResult,
+        emotionOnly,
         emotionDebugInfo,
-        outfitVisualDebugInfo,
         fullSystemPrompt,
         chatMessages,
         emotionTimeMs,
-        outfitVisualTimeMs = 0,
         replyStartTime,
         totalStartTime,
-        previousVisual = null
+        previousVisual = null,
+        emit = null
     }) {
         const displayReply = this.stripVisualBlocksFromReply(replyContent);
         const lastUserMsg = [...recentTurns].reverse().find((m) => m.role === 'user')?.content || '';
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
+
+        const emitFn = typeof emit === 'function' ? emit : () => {};
+        emitFn('phase', { phase: 'outfit_analyzing' });
+        const outfitStartTime = Date.now();
+        const outfitResultWithDebug = await this.analyzeOutfitVisual({
+            userMessage: lastUserMsg,
+            assistantReply: displayReply,
+            previousVisual,
+            provider,
+            model,
+            apiKey,
+            baseUrl
+        });
+        const outfitVisualTimeMs = Date.now() - outfitStartTime;
+        const { debugInfo: outfitVisualDebugInfo, ...outfitResultRaw } = outfitResultWithDebug || {};
+        const outfitOnly = outfitResultRaw?.outfitPlan
+            ? outfitResultRaw
+            : this.parseOutfitVisualResponse('');
+
+        this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg);
+        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg);
+        const visualAnalysis = outfitOnly;
+        const emotionResult = this.mergeVisualAnalysis(emotionOnly, outfitOnly);
+
+        emitFn('outfit_visual_done', {
+            outfitPlan: outfitOnly.outfitPlan,
+            visualPlan: outfitOnly.visualPlan,
+            outfitVisualTimeMs
+        });
+        emitFn('phase', { phase: 'parsing_visual' });
+
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualAnalysis, previousVisual);
         const { visual, enforced: allEnforced, visualFromPlan } = this.buildVisualFromEmotionPlan(
-            emotionResult, previousVisual, changeIntent, lastUserMsg
+            visualAnalysis, previousVisual, changeIntent, lastUserMsg
         );
         const replyTimeMs = Date.now() - replyStartTime;
         const totalTimeMs = Date.now() - totalStartTime;
@@ -1551,25 +1595,14 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         return { ...this.parseEmotionResponse(''), debugInfo };
     }
 
-    // 阶段2：服饰 + 分镜分析
-    async analyzeOutfitVisual(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '', previousVisual = null) {
-        const cleanMessages = Array.isArray(messages)
-            ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
-            : [];
-        const { recentTurns: recentMessages } = this.extractRecentTurns(cleanMessages, EMOTION_CONTEXT_ROUNDS);
-        const chatHistory = recentMessages.map(m =>
-            `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`
-        ).join('\n');
-        const userMessage = messages.length > 0 && messages[messages.length - 1].role === 'user'
-            ? messages[messages.length - 1].content
-            : '';
-        const currentState = this.formatCurrentVisualStateBlock(previousVisual);
-
+    // 阶段3：生图 tags（对白之后；仅本轮一问一答）
+    async analyzeOutfitVisual({ userMessage, assistantReply, previousVisual, provider, model, apiKey, baseUrl }) {
+        const continuity = this.formatContinuitySnapshotForImageAI(previousVisual);
         let prompt = this.outfitVisualAnalysisPrompt
-            .replace('{chat_history}', chatHistory)
-            .replace('{user_message}', userMessage)
-            .replace('{current_visual_state}', currentState);
-        prompt = `${this.buildRoleInfoBlock(characterSystemPrompt)}${prompt}`;
+            .replace('{sd15_handbook}', this.sd15PhotographerHandbook)
+            .replace('{continuity_snapshot}', continuity)
+            .replace('{user_message}', String(userMessage || '').trim() || '(无)')
+            .replace('{assistant_reply}', String(assistantReply || '').trim() || '(无)');
 
         const debugInfo = {
             outfitVisualPrompt: prompt,
@@ -1635,8 +1668,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         }
     }
 
-    /** 阶段1+2：情感分析 + 服饰分镜分析 */
-    async prepareThreePhaseAnalysis(cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, previousVisual, emit) {
+    /** 阶段1：仅情感分析（生图在对白之后单独调用） */
+    async prepareEmotionPhase(cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit) {
         const emitFn = typeof emit === 'function' ? emit : () => {};
 
         emitFn('phase', { phase: 'emotion_analyzing' });
@@ -1652,53 +1685,20 @@ ${this.visualChangeHint(changeIntent, userMessage)}
 
         emitFn('emotion_done', { emotionAnalysis: emotionOnly, emotionTimeMs });
 
-        emitFn('phase', { phase: 'outfit_analyzing' });
-        const outfitStartTime = Date.now();
-        const outfitResultWithDebug = await this.analyzeOutfitVisual(
-            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, previousVisual
-        );
-        const outfitVisualTimeMs = Date.now() - outfitStartTime;
-        const { debugInfo: outfitVisualDebugInfo, ...outfitResultRaw } = outfitResultWithDebug || {};
-        const outfitOnly = outfitResultRaw?.outfitPlan
-            ? outfitResultRaw
-            : this.parseOutfitVisualResponse('');
-
-        emitFn('outfit_visual_done', {
-            outfitPlan: outfitOnly.outfitPlan,
-            visualPlan: outfitOnly.visualPlan,
-            outfitVisualTimeMs
-        });
-
         const { recentTurns, hasOlderHistory } = this.extractRecentTurns(cleanMessages, RECENT_FULL_ROUNDS);
-        const lastUserMsg = [...recentTurns].reverse().find((m) => m.role === 'user')?.content || '';
-
-        this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg);
-        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg);
-        const turnAnalysis = this.mergeVisualAnalysis(emotionOnly, outfitOnly);
-
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, turnAnalysis, previousVisual);
-        if (changeIntent.sceneChange) {
-            console.log('[scene] user requested scene change', changeIntent.sceneTargetHint || '(no hint)');
-        }
-        console.log('[outfit] plan:', turnAnalysis.outfitPlan?.outfitTags || '(沿用)');
 
         return {
             emotionOnly,
-            outfitOnly,
-            turnAnalysis,
             emotionDebugInfo,
-            outfitVisualDebugInfo,
             emotionTimeMs,
-            outfitVisualTimeMs,
             recentTurns,
-            hasOlderHistory,
-            lastUserMsg
+            hasOlderHistory
         };
     }
 
-    // 带情感分析的三阶段对话（情感 → 服饰分镜 → 对白）
+    // 带情感分析的对话（情感 → 对白 → 生图 tags）
     async chatWithEmotion(messages, characterSystemPrompt, provider, model, apiKey, baseUrl, conversationSummary, appearancePrompt = '', outfitPrompt = '', previousVisual = null, turnMemory = []) {
-        console.log('=== 开始三阶段 AI 调用 ===');
+        console.log('=== 开始对话（情感 → 对白 → 生图）===');
         const totalStartTime = Date.now();
 
         const cleanMessages = Array.isArray(messages)
@@ -1708,25 +1708,22 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             : {};
 
         console.log('1. 情感分析');
-        const prep = await this.prepareThreePhaseAnalysis(
-            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, previousVisual
+        const prep = await this.prepareEmotionPhase(
+            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl
         );
         const {
-            turnAnalysis: emotionResult,
+            emotionOnly,
             emotionDebugInfo,
-            outfitVisualDebugInfo,
             emotionTimeMs,
-            outfitVisualTimeMs,
             recentTurns,
             hasOlderHistory
         } = prep;
 
-        console.log('   情感分析完成，主情绪:', emotionResult.emotionAnalysis?.primaryEmotion || '未知');
-        console.log('2. 服饰分镜已完成');
-        console.log('3. 生成对白');
+        console.log('   情感分析完成，主情绪:', emotionOnly.emotionAnalysis?.primaryEmotion || '未知');
+        console.log('2. 生成对白（生图在对白之后）');
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
-            characterSystemPrompt, emotionResult, turnMemory, conversationSummary
+            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary
         );
         const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
@@ -1752,13 +1749,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     model,
                     apiKey,
                     baseUrl,
-                    emotionResult,
+                    emotionOnly,
                     emotionDebugInfo,
-                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
-                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -1796,13 +1791,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     model,
                     apiKey,
                     baseUrl,
-                    emotionResult,
+                    emotionOnly,
                     emotionDebugInfo,
-                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
-                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -1837,13 +1830,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     model,
                     apiKey,
                     baseUrl,
-                    emotionResult,
+                    emotionOnly,
                     emotionDebugInfo,
-                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
-                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -1872,13 +1863,11 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                     model,
                     apiKey,
                     baseUrl,
-                    emotionResult,
+                    emotionOnly,
                     emotionDebugInfo,
-                    outfitVisualDebugInfo,
                     fullSystemPrompt,
                     chatMessages,
                     emotionTimeMs,
-                    outfitVisualTimeMs,
                     replyStartTime,
                     totalStartTime,
                     previousVisual
@@ -2015,21 +2004,19 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
             : [];
 
-        const prep = await this.prepareThreePhaseAnalysis(
-            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, previousVisual, emit
+        const prep = await this.prepareEmotionPhase(
+            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit
         );
         const {
-            turnAnalysis: emotionResult,
+            emotionOnly,
             emotionDebugInfo,
-            outfitVisualDebugInfo,
             emotionTimeMs,
-            outfitVisualTimeMs,
             recentTurns,
             hasOlderHistory
         } = prep;
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
-            characterSystemPrompt, emotionResult, turnMemory, conversationSummary
+            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary
         );
         const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
@@ -2062,8 +2049,6 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             emit('reply_delta', { delta: visible, accumulated: visible });
         }
 
-        emit('phase', { phase: 'parsing_visual' });
-
         return this.finalizeChatReply({
             replyContent,
             conversationSummary,
@@ -2074,16 +2059,15 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             model,
             apiKey,
             baseUrl,
-            emotionResult,
+            emotionOnly,
             emotionDebugInfo,
-            outfitVisualDebugInfo,
             fullSystemPrompt,
             chatMessages,
             emotionTimeMs,
-            outfitVisualTimeMs,
             replyStartTime,
             totalStartTime,
-            previousVisual: previousVisual || null
+            previousVisual: previousVisual || null,
+            emit
         });
     }
 }
