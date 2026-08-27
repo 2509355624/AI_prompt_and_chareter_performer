@@ -394,6 +394,88 @@ camera: medium_shot, from_front, upper_body
         return String(previousVisual).trim() || '（无）';
     }
 
+    /** 将出图 outfit tags 转为对白用的自然语言（仅服饰，不含动作/场景） */
+    outfitTagToDialogueLabel(tag) {
+        const t = String(tag || '').trim().toLowerCase().replace(/\s+/g, '_');
+        if (!t) return '';
+        const map = {
+            nude: '未着衣',
+            naked: '未着衣',
+            sailor_uniform: '水手服',
+            school_uniform: '校服',
+            pleated_skirt: '百褶裙',
+            miniskirt: '短裙',
+            skirt: '裙子',
+            dress: '连衣裙',
+            lace_dress: '蕾丝连衣裙',
+            lace_lingerie: '蕾丝内衣',
+            lingerie: '内衣',
+            pajamas: '睡衣',
+            lace_pajamas: '蕾丝睡衣',
+            nightgown: '睡裙',
+            hoodie: '连帽衫',
+            pink_hoodie: '粉色连帽衫',
+            sweatpants: '运动裤',
+            sweater: '毛衣',
+            cardigan: '开衫',
+            shirt: '衬衫',
+            blouse: '女式衬衫',
+            jacket: '外套',
+            coat: '大衣',
+            pants: '长裤',
+            jeans: '牛仔裤',
+            shorts: '短裤',
+            swimsuit: '泳装',
+            bikini: '比基尼',
+            maid: '女仆装',
+            maid_outfit: '女仆装',
+            apron: '围裙',
+            kimono: '和服',
+            yukata: '浴衣',
+            stockings: '丝袜',
+            thighhighs: '过膝袜',
+            pantyhose: '裤袜',
+            socks: '短袜',
+            kneehighs: '及膝袜',
+            bra: '胸罩',
+            panties: '内裤',
+            underwear: '内衣',
+            bathrobe: '浴袍',
+            robe: '长袍',
+            towel: '裹着毛巾',
+            boots: '靴子',
+            shoes: '鞋子',
+            sandals: '凉鞋',
+            hat: '帽子',
+            ribbon: '缎带',
+            necktie: '领带',
+            scarf: '围巾',
+            gloves: '手套'
+        };
+        if (map[t]) return map[t];
+        if (/^(?:no|not|without)[-_]?/i.test(t)) return '';
+        return null;
+    }
+
+    formatOutfitForDialogue(previousVisual) {
+        const raw = this.formatPreviousOutfitTags(previousVisual);
+        if (!raw || raw === '（无，首轮）' || raw === '（无）') return '';
+
+        const tags = raw.split(/[\n,;，；]+/).map((p) => p.trim()).filter(Boolean);
+        const labels = [];
+        for (const tag of tags) {
+            const label = this.outfitTagToDialogueLabel(tag);
+            if (label === '') continue;
+            if (label) {
+                if (!labels.includes(label)) labels.push(label);
+            } else {
+                const fallback = tag.replace(/_/g, ' ').trim();
+                if (fallback && !labels.includes(fallback)) labels.push(fallback);
+            }
+        }
+        return labels.join('、') || '';
+    }
+
     /** Tag is a negation-style prompt (pink elephant — mentions what user does not want) */
     isNegationTag(tag) {
         const t = String(tag || '').trim();
@@ -474,8 +556,8 @@ camera: medium_shot, from_front, upper_body
         };
     }
 
-    /** 对话系统提示：仅角色 + 情绪 + 记忆，不含任何出图指令 */
-    buildDialogueSystemPrompt(characterSystemPrompt, emotionResult, turnMemory, conversationSummary) {
+    /** 对话系统提示：角色 + 情绪 + 当前穿着 + 记忆，不含出图分镜指令 */
+    buildDialogueSystemPrompt(characterSystemPrompt, emotionResult, turnMemory, conversationSummary, previousVisual = null) {
         const memoryText = this.buildMemoryContextBlock(turnMemory, conversationSummary);
         const ea = emotionResult?.emotionAnalysis || {};
         const rs = emotionResult?.responseSuggestion || {};
@@ -486,7 +568,11 @@ camera: medium_shot, from_front, upper_body
 - 建议语气：${rs.tone || '温柔'}
 - 回复要点：${Array.isArray(rs.keyPoints) ? rs.keyPoints.join('；') : '无'}
 `.trim();
-        return `${characterSystemPrompt}\n\n${emotionInfo}${memoryText}`.trim();
+        const outfitDesc = this.formatOutfitForDialogue(previousVisual);
+        const outfitBlock = outfitDesc
+            ? `\n\n【当前穿着（叙事参考）】\n${outfitDesc}`
+            : '';
+        return `${characterSystemPrompt}\n\n${emotionInfo}${outfitBlock}${memoryText}`.trim();
     }
 
     formatPreviousVisualForEmotionAnalysis(previousVisual, userMessage = '') {
@@ -1723,7 +1809,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         console.log('2. 生成对白（生图在对白之后）');
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
-            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary
+            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary, previousVisual
         );
         const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
@@ -2016,7 +2102,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         } = prep;
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
-            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary
+            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary, previousVisual
         );
         const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
