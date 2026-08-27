@@ -20,8 +20,8 @@ class AIService {
 5. **纯净输出**：严禁输出Markdown代码块、解释或前言，只返回JSON数组。
 `;
 
-        // 情感分析提示词
-        this.emotionAnalysisPrompt = `你是一个专业的情感分析师，请分析以下对话中的用户情感状态。
+        // 情感分析 + 出图分镜（单轮 JSON；对话阶段不再生成 visual）
+        this.emotionAnalysisPrompt = `你是一个专业的情感分析师兼 SD1.5 分镜策划，请分析对话并输出本轮情绪与出图 tags。
 
 【对话历史】
 {chat_history}
@@ -30,11 +30,10 @@ class AIService {
 {user_message}
 
 【分析要求】
-1. 识别用户当前的核心情绪
-2. 评估情绪强度（0-10分，10分为最强）
-3. 分析情绪变化趋势
-4. 识别导致情绪变化的关键事件
-5. 给出回复建议
+1. 识别用户当前的核心情绪、强度、趋势
+2. 识别导致情绪变化的关键事件
+3. 给出角色对白语气建议（tone / avoidTones / keyPoints）
+4. 决定本轮服饰 outfitPlan 与其余分镜 visualPlan（见下方规则）
 
 【输出格式】
 {
@@ -55,15 +54,43 @@ class AIService {
     "tone": "建议语气",
     "avoidTones": ["避免语气1", "避免语气2"],
     "keyPoints": ["要点1", "要点2"]
+  },
+  "outfitPlan": {
+    "changeOutfit": true,
+    "outfitTags": "sailor_uniform, pleated_skirt, white_thighhighs, skindentation",
+    "note": "一句话说明为何选这套（中文）"
+  },
+  "visualPlan": {
+    "action": "standing, clutching_skirt_hem, shy_pose",
+    "expression": "blush, averted_eyes, embarrassed",
+    "scene": "indoors, art_studio, desk, drawing_tablet, window",
+    "atmosphere": "soft_morning_light, calm, cozy, warm_tone",
+    "camera": "full_body_shot, from_front, eye_level"
   }
 }
 
-【情绪标签列表】
-- 正面情绪：开心、兴奋、感谢、满意、期待、好奇
-- 负面情绪：生气、难过、沮丧、失望、焦虑、委屈
-- 中性情绪：平静、疑惑、惊讶、害羞、犹豫
+【outfitPlan 规则】
+1. 输出 SD1.5 英文逗号 tags，多词用下划线；只写服装与穿着状态，不写发色瞳色。
+2. 用户指定要穿什么 → changeOutfit=true，outfitTags 写目标服装（如 sailor_uniform, pleated_skirt）。
+3. 用户仅说「快点」「ok」等，但前几轮已在讨论换装 → changeOutfit=true，outfitTags 沿用已确定服装。
+4. 无换装意图 → changeOutfit=false，outfitTags **逐 tag 复制**【上一张图服饰 tags】。
+5. **用户要求去掉/不要衣服、脱光、把衣服换掉（且未指定新服装）** → changeOutfit=true，outfitTags **仅写** nude（或 naked），不要写任何其它服饰 tag。
 
-【注意】请只输出JSON格式，不要输出任何其他解释性文字。`;
+【visualPlan 规则 — action / expression / scene / atmosphere / camera】
+1. 英文短 tags，逗号分隔，多词用下划线；只写本轮可见内容，不写角色固定外貌。
+2. scene = 相机拍到的空间（地点 + 4～6 个可见物件），不是对白话题。
+3. 用户未要求换场景 → scene、atmosphere **逐 tag 复制**【上一张图分镜 tags】，但须先剔除与当前 outfitPlan 冲突的 tag（见下）。
+4. 用户明确要求去别处/换场景 → 重写 scene + atmosphere。
+5. action / expression / camera 贴合当前对白；未换场景时也可更新。
+6. visualPlan 不含 outfit 字段；服饰只写在 outfitPlan。
+
+【粉色大象 — 全 prompt 一致性】
+SD 按**整段** tags 生图。用户说「不要 X」时：**禁止**写 no_X、without_X、not_X 等否定 tag（提了 X 反而会出现 X）。
+正确做法：从 outfitPlan 与 visualPlan **全部五个字段**中**直接删除**与 X 相关的 tag，只保留用户**想要出现**的内容。
+例：不要浴巾 → 所有字段删除 towel、bath_towel、holding_towel，也不要写 no_towel。
+例：不要衣服 → outfitTags 仅 nude；action/expression/scene/atmosphere/camera 中不得出现 uniform、skirt、dress、stockings、thighhighs、hoodie、clothing、clothes_rack、mannequin、clutching_skirt_hem、adjusting_clothes 等任何穿戴相关 tag；动作改用 covering_breasts、arms_crossed 等与裸体相容的 pose。
+
+【注意】请只输出 JSON，不要输出任何其他解释性文字。`;
     }
 
     // 解析火山引擎模型别名
@@ -222,40 +249,272 @@ class AIService {
         return response.data?.choices?.[0]?.message?.content || '';
     }
 
-    sd15TagFormatRules() {
-        return `# SD 1.5 提示词规范（必须严格遵守）
-下游为 Stable Diffusion 1.5 / ComfyUI（CLIP 约 75 token 上限）。你必须输出 **Danbooru / SD1.5 标签串**，禁止自然语言句子。
+    sceneTagExpertPrompt() {
+        return `#分镜 tags（SD 1.5 / Danbooru）
+按当前对白与用户动作，输出六个字段。每个字段：英文短 tags，逗号分隔，多词用下划线（如 medium_shot, looking_away）。
+只写本轮可见内容；不要写角色固定外貌（底模已有）。
 
-## 格式铁律
-1. **只用英文逗号分隔的 tags**，每个 tag 是 1～4 个词的短关键词，不是完整句。
-2. **多词 tag 用下划线连接**：blue_hair, school_uniform, medium_shot, looking_at_viewer（不要写 "girl with blue hair"）。
-3. **禁止**冠词/介词/连词堆砌：不要用 a, an, the, with, and then, who is, that has。
-4. **禁止**中文、JSON、markdown 代码块、解释性散文。
-5. **只 tag 画面里看得见的内容**（tag what you see）：脚不出镜就不要写 footwear。
-6. **字段内 tag 顺序**：较重要的放前面（SD1.5 对靠前 token 更敏感）；本系统 Comfy 侧会按 outfit → action → expression → scene → atmosphere → camera 拼接。
-7. **权重语法**（可选、少用）：重要 tag 可写 (tag:1.1)，不要滥用。
-8. 角色固定外貌（发色、瞳色、角色名触发词）**不要写**——已在底模 prompt；你只写本轮变化的 action/outfit/expression/scene/atmosphere/camera。
+#字段（outfit 由情绪分析阶段单独决定，此处不要写 outfit 行）
+1. action — 姿势/动作/互动：standing, pointing, holding
+2. expression — 表情眼神：blush, smile, averted_eyes
+3. scene — 此刻所在地点 + 4～6 个可见物件：indoors, clothing_store, clothes_rack, mannequin, mirror
+4. atmosphere — 光影氛围：warm_lighting, soft_glow, cozy
+5. camera — 景别机位：medium_shot, from_front, upper_body
 
-## 推荐 tag 类型（参考 Danbooru）
-- 动作/姿势：standing, sitting, leaning_forward, arms_behind_back, holding, pointing
-- 服饰：white_shirt, denim_skirt, wet_clothes, clinging, long_sleeves
-- 表情：blush, smile, parted_lips, averted_eyes, teary_eyes
-- 场景：indoors, clothing_store, cake_shop, bathroom, tile_wall, mirror, display_case
-- 氛围/光：warm_lighting, soft_light, fluorescent_light, steam, bokeh, depth_of_field
-- 机位：medium_shot, close-up, cowboy_shot, from_front, three-quarter_view, upper_body
+#场景
+- scene = 相机拍到的空间，不是对白话题
+- 判定换场景 → 整套重写 scene/atmosphere；未换 → 逐 tag 复制上一张
 
-## 错误 vs 正确（务必对照）
-❌ leaning toward glass display case, finger pointing at strawberry cake
-✅ leaning_forward, pointing, finger_on_glass, strawberry_cake, shy_pose
+#示例（5 行，无 outfit）
+###
+action: standing, leaning_forward, pointing, shy_pose
+expression: blush, shy_smile, curious
+scene: indoors, cake_shop, display_case, cake, wooden_table, pendant_light
+atmosphere: warm_lighting, soft_glow, cozy, bokeh
+camera: medium_shot, from_front, upper_body
+###`;
+    }
 
-❌ casual home wear, soft cotton t-shirt, comfortable shorts, relaxed fit
-✅ t-shirt, shorts, casual, cotton, loose_clothes
+    /** Previous outfit tags for emotion analysis prompt */
+    formatPreviousOutfitTags(previousVisual) {
+        if (!previousVisual) return '（无，首轮）';
+        if (typeof previousVisual === 'object') {
+            const o = String(previousVisual.outfit || '').trim();
+            if (o) return o;
+            if (previousVisual.prompt) {
+                const m = String(previousVisual.prompt).match(/^(.*?)(?:,\s*standing|, standing)/i);
+                return m ? m[1].slice(0, 200) : '';
+            }
+        }
+        return String(previousVisual).trim() || '（无）';
+    }
 
-❌ cake shop interior, glass display counter with colorful cakes, wooden tables
-✅ indoors, cake_shop, display_case, cake, wooden_table, pendant_light, chair
+    /** Tag is a negation-style prompt (pink elephant — mentions what user does not want) */
+    isNegationTag(tag) {
+        const t = String(tag || '').trim();
+        if (!t) return true;
+        return /^(?:no|not|without|dont|never|avoid)[-_]?/i.test(t)
+            || /^(?:no|not|without)\s/i.test(t);
+    }
 
-❌ medium close-up, front three-quarter view
-✅ medium_close-up, from_front, three-quarter_view, upper_body`;
+    /** Clothing / wearable-related tag fragments to purge when outfit is nude */
+    clothingTagPattern() {
+        return /(?:sailor_uniform|school_uniform|pleated_skirt|miniskirt|skirt|dress|gown|hoodie|sweatpants|sweater|cardigan|shirt|blouse|top|jacket|coat|pants|trousers|jeans|shorts|uniform|stockings|thighhighs|pantyhose|legwear|socks|kneehighs|bra|panties|underwear|lingerie|swimsuit|bikini|maid|apron|kimono|yukata|cosplay|costume|scarf|gloves|boots|shoes|sandals|hat|cap|headdress|ribbon|necktie|tie|clothes|clothing|outfit|garment|wear|wardrobe|closet|hanger|clothes_rack|clothing_store|mannequin|skindentation|zettai_ryouiki|clutching_skirt|skirt_hem|holding_skirt|adjusting_clothes|changing_clothes|undressing|towel|bath_towel|holding_towel|wrapped_in_towel|bathrobe|robe)/i;
+    }
+
+    stripClothingTags(raw) {
+        return String(raw || '')
+            .split(/[\n,;，；]+/)
+            .map((part) => part.trim())
+            .filter((part) => part && !this.isNegationTag(part) && !this.clothingTagPattern().test(part))
+            .join(', ');
+    }
+
+    stripNegationTags(raw) {
+        return String(raw || '')
+            .split(/[\n,;，；]+/)
+            .map((part) => part.trim())
+            .filter((part) => part && !this.isNegationTag(part))
+            .join(', ');
+    }
+
+    /** User wants no clothes — outfit becomes nude; purge clothing from all visual fields */
+    detectRemoveClothingIntent(userText) {
+        const text = String(userText || '').trim();
+        if (!text) return false;
+        const narrations = this.extractNarrationFragments(text);
+        const combined = [text, ...narrations].join('\n');
+
+        if (/(?:换成|穿上|换上|试穿|试下|试一下).{0,24}(?:水手|短裙|泳装|比基尼|制服|连衣裙|校服|和服|裤袜|丝袜|uniform|skirt|bikini|dress|stockings|thighhighs)/i.test(combined)) {
+            return false;
+        }
+
+        return /不需要.{0,10}(?:衣服|衣物|服饰|服装|穿)|不要.{0,10}(?:衣服|衣物|服饰|服装)|不穿衣服|不用穿|没穿衣服|脱(?:掉|了|光|下)?(?:衣服|光)?|去掉(?:所有)?(?:衣服|服饰|服装)|全裸|裸体|赤裸|\bnude\b|\bnaked\b|把衣服换掉|换掉衣服|衣服换掉|脱掉/i.test(combined);
+    }
+
+    shouldStripClothing(emotionResult, lastUserMsg) {
+        if (this.detectRemoveClothingIntent(lastUserMsg)) return true;
+        const tags = String(emotionResult?.outfitPlan?.outfitTags || '').trim().toLowerCase();
+        return tags === 'nude' || tags === 'naked' || /^nude(?:,|$)/.test(tags);
+    }
+
+    stripClothingFromVisualPlan(visualPlan) {
+        if (!visualPlan || typeof visualPlan !== 'object') return;
+        for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
+            visualPlan[key] = this.stripClothingTags(visualPlan[key]);
+        }
+    }
+
+    stripClothingFromVisual(visual) {
+        if (!visual || typeof visual !== 'object') return visual;
+        const result = { ...visual };
+        for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
+            result[key] = this.stripClothingTags(this.stripNegationTags(result[key]));
+        }
+        if (String(result.prompt || '').trim()) {
+            result.prompt = this.assembleVisualPrompt(result);
+        }
+        return result;
+    }
+
+    resolveChangeIntent(lastUserMsg, emotionResult, previousVisual) {
+        const fromRegex = this.detectVisualChangeIntent(lastUserMsg);
+        const plan = emotionResult?.outfitPlan;
+        const prevOutfit = this.formatPreviousOutfitTags(previousVisual);
+        const plannedTags = String(plan?.outfitTags || '').trim();
+
+        let outfitChange = fromRegex.outfitChange;
+        if (plan && typeof plan.changeOutfit === 'boolean') {
+            outfitChange = plan.changeOutfit;
+        } else if (plannedTags && prevOutfit && prevOutfit !== '（无，首轮）' && prevOutfit !== '（无）') {
+            const norm = (s) => s.toLowerCase().replace(/\s+/g, '');
+            if (norm(plannedTags) !== norm(prevOutfit)) outfitChange = true;
+        }
+
+        return {
+            outfitChange,
+            sceneChange: fromRegex.sceneChange,
+            sceneTargetHint: fromRegex.sceneTargetHint
+        };
+    }
+
+    /** 对话系统提示：仅角色 + 情绪 + 记忆，不含任何出图指令 */
+    buildDialogueSystemPrompt(characterSystemPrompt, emotionResult, turnMemory, conversationSummary) {
+        const memoryText = this.buildMemoryContextBlock(turnMemory, conversationSummary);
+        const ea = emotionResult?.emotionAnalysis || {};
+        const rs = emotionResult?.responseSuggestion || {};
+        const emotionInfo = `
+【用户情绪状态】
+- 主情绪：${ea.primaryEmotion || '平静'}（强度：${ea.intensity ?? 3}/10）
+- 情绪趋势：${ea.trend || '稳定'}
+- 建议语气：${rs.tone || '温柔'}
+- 避免语气：${Array.isArray(rs.avoidTones) ? rs.avoidTones.join(', ') : '无'}
+- 回复要点：${Array.isArray(rs.keyPoints) ? rs.keyPoints.join('；') : '无'}
+`.trim();
+        return `${characterSystemPrompt}\n\n${emotionInfo}${memoryText}`.trim();
+    }
+
+    formatPreviousVisualForEmotionAnalysis(previousVisual, userMessage = '') {
+        const changeIntent = this.detectVisualChangeIntent(userMessage);
+        const structured = this.formatPreviousVisualStructured(previousVisual, changeIntent, { skipOutfit: true });
+        if (structured) {
+            return `\n【上一张图分镜 tags（未换场景时 visualPlan.scene/atmosphere 必须逐 tag 复制）】\n${structured}\n`;
+        }
+        return '';
+    }
+
+    applyOutfitPlanToVisual(visual, emotionResult, previousVisual, changeIntent) {
+        const merged = visual && typeof visual === 'object' ? { ...visual } : {};
+        const plan = emotionResult?.outfitPlan;
+        const planned = String(plan?.outfitTags || '').trim();
+        const enforced = [];
+
+        if (planned) {
+            merged.outfit = this.sanitizeEnglishTags(planned) || planned;
+            enforced.push('outfit_from_plan');
+        } else if (!changeIntent.outfitChange && previousVisual?.outfit) {
+            merged.outfit = String(previousVisual.outfit).trim();
+            enforced.push('outfit_copy');
+        }
+
+        const normalized = this.normalizeVisual(merged);
+        const result = normalized || merged;
+        if (String(result.outfit || '').trim()) {
+            result.prompt = this.assembleVisualPrompt(result);
+        } else if (planned) {
+            result.outfit = planned;
+            result.prompt = this.assembleVisualPrompt(result);
+        }
+        return { visual: result, outfitEnforced: enforced };
+    }
+
+    ensureOutfitPlan(emotionResult, previousVisual, lastUserMsg) {
+        if (!emotionResult) return;
+        if (!emotionResult.outfitPlan || typeof emotionResult.outfitPlan !== 'object') {
+            emotionResult.outfitPlan = { changeOutfit: false, outfitTags: '', note: '' };
+        }
+        const plan = emotionResult.outfitPlan;
+
+        if (this.detectRemoveClothingIntent(lastUserMsg)) {
+            plan.changeOutfit = true;
+            plan.outfitTags = 'nude';
+            plan.note = plan.note || '用户要求去除全部服饰';
+            return;
+        }
+
+        if (String(plan.outfitTags || '').trim()) return;
+
+        const prev = this.formatPreviousOutfitTags(previousVisual);
+        const intent = this.detectVisualChangeIntent(lastUserMsg);
+        if (!intent.outfitChange && prev && prev !== '（无，首轮）' && prev !== '（无）') {
+            plan.changeOutfit = false;
+            plan.outfitTags = prev;
+            plan.note = plan.note || '沿用上一张服饰';
+        }
+    }
+
+    ensureVisualPlan(emotionResult, previousVisual, lastUserMsg) {
+        if (!emotionResult) return;
+        if (!emotionResult.visualPlan || typeof emotionResult.visualPlan !== 'object') {
+            emotionResult.visualPlan = {};
+        }
+        const plan = emotionResult.visualPlan;
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
+        const prev = previousVisual && typeof previousVisual === 'object' ? previousVisual : {};
+
+        for (const key of ['action', 'expression', 'camera']) {
+            if (!String(plan[key] || '').trim() && prev[key]) {
+                plan[key] = String(prev[key]).trim();
+            }
+        }
+        if (!changeIntent.sceneChange) {
+            for (const key of ['scene', 'atmosphere']) {
+                if (!String(plan[key] || '').trim() && prev[key]) {
+                    plan[key] = String(prev[key]).trim();
+                }
+            }
+        }
+
+        for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
+            plan[key] = this.stripNegationTags(plan[key]);
+        }
+        if (this.shouldStripClothing(emotionResult, lastUserMsg)) {
+            this.stripClothingFromVisualPlan(plan);
+        }
+    }
+
+    buildVisualFromEmotionPlan(emotionResult, previousVisual, changeIntent, lastUserMsg = '') {
+        const vp = emotionResult?.visualPlan || {};
+        const merged = {
+            action: this.stripNegationTags(this.sanitizeEnglishTags(vp.action) || String(vp.action || '').trim()),
+            outfit: '',
+            expression: this.stripNegationTags(this.sanitizeEnglishTags(vp.expression) || String(vp.expression || '').trim()),
+            scene: this.stripNegationTags(this.sanitizeEnglishTags(vp.scene) || String(vp.scene || '').trim()),
+            atmosphere: this.stripNegationTags(this.sanitizeEnglishTags(vp.atmosphere) || String(vp.atmosphere || '').trim()),
+            camera: this.stripNegationTags(this.sanitizeEnglishTags(vp.camera) || String(vp.camera || '').trim())
+        };
+        const { visual: afterContinuity, enforced } = this.enforceVisualContinuity(
+            merged, previousVisual, changeIntent, { skipOutfit: true }
+        );
+        const { visual: withOutfit, outfitEnforced } = this.applyOutfitPlanToVisual(
+            afterContinuity, emotionResult, previousVisual, changeIntent
+        );
+        let visual = withOutfit;
+        const clothingEnforced = [];
+        if (this.shouldStripClothing(emotionResult, lastUserMsg)) {
+            visual = this.stripClothingFromVisual(visual);
+            clothingEnforced.push('clothing_purge_all_fields');
+        }
+        return {
+            visual,
+            enforced: [...enforced, ...outfitEnforced, ...clothingEnforced],
+            visualFromPlan: { ...vp }
+        };
+    }
+
+    stripVisualBlocksFromReply(raw) {
+        const { displayReply } = this.splitReplyAndVisual(raw);
+        return displayReply || String(raw || '').trim();
     }
 
     /** Extract recent user/assistant messages for model context */
@@ -390,62 +649,6 @@ class AIService {
         return list;
     }
 
-    sceneTagExpertPrompt() {
-        return `#角色
-你是「分镜出图提示词专家」。根据当前对白与用户最新动作，输出 **SD 1.5 / Danbooru 风格** 的结构化英文 tags，供 Stable Diffusion 1.5 / ComfyUI 使用。
-
-${this.sd15TagFormatRules()}
-
-#字段说明（必须全部填写；每字段一行，值为英文逗号分隔 SD1.5 tags）
-1. action — 姿势、动作、与道具/环境的可见互动（standing, pointing, holding_hanger, water_splash）
-2. outfit — 服装类型与穿着/湿透/皱褶等状态（white_blouse, wet_shirt, clinging；换装才改，否则沿用上一轮）
-3. expression — 面部表情与眼神（blush, smile, biting_lip, looking_away）
-4. scene — 人物**此刻物理所在**地点 + 4～6 个该处可见物件 tag
-   - 例：indoors, clothing_store, clothes_rack, mannequin, mirror, fitting_room, sale_sign
-   - 禁止只写 indoor, room, bedroom 等模糊词
-   - 禁止因对白提到「蛋糕/吃饭」就把 scene 改成 restaurant；互动写进 action
-5. atmosphere — 光影、色调、空气感（warm_lighting, soft_glow, steam, bokeh, cozy）
-6. camera — 景别与机位（medium_shot, cowboy_shot, from_front, three-quarter_view, depth_of_field）
-
-#场景锚定（极重要）
-- scene/atmosphere 描述的是「这一帧相机拍到的空间」，不是对话主题
-- **若「本轮画面变更意图」判定为换场景**：必须写新地点的 scene/atmosphere，**不得**复制上一张图（即使用户只说了「我们去蛋糕店」也算换场景）
-- 用户在服装店里聊蛋糕、且**未**移动 → scene 仍是 clothing_store，蛋糕写进 action
-- 沿用上一张图场景时（未换场景）：scene 与 atmosphere **逐 tag 复制**，只改 action / expression / camera
-- 换场景时：scene 必须换一整套地点 + 配套物件，atmosphere 跟着换，禁止留上一场景的 tags
-
-#禁止事项
-- 禁止自然语言句子、禁止中文、禁止 JSON、禁止在 ### 块外输出解释
-
-#输出示例（### 包裹；六行字段；tags 均为 SD1.5 格式，勿无脑复制场景）
-###
-action: standing, leaning_forward, pointing, finger_on_glass, holding_cake_box, shy_pose
-outfit: t-shirt, shorts, casual, cotton, loose_clothes
-expression: blush, shy_smile, parted_lips, curious, looking_at_object
-scene: indoors, cake_shop, display_case, cake, wooden_table, pendant_light, chair
-atmosphere: warm_lighting, soft_glow, cozy, evening, bokeh
-camera: medium_shot, from_front, upper_body, depth_of_field
-###
----
-###
-action: standing, browsing, holding_clothes, clothes_hanger, turning, looking_at_mirror
-outfit: white_blouse, denim_skirt, flat_shoes, casual
-expression: smile, curious, excited, comparing
-scene: indoors, clothing_store, clothes_rack, mannequin, mirror, fitting_room, sale_sign
-atmosphere: fluorescent_light, bright, clean, commercial, busy
-camera: medium_shot, three-quarter_view, depth_of_field
-###
----
-###
-action: standing, showering, wet, water_drop, hands_on_shirt, twisting_clothes
-outfit: white_shirt, dress_shirt, wet_clothes, wet_shirt, clinging, long_sleeves, oversized_shirt
-expression: blush, embarrassed, biting_lip, looking_down
-scene: indoors, bathroom, shower, tile_wall, glass_door, steam, wet_floor
-atmosphere: warm_lighting, steam, haze, intimate, soft_light
-camera: medium_close-up, from_front, three-quarter_view
-###`;
-    }
-
     /** Extract a short place hint from user text for scene-change prompts */
     extractSceneTargetHint(userText) {
         const text = String(userText || '').trim();
@@ -489,7 +692,9 @@ camera: medium_close-up, from_front, three-quarter_view
         const narrations = this.extractNarrationFragments(text);
         const combined = [text, ...narrations].join('\n');
 
-        const outfitChange = /换衣服|换装|穿上|脱下|换上|脱掉|另换|另一套|换身|泳装|比基尼|校服|连衣裙|和服|cos|穿上|佩戴/i.test(combined);
+        const outfitChange = /换衣服|换装|穿上|脱下|换上|脱掉|另换|另一套|换身|换件|试穿|试一下|试下|穿戴|佩戴|换成|换下|泳装|比基尼|校服|水手服|连衣裙|短裙|裤袜|过膝|勒肉|丝袜|和服|cos|sailor|uniform|skirt|stockings|thighhighs|zettai_ryouiki|skindentation/i.test(combined);
+
+        const outfitRequestedInContext = /(?:已经|正在|准备|打算|愿意|可以|让我|给我).{0,12}(?:换|穿|试)|(?:穿|戴|换).{0,8}(?:水手|短裙|裤袜|制服|泳装|连衣裙)/i.test(combined);
 
         const explicitRelocate = /换(?:个|到|成|为)?(?:地方|场景|地点|房间|背景|设定)|(?:切换|改换|更换)(?:到|成|为)?(?:场景|地点|背景)?|离开(?:这里|这儿|这|那|店|家|房间)?|出门(?:了)?|去(?:外面|户外)|转移(?:到|地点)|移步/i.test(combined);
 
@@ -519,30 +724,24 @@ camera: medium_close-up, from_front, three-quarter_view
 
         const sceneTargetHint = sceneChange ? this.extractSceneTargetHint(combined) : '';
 
-        return { outfitChange, sceneChange, sceneTargetHint };
+        return { outfitChange: outfitChange || outfitRequestedInContext, sceneChange, sceneTargetHint };
     }
 
     visualChangeHint(changeIntent, userMessage) {
         if (!userMessage) return '';
-        const lines = ['#本轮画面变更意图（解析用户最新消息 — 优先于连续性复制规则）'];
+        const lines = ['#本轮意图'];
         if (changeIntent.sceneChange) {
-            lines.push('- ⚠️ **用户本轮要求/暗示更换场景** → 必须完全重写 scene 与 atmosphere（新地点类型 + 4～6 个该处物件 tags）');
-            lines.push('- **禁止**保留上一张图的 scene/atmosphere tags（即使连续性区块里写了旧场景也要丢弃）');
-            if (changeIntent.sceneTargetHint) {
-                lines.push(`- 解析到的目标地点/场景：「${changeIntent.sceneTargetHint}」（scene/atmosphere 必须贴合此处）`);
-            }
-            lines.push('- 角色对白里若已同意前往新地点，visual 必须与对白一致，使用新 scene');
+            lines.push(`- 换场景${changeIntent.sceneTargetHint ? ` → ${changeIntent.sceneTargetHint}` : ''}：重写 scene + atmosphere`);
         } else {
-            lines.push('- 用户未要求换场景 → scene 与 atmosphere **逐 tag 复制**上一张图（禁止因对白话题改成 restaurant, outdoor 等）');
-            lines.push('- 对白里出现食物/活动/物品 ≠ 换场景；相关互动写在 action 里即可');
+            lines.push('- 场景不变：复制上一张 scene/atmosphere');
         }
         if (changeIntent.outfitChange) {
-            lines.push('- 用户明确要求更换服装 → 必须重写 outfit');
+            lines.push('- 换装：重写 outfit');
         } else {
-            lines.push('- 用户未要求换装 → outfit **逐 tag 复制**上一张图（仅可追加 wet, soaked, wrinkled, clinging 等状态 tag）');
+            lines.push('- 服装不变：复制上一张 outfit');
         }
-        lines.push('- 本轮必须更新：action、expression、camera，贴合当前对白与用户动作');
-        lines.push(`- 用户原话：${userMessage.slice(0, 300)}`);
+        lines.push('- 更新 action / expression / camera');
+        lines.push(`- 用户原话：${userMessage.slice(0, 200)}`);
         return lines.join('\n');
     }
 
@@ -558,12 +757,13 @@ camera: medium_close-up, from_front, three-quarter_view
             .join(', ');
     }
 
-    formatPreviousVisualStructured(previousVisual, changeIntent = {}) {
+    formatPreviousVisualStructured(previousVisual, changeIntent = {}, options = {}) {
         if (!previousVisual || typeof previousVisual !== 'object') return '';
         const skipScene = Boolean(changeIntent.sceneChange);
+        const skipOutfit = Boolean(options.skipOutfit);
         const fields = [
             ['action', '动作'],
-            ['outfit', '服饰'],
+            ...(skipOutfit ? [] : [['outfit', '服饰']]),
             ['expression', '表情'],
             ...(skipScene ? [] : [['scene', '场景'], ['atmosphere', '氛围']]),
             ['camera', '机位']
@@ -577,8 +777,8 @@ camera: medium_close-up, from_front, three-quarter_view
         return lines.length ? lines.join('\n') : '';
     }
 
-    continuityInstruction(previousVisual, changeIntent = {}) {
-        const prevStructured = this.formatPreviousVisualStructured(previousVisual, changeIntent);
+    continuityInstruction(previousVisual, changeIntent = {}, options = {}) {
+        const prevStructured = this.formatPreviousVisualStructured(previousVisual, changeIntent, options);
         const prevFlat = !prevStructured && previousVisual
             ? (typeof previousVisual === 'string' ? previousVisual.trim() : String(previousVisual.prompt || '').trim())
             : '';
@@ -586,57 +786,39 @@ camera: medium_close-up, from_front, three-quarter_view
         if (!prev) return '';
 
         const sceneRule = changeIntent.sceneChange
-            ? `2. 【换场景 — 最高优先级】用户本轮已要求/暗示更换地点${changeIntent.sceneTargetHint ? `（目标：${changeIntent.sceneTargetHint}）` : ''}。必须**完全重写** scene 与 atmosphere，使用新地点的 tags；**禁止**复制上一张图的 scene/atmosphere（下方旧 scene 若有也一律作废）。`
-            : '2. 【保场景】用户未要求换地点，scene 与 atmosphere 必须**原样复制**上一张图（逐 tag 复制，禁止改成 restaurant, outdoor, bedroom 等其他地点；对白话题不能驱动换场景）。';
+            ? `2. 【换场景】${changeIntent.sceneTargetHint ? `目标：${changeIntent.sceneTargetHint}。` : ''}重写 scene + atmosphere，勿沿用上一张。`
+            : '2. 【保场景】逐 tag 复制上一张 scene + atmosphere。';
 
-        const outfitRule = changeIntent.outfitChange
-            ? '1. 【换装】用户本轮明确要求更换服装，必须重写 outfit。'
-            : '1. 【保服饰】用户未要求换装，必须原样沿用上一张图的 outfit（逐 tag 复制，仅可追加 wet, soaked, wrinkled, clinging 等状态 tag，禁止改成 dress, skirt, pajamas 等其他服装）。';
-
-        const inheritSceneRule = changeIntent.sceneChange
-            ? '5. 换场景时：上一张图的 scene/atmosphere **全部作废**；action/expression/camera 贴合新地点与用户动作。'
-            : '5. scene 写物件清单时， inherited 场景的所有关键 tags 必须保留（如服装店的 clothes_rack, mannequin, mirror）。';
+        const outfitRule = options.skipOutfit
+            ? '1. 【服饰】已由分析阶段注入，### 块勿写 outfit。'
+            : (changeIntent.outfitChange
+                ? '1. 【换装】重写 outfit。'
+                : '1. 【保服饰】逐 tag 复制上一张 outfit（可追加 wet/clinging 等状态）。');
 
         const header = changeIntent.sceneChange
-            ? `#连续性（换场景模式 — 仅继承 outfit 等未要求变更的字段）
-⚠️ 用户已触发场景切换。上一张图的 scene/atmosphere 不得沿用。`
-            : `#连续性（必须遵守 — 违反则视为失败）`;
+            ? `#连续性（换场景）`
+            : `#连续性`;
 
         return `
 ${header}
-上一张图各字段（继承基准${changeIntent.sceneChange ? '；不含 scene/atmosphere' : ''}）：
+上一张图${changeIntent.sceneChange ? '（不含 scene/atmosphere）' : ''}${options.skipOutfit ? '（不含 outfit）' : ''}：
 ${prev}
 
-规则：
 ${outfitRule}
 ${sceneRule}
-3. 本轮必须更新：action、expression、camera，使其贴合当前对白与用户动作。
-4. 只有用户明确要求时才改 outfit 或 scene；未要求的部分逐 tag 复制，不得擅自发挥。
-${inheritSceneRule}
-6. 所有字段必须是 SD 1.5 / Danbooru 逗号分隔 tags，禁止自然语言句子。
-7. **用户最新消息中的移动/换场景意图优先于一切默认 continuity**；解析见「本轮画面变更意图」区块。`;
+3. 更新 action / expression / camera，贴合本轮对白。
+4. tags 用 SD1.5 英文逗号分隔（如 medium_shot）。`;
     }
 
     buildVisualInstruction(previousVisual = null, changeIntent = {}, userMessage = '') {
         const changeHint = this.visualChangeHint(changeIntent, userMessage);
-        return `${this.continuityInstruction(previousVisual, changeIntent)}
+        return `${this.continuityInstruction(previousVisual, changeIntent, { skipOutfit: true })}
 ${changeHint}
 
 ${this.sceneTagExpertPrompt()}
 
-#输出格式
-先写角色对白。对白结束后另起一行，用 ### 包裹分镜字段（每行一个字段；值为 **SD1.5 英文逗号分隔 tags**，禁止自然语言句子）：
-
-###
-action: standing, pointing, ...
-outfit: white_blouse, denim_skirt, ...
-expression: blush, smile, ...
-scene: indoors, clothing_store, clothes_rack, ...
-atmosphere: warm_lighting, soft_glow, ...
-camera: medium_shot, from_front, ...
-###
-
-六个字段都必须有值，顺序不可乱。每个字段内用下划线连接多词 tag（如 medium_shot, looking_away）。`;
+#输出
+先写角色对白，再 ### 包裹五行：action, expression, scene, atmosphere, camera（不要 outfit）。`;
     }
 
     visualFieldOrder() {
@@ -684,17 +866,7 @@ camera: medium_shot, from_front, ...
 ${this.continuityInstruction(previousVisual, changeIntent)}
 ${this.visualChangeHint(changeIntent, userMessage)}
 
-这一次只输出 ### 包裹的分镜块（不要对白，不要 JSON，不要代码块）。
-未换场景时 scene/atmosphere 必须与上一张图逐 tag 一致。所有字段必须是 SD1.5 逗号分隔 tags。
-
-###
-action: standing, browsing, holding_clothes, clothes_hanger, turning, looking_at_mirror
-outfit: white_blouse, denim_skirt, flat_shoes, casual
-expression: smile, curious, excited, comparing
-scene: indoors, clothing_store, clothes_rack, mannequin, mirror, fitting_room, sale_sign
-atmosphere: fluorescent_light, bright, clean, commercial, busy
-camera: medium_shot, three-quarter_view, depth_of_field
-###`
+只输出 ### 分镜块，不要对白。`
             },
             {
                 role: 'user',
@@ -926,6 +1098,18 @@ camera: medium_shot, three-quarter_view, depth_of_field
                 tone: "温柔",
                 avoidTones: [],
                 keyPoints: []
+            },
+            outfitPlan: {
+                changeOutfit: false,
+                outfitTags: "",
+                note: ""
+            },
+            visualPlan: {
+                action: "",
+                expression: "",
+                scene: "",
+                atmosphere: "",
+                camera: ""
             }
         };
     }
@@ -990,7 +1174,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
         const parts = text
             .split(/[\n,;，；]+/)
             .map((part) => part.replace(heading, '').replace(/^[-*•]\s*/, '').trim())
-            .filter((part) => part && !/[\u3400-\u9fff]/.test(part) && !/^#{1,6}$/.test(part));
+            .filter((part) => part && !/[\u3400-\u9fff]/.test(part) && !/^#{1,6}$/.test(part) && !this.isNegationTag(part));
         return parts.join(', ');
     }
 
@@ -1069,14 +1253,14 @@ camera: medium_shot, three-quarter_view, depth_of_field
      * When the user did not request outfit/scene change, forcibly copy from previousVisual.
      * LLMs often ignore continuity instructions and revert to primed examples (e.g. bathroom).
      */
-    enforceVisualContinuity(visual, previousVisual, changeIntent = {}) {
+    enforceVisualContinuity(visual, previousVisual, changeIntent = {}, options = {}) {
         if (!visual || !previousVisual || typeof previousVisual !== 'object') {
             return { visual, enforced: [] };
         }
         const merged = { ...visual };
         const enforced = [];
 
-        if (!changeIntent.outfitChange && previousVisual.outfit) {
+        if (!options.skipOutfit && !changeIntent.outfitChange && previousVisual.outfit) {
             const prev = String(previousVisual.outfit).trim();
             const cur = String(merged.outfit || '').trim();
             if (prev && cur !== prev) {
@@ -1129,10 +1313,12 @@ camera: medium_shot, three-quarter_view, depth_of_field
         totalStartTime,
         previousVisual = null
     }) {
-        const { displayReply, visual: rawVisual } = this.splitReplyAndVisual(replyContent);
+        const displayReply = this.stripVisualBlocksFromReply(replyContent);
         const lastUserMsg = [...recentTurns].reverse().find((m) => m.role === 'user')?.content || '';
-        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
-        const { visual, enforced } = this.enforceVisualContinuity(rawVisual, previousVisual, changeIntent);
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
+        const { visual, enforced: allEnforced, visualFromPlan } = this.buildVisualFromEmotionPlan(
+            emotionResult, previousVisual, changeIntent, lastUserMsg
+        );
         const replyTimeMs = Date.now() - replyStartTime;
         const totalTimeMs = Date.now() - totalStartTime;
 
@@ -1176,8 +1362,10 @@ camera: medium_shot, three-quarter_view, depth_of_field
                 sentMessages: chatMessages,
                 rawResponse: replyContent,
                 visual,
-                visualBeforeEnforce: enforced.length ? rawVisual : null,
-                continuityEnforced: enforced.length ? enforced : null,
+                visualBeforeEnforce: allEnforced.length ? visualFromPlan : null,
+                continuityEnforced: allEnforced.length ? allEnforced : null,
+                outfitPlan: emotionResult?.outfitPlan || null,
+                visualPlan: emotionResult?.visualPlan || null,
                 changeIntent,
                 previousVisual: previousVisual || null,
                 previousVisualText: this.formatPreviousVisual(previousVisual) || '',
@@ -1187,7 +1375,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
     }
 
     // 情感分析方法
-    async analyzeEmotion(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '') {
+    async analyzeEmotion(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '', previousVisual = null) {
         const cleanMessages = Array.isArray(messages)
             ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
             : [];
@@ -1223,6 +1411,10 @@ camera: medium_shot, three-quarter_view, depth_of_field
         let prompt = this.emotionAnalysisPrompt
             .replace('{chat_history}', chatHistory)
             .replace('{user_message}', userMessage);
+
+        const prevOutfitBlock = `\n【上一张图服饰 tags（outfitPlan.changeOutfit=false 时必须逐 tag 复制）】\n${this.formatPreviousOutfitTags(previousVisual)}\n`;
+        const prevVisualBlock = this.formatPreviousVisualForEmotionAnalysis(previousVisual, userMessage);
+        prompt = `${prevOutfitBlock}${prevVisualBlock}${prompt}`;
         
         // 如果有角色信息，添加到提示词中
         if (characterName || forcePrompt) {
@@ -1394,7 +1586,9 @@ camera: medium_shot, three-quarter_view, depth_of_field
         // 第一轮：情感分析
         console.log('1. 第一轮调用：情感分析');
         const emotionStartTime = Date.now();
-        const emotionResultWithDebug = await this.analyzeEmotion(cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt);
+        const emotionResultWithDebug = await this.analyzeEmotion(
+            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, previousVisual
+        );
         const emotionTimeMs = Date.now() - emotionStartTime;
         const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
         const emotionResult = emotionResultRaw?.emotionAnalysis && emotionResultRaw?.responseSuggestion
@@ -1408,30 +1602,22 @@ camera: medium_shot, three-quarter_view, depth_of_field
         console.log('   上一轮出图提示词:', prevVisualText ? prevVisualText.slice(0, 120) : '(无)');
 
         const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
-        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
+        this.ensureOutfitPlan(emotionResult, previousVisual, lastUserMsg);
+        this.ensureVisualPlan(emotionResult, previousVisual, lastUserMsg);
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
         if (changeIntent.sceneChange) {
             console.log('   检测到用户要求换场景', changeIntent.sceneTargetHint ? `→ ${changeIntent.sceneTargetHint}` : '');
         }
-        if (changeIntent.outfitChange) console.log('   检测到用户要求换装');
-
-        const memoryText = this.buildMemoryContextBlock(turnMemory, conversationSummary);
-        const emotionInfo = `
-【用户情绪状态】
-- 主情绪：${emotionResult.emotionAnalysis.primaryEmotion}（强度：${emotionResult.emotionAnalysis.intensity}/10）
-- 情绪趋势：${emotionResult.emotionAnalysis.trend}
-- 建议语气：${emotionResult.responseSuggestion.tone}
-- 避免语气：${emotionResult.responseSuggestion.avoidTones.join(', ') || '无'}
-- 回复要点：${emotionResult.responseSuggestion.keyPoints.join('；') || '无'}
-`.trim();
-
-        const continuityBlock = this.continuityInstruction(previousVisual, changeIntent);
-        // continuity is already inside buildVisualInstruction; keep one clear copy before it for log visibility
-        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${memoryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
-        if (continuityBlock) {
-            console.log('   已注入服饰/场景连续性指令');
-        } else {
-            console.log('   未注入连续性（没有上一轮出图提示词）');
+        if (changeIntent.outfitChange || emotionResult.outfitPlan?.changeOutfit) {
+            console.log('   服饰计划:', emotionResult.outfitPlan?.outfitTags || '(沿用)');
         }
+        if (emotionResult.visualPlan) {
+            console.log('   分镜计划:', JSON.stringify(emotionResult.visualPlan).slice(0, 120));
+        }
+
+        const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
+            characterSystemPrompt, emotionResult, turnMemory, conversationSummary
+        );
 
         const systemMessage = {
             role: 'system',
@@ -1445,8 +1631,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
         const fullSystemPrompt = enhancedSystemPrompt;
         console.log('   完整Prompt已构建，长度:', fullSystemPrompt.length);
         console.log('   角色设定长度:', characterSystemPrompt.length);
-        console.log('   情绪信息长度:', emotionInfo.length);
-        console.log('   情节记忆长度:', memoryText.length);
+        console.log('   对话系统提示（纯对白，无出图指令）');
         console.log('   最近轮次消息数:', recentTurns.length);
 
         // 第二轮：生成回复
@@ -1731,7 +1916,7 @@ camera: medium_shot, three-quarter_view, depth_of_field
         emit('phase', { phase: 'emotion_analyzing' });
         const emotionStartTime = Date.now();
         const emotionResultWithDebug = await this.analyzeEmotion(
-            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt
+            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, previousVisual
         );
         const emotionTimeMs = Date.now() - emotionStartTime;
         const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
@@ -1747,22 +1932,19 @@ camera: medium_shot, three-quarter_view, depth_of_field
         const { recentTurns, hasOlderHistory } = this.extractRecentTurns(cleanMessages, RECENT_FULL_ROUNDS);
 
         const lastUserMsg = [...recentTurns].reverse().find(m => m.role === 'user')?.content || '';
-        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
+        this.ensureOutfitPlan(emotionResult, previousVisual, lastUserMsg);
+        this.ensureVisualPlan(emotionResult, previousVisual, lastUserMsg);
+        const changeIntent = this.resolveChangeIntent(lastUserMsg, emotionResult, previousVisual);
         if (changeIntent.sceneChange) {
             console.log('[scene] user requested scene change', changeIntent.sceneTargetHint || '(no hint)');
         }
+        if (changeIntent.outfitChange || emotionResult.outfitPlan?.changeOutfit) {
+            console.log('[outfit] plan:', emotionResult.outfitPlan?.outfitTags || '(from continuity)');
+        }
 
-        const memoryText = this.buildMemoryContextBlock(turnMemory, conversationSummary);
-        const emotionInfo = `
-【用户情绪状态】
-- 主情绪：${emotionResult.emotionAnalysis.primaryEmotion}（强度：${emotionResult.emotionAnalysis.intensity}/10）
-- 情绪趋势：${emotionResult.emotionAnalysis.trend}
-- 建议语气：${emotionResult.responseSuggestion.tone}
-- 避免语气：${emotionResult.responseSuggestion.avoidTones.join(', ') || '无'}
-- 回复要点：${emotionResult.responseSuggestion.keyPoints.join('；') || '无'}
-`.trim();
-
-        const enhancedSystemPrompt = `${characterSystemPrompt}\n\n${emotionInfo}${memoryText}\n\n${this.buildVisualInstruction(previousVisual, changeIntent, lastUserMsg)}`;
+        const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
+            characterSystemPrompt, emotionResult, turnMemory, conversationSummary
+        );
         const systemMessage = { role: 'system', content: enhancedSystemPrompt };
         const chatMessages = [systemMessage, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;

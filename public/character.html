@@ -1858,6 +1858,14 @@
         return Boolean(activeChatTurn);
     }
 
+    /** Keep turnMemory aligned with remaining assistant replies after edit/truncate */
+    function syncTurnMemoryToMessages() {
+        const assistantCount = characterChatMessages.filter((m) => m.role === 'assistant').length;
+        if (turnMemory.length > assistantCount) {
+            turnMemory = turnMemory.slice(0, assistantCount);
+        }
+    }
+
     function truncateChatFromIndex(index) {
         characterChatMessages.slice(index).forEach((msg) => {
             if (msg?.imageJobId) closeImageJobStream(msg.imageJobId);
@@ -1865,6 +1873,7 @@
         closeChatTurnStream();
         activeChatTurn = null;
         characterChatMessages = characterChatMessages.slice(0, index);
+        syncTurnMemoryToMessages();
         rebuildVisualCacheFromHistory();
         renderCharacterChat();
         saveChatHistory();
@@ -1878,18 +1887,15 @@
         const msg = characterChatMessages[index];
         if (!msg) return;
 
+        // 与常见聊天软件一致：删除某条 = 该条及之后全部丢掉
         if (msg.role === 'user') {
             if (!confirm('删除这条消息及之后的全部对话？')) return;
             truncateChatFromIndex(index);
             return;
         }
 
-        if (!confirm('删除这条 AI 回复？')) return;
-        if (msg.imageJobId) closeImageJobStream(msg.imageJobId);
-        characterChatMessages.splice(index, 1);
-        rebuildVisualCacheFromHistory();
-        renderCharacterChat();
-        saveChatHistory();
+        if (!confirm('删除这条 AI 回复及之后的全部对话？')) return;
+        truncateChatFromIndex(index);
     }
 
     function editMessageAt(index) {
@@ -1917,12 +1923,13 @@
             alert('找不到对应的用户消息');
             return;
         }
-        if (!confirm('重新生成这条 AI 回复？')) return;
-        if (msg.imageJobId) closeImageJobStream(msg.imageJobId);
-        characterChatMessages.splice(index, 1);
-        rebuildVisualCacheFromHistory();
-        renderCharacterChat();
-        await saveChatHistory();
+        const hasLater = index < characterChatMessages.length - 1;
+        const tip = hasLater
+            ? '重新生成这条 AI 回复？其后的对话会被删除（与常见聊天软件一致）。'
+            : '重新生成这条 AI 回复？';
+        if (!confirm(tip)) return;
+        // 保留对应的用户消息，从本条 AI 回复起截断（含其后所有轮次）
+        truncateChatFromIndex(index);
         await startChatTurn(userMsg.content, { skipPushUser: true });
     }
 
@@ -1939,7 +1946,7 @@
         return `
             <div class="message-actions">
                 <button type="button" class="msg-action-btn" onclick="regenerateAssistantAt(${index})" title="重新生成回复">🔄 重生成</button>
-                <button type="button" class="msg-action-btn msg-action-danger" onclick="deleteMessageAt(${index})" title="删除此回复">🗑 删除</button>
+                <button type="button" class="msg-action-btn msg-action-danger" onclick="deleteMessageAt(${index})" title="删除此回复及之后">🗑 删除</button>
             </div>
         `;
     }
@@ -2274,7 +2281,10 @@
         const emotionAnalysis = msg.emotionAnalysis?.emotionAnalysis || msg.emotionAnalysis;
         const systemMessagesText = debugInfo.sentMessages ? JSON.stringify(debugInfo.sentMessages, null, 2) : '';
         const emotionMessagesText = debugInfo.emotionMessages ? JSON.stringify(debugInfo.emotionMessages, null, 2) : '';
-        const emotionResultText = emotionAnalysis ? JSON.stringify(emotionAnalysis, null, 2) : '';
+        const emotionFull = msg.emotionAnalysis && typeof msg.emotionAnalysis === 'object' ? msg.emotionAnalysis : {};
+        const emotionResultText = Object.keys(emotionFull).length > 1
+            ? JSON.stringify(emotionFull, null, 2)
+            : (emotionAnalysis ? JSON.stringify(emotionAnalysis, null, 2) : '');
         const replyText = debugInfo.rawResponse || msg.content || '';
         
         debugModal.innerHTML = `
@@ -2316,9 +2326,10 @@
                     </div>
                     ${debugInfo.continuityEnforced?.length ? `
                     <div class="debug-section">
-                        <h4>连续性强制修正（AI 输出已被服务端改回上一轮）</h4>
+                        <h4>连续性强制修正（情绪分镜 plan 经服务端对齐上一轮）</h4>
                         <pre>修正字段：${escapeHtml(debugInfo.continuityEnforced.join(', '))}
-${debugInfo.visualBeforeEnforce ? '\nAI 原输出：\n' + escapeHtml(JSON.stringify(debugInfo.visualBeforeEnforce, null, 2)) : ''}</pre>
+${debugInfo.visualBeforeEnforce ? '\n分析阶段 visualPlan：\n' + escapeHtml(JSON.stringify(debugInfo.visualBeforeEnforce, null, 2)) : ''}
+${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugInfo.outfitPlan, null, 2)) : ''}</pre>
                     </div>
                     ` : ''}
                     <div class="debug-section">
@@ -2477,7 +2488,14 @@ ${debugInfo.visualBeforeEnforce ? '\nAI 原输出：\n' + escapeHtml(JSON.string
         msg.imageNegative = data.negative || msg.imageNegative || '';
         if (data.checkpointName) msg.checkpointName = data.checkpointName;
         if (data.visual) {
+            const prevOutfit = String(msg.visual?.outfit || '').trim();
             msg.visual = data.visual;
+            if (prevOutfit && !String(msg.visual.outfit || '').trim()) {
+                msg.visual.outfit = prevOutfit;
+                if (msg.visual.prompt) {
+                    msg.visual.prompt = `${prevOutfit}, ${msg.visual.prompt}`.replace(/,\s*,/g, ', ');
+                }
+            }
         } else if (msg.imageTurnPrompt) {
             msg.visual = msg.visual || { prompt: msg.imageTurnPrompt };
         }
