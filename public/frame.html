@@ -82,10 +82,10 @@
                             <div class="style-field">
                                 <label for="outputWidth">输出宽度 (px)</label>
                                 <select id="outputWidth">
-                                    <option value="390" selected>390 小红书竖图</option>
+                                    <option value="0" selected>原图尺寸（不压缩）</option>
+                                    <option value="390">390 小红书竖图</option>
                                     <option value="540">540 中等</option>
                                     <option value="1080">1080 高清</option>
-                                    <option value="0">原图比例</option>
                                 </select>
                             </div>
                             <div class="style-field">
@@ -107,15 +107,19 @@
 
                         <div class="checkbox-row">
                             <input type="checkbox" id="glassBgCheck" checked>
-                            <label for="glassBgCheck">磨砂玻璃背景（模糊原图）</label>
+                            <label for="glassBgCheck">模糊原图作背景（磨砂玻璃）</label>
+                        </div>
+
+                        <div class="style-row" id="solidBgRow" hidden>
+                            <div class="style-field">
+                                <label for="bgColor">纯色背景</label>
+                                <input type="color" id="bgColor" value="#f6edda">
+                            </div>
+                            <div class="style-field"></div>
                         </div>
 
                         <div class="style-row">
-                            <div class="style-field">
-                                <label for="bgColor">背景色调</label>
-                                <input type="color" id="bgColor" value="#f6edda">
-                            </div>
-                            <div class="style-field">
+                            <div class="style-field full">
                                 <label for="tiltRange">微旋转 <span id="tiltVal">-0.6</span>°</label>
                                 <input type="range" id="tiltRange" min="-3" max="3" step="0.1" value="-0.6">
                             </div>
@@ -133,7 +137,7 @@
                             <input type="text" id="exportFolderPath" placeholder="点击选择或粘贴完整路径">
                             <button type="button" class="btn-secondary" id="pickFolderBtn">选择</button>
                         </div>
-                        <p class="export-hint">Edge / Chrome 可直接选文件夹写入；其他浏览器可粘贴如 D:\素材\边框输出</p>
+                        <p class="export-hint">推荐 Edge / Chrome 点「选择」直接写入文件夹（原图导出体积大，比粘贴路径更稳）</p>
                         <p class="export-progress" id="exportProgress"></p>
                         <button type="button" class="btn-primary" id="exportBtn" disabled>批量导出 PNG</button>
                     </div>
@@ -142,7 +146,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=3"></script>
+    <script src="js/sticker-frame.js?v=4"></script>
     <script>
         const EXPORT_FOLDER_KEY = 'frameExportFolderPath';
         let files = [];
@@ -176,6 +180,7 @@
             shadowVal: document.getElementById('shadowVal'),
             bgColor: document.getElementById('bgColor'),
             glassBgCheck: document.getElementById('glassBgCheck'),
+            solidBgRow: document.getElementById('solidBgRow'),
             tiltRange: document.getElementById('tiltRange'),
             tiltVal: document.getElementById('tiltVal'),
             tapeCheck: document.getElementById('tapeCheck'),
@@ -193,8 +198,13 @@
                 .replace(/"/g, '&quot;');
         }
 
-        function readStyleOptions(caption = '') {
-            return {
+        function syncSolidBgRowVisibility() {
+            const useGlass = els.glassBgCheck.checked;
+            els.solidBgRow.hidden = useGlass;
+        }
+
+        function readStyleOptions(caption = '', { forPreview = false } = {}) {
+            const opts = {
                 preset: els.presetSelect.value,
                 padding: Number(els.paddingRange.value),
                 bgColor: els.bgColor.value,
@@ -206,6 +216,10 @@
                 outputWidth: Number(els.outputWidth.value),
                 caption
             };
+            if (forPreview) {
+                opts.previewMaxWidth = 960;
+            }
+            return opts;
         }
 
         function applyPresetToForm(presetKey) {
@@ -386,16 +400,18 @@
 
             try {
                 const img = await loadImageFromFile(item.file);
-                const canvas = StickerFrame.renderStickerFrame(img, readStyleOptions(item.caption));
+                const canvas = StickerFrame.renderStickerFrame(
+                    img,
+                    readStyleOptions(item.caption, { forPreview: true })
+                );
                 revokePreviewUrl();
 
-                const dpr = Math.min(2, window.devicePixelRatio || 1);
-                const logicalW = canvas.width / dpr;
-                const logicalH = canvas.height / dpr;
+                const logicalW = canvas.width;
+                const logicalH = canvas.height;
                 const wrap = els.previewWrap;
                 const maxW = Math.max(wrap.clientWidth - 12, 280);
                 const maxH = Math.max(wrap.clientHeight - 12, 320);
-                const scale = Math.min(maxW / logicalW, maxH / logicalH, 2.8);
+                const scale = Math.min(maxW / logicalW, maxH / logicalH, 1);
 
                 const previewCanvas = document.createElement('canvas');
                 previewCanvas.id = 'previewCanvas';
@@ -442,6 +458,26 @@
             await writable.close();
         }
 
+        async function postExportImage(folderPath, name, data) {
+            const res = await fetch('/api/export-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folderPath, name, data })
+            });
+            let result = {};
+            try {
+                result = await res.json();
+            } catch (e) {
+                throw new Error(res.status === 413
+                    ? '单张图片过大，请用 Edge/Chrome 点「选择」直接写入文件夹'
+                    : `服务器错误 (${res.status})，请重启 Node 服务后重试`);
+            }
+            if (!res.ok || !result.ok) {
+                throw new Error(result.error || `导出失败 (${res.status})`);
+            }
+            return result;
+        }
+
         async function exportAll() {
             const selected = files.filter((f) => f.selected);
             if (!selected.length) {
@@ -458,7 +494,7 @@
             els.exportProgress.classList.add('visible');
 
             try {
-                const styleBase = readStyleOptions('');
+                const styleBase = readStyleOptions('', { forPreview: false });
                 let seq = 0;
 
                 if (exportDirHandle) {
@@ -480,10 +516,10 @@
                     localStorage.setItem(EXPORT_FOLDER_KEY, exportDirHandle.name);
                     alert(`已导出 ${selected.length} 张到文件夹：${exportDirHandle.name}`);
                 } else {
-                    const payloadFiles = [];
+                    const saved = [];
                     for (const item of selected) {
                         seq += 1;
-                        els.exportProgress.textContent = `处理中 ${seq}/${selected.length}…`;
+                        els.exportProgress.textContent = `上传导出 ${seq}/${selected.length}…`;
                         const img = await loadImageFromFile(item.file);
                         const canvas = StickerFrame.renderStickerFrame(img, {
                             ...styleBase,
@@ -491,21 +527,13 @@
                         });
                         const blob = await StickerFrame.canvasToBlob(canvas);
                         const data = await StickerFrame.blobToBase64(blob);
-                        payloadFiles.push({
-                            name: `${String(seq).padStart(3, '0')}.png`,
-                            data
-                        });
+                        const name = `${String(seq).padStart(3, '0')}.png`;
+                        await postExportImage(folderPath, name, data);
+                        saved.push(name);
                     }
 
                     localStorage.setItem(EXPORT_FOLDER_KEY, folderPath);
-                    const res = await fetch('/api/export-chat-strips', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ folderPath, files: payloadFiles })
-                    });
-                    const result = await res.json();
-                    if (!res.ok || !result.ok) throw new Error(result.error || '导出失败');
-                    alert(`已导出 ${result.saved.length} 张到：\n${result.folderPath}`);
+                    alert(`已导出 ${saved.length} 张到：\n${folderPath}`);
                 }
 
                 els.exportProgress.textContent = '导出完成';
@@ -539,7 +567,10 @@
             });
 
             ['outputWidth', 'bgColor', 'tapeCheck', 'glassBgCheck'].forEach((id) => {
-                els[id].addEventListener('change', rerender);
+                els[id].addEventListener('change', () => {
+                    if (id === 'glassBgCheck') syncSolidBgRowVisibility();
+                    rerender();
+                });
                 els[id].addEventListener('input', rerender);
             });
         }
@@ -551,6 +582,7 @@
             }
 
             applyPresetToForm('xhs');
+            syncSolidBgRowVisibility();
             bindStyleControls();
 
             const savedFolder = localStorage.getItem(EXPORT_FOLDER_KEY);

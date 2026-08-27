@@ -34,8 +34,8 @@ if (!fs.existsSync(chatImagesDir)) {
     fs.mkdirSync(chatImagesDir, { recursive: true });
 }
 
-// Middleware
-app.use(bodyParser.json({ limit: '5mb' }));
+// Middleware — local tool; export endpoints need room for full-res PNG base64
+app.use(bodyParser.json({ limit: '150mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 app.use(express.urlencoded({ extended: true }));
@@ -744,6 +744,37 @@ app.post('/api/export-chat-strips', (req, res) => {
     res.json({ ok: true, folderPath: resolved, saved });
 });
 
+/** Single full-res PNG export — one file per request to avoid huge batch payloads */
+app.post('/api/export-image', (req, res) => {
+    const { folderPath, name, data } = req.body || {};
+    if (!folderPath || typeof folderPath !== 'string') {
+        return res.status(400).json({ error: 'folderPath is required' });
+    }
+    if (!name || !data) {
+        return res.status(400).json({ error: 'name and data are required' });
+    }
+
+    const resolved = path.resolve(folderPath.trim());
+    const safeName = path.basename(String(name)).replace(/[^\w.\-]/g, '_');
+    if (!safeName.toLowerCase().endsWith('.png')) {
+        return res.status(400).json({ error: '仅支持 PNG 文件名' });
+    }
+
+    try {
+        if (!fs.existsSync(resolved)) {
+            fs.mkdirSync(resolved, { recursive: true });
+        }
+        const base64 = String(data).replace(/^data:image\/\w+;base64,/, '');
+        const buf = Buffer.from(base64, 'base64');
+        fs.writeFileSync(path.join(resolved, safeName), buf);
+        console.log('[Export] saved image', safeName, 'to', resolved, `(${(buf.length / 1024 / 1024).toFixed(1)} MB)`);
+        res.json({ ok: true, folderPath: resolved, saved: safeName, bytes: buf.length });
+    } catch (e) {
+        console.error('[Export] image failed:', e.message);
+        return res.status(500).json({ error: `写入文件失败: ${e.message}` });
+    }
+});
+
 app.post('/api/generate', async (req, res) => {
     const { 
         provider,
@@ -790,6 +821,11 @@ app.use('/api/*', (req, res) => {
 
 // Global Error Handler
 app.use((err, req, res, next) => {
+    if (err.type === 'entity.too.large') {
+        return res.status(413).json({
+            error: '上传体积超过限制，请用 Edge/Chrome「选择文件夹」直接导出，或降低输出尺寸'
+        });
+    }
     console.error('Unhandled Error:', err.stack);
     if (res.headersSent) {
         return next(err);

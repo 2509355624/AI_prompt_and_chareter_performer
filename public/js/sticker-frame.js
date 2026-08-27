@@ -1,8 +1,10 @@
 /**
  * Canvas renderer for Xiaohongshu / sticker-style image frames.
- * Shared visual language with character.html export strips.
+ * Export uses native image resolution (1:1 pixels) unless outputWidth is set.
  */
 (function (global) {
+    const REF_WIDTH = 390;
+
     function roundRect(ctx, x, y, w, h, r) {
         const radius = Math.min(r, w / 2, h / 2);
         ctx.beginPath();
@@ -37,17 +39,19 @@
         ctx.drawImage(image, sx, sy, sw, sh);
     }
 
-    function drawFrostedGlassBackground(ctx, image, x, y, w, h, opts) {
-        const blur = Number(opts.glassBlur) || 28;
-        const overlayAlpha = Number(opts.glassOverlay) ?? 0.48;
-        const frostAlpha = Number(opts.glassFrost) ?? 0.22;
-        const tint = opts.bgColor || '#f6edda';
+    /** Blurred same-image background — the photo itself, not a color wash. */
+    function drawBlurredImageBackground(ctx, image, x, y, w, h, opts, drawW) {
+        const baseBlur = Number(opts.glassBlur) || 36;
+        const blurPx = baseBlur * (Math.max(w, drawW || w) / REF_WIDTH);
+        const frostAlpha = Number(opts.glassFrost);
+        const frost = Number.isFinite(frostAlpha) ? frostAlpha : 0.14;
+        const tintAlpha = Number(opts.glassTint) || 0;
 
         const off = document.createElement('canvas');
         off.width = Math.max(1, Math.ceil(w));
         off.height = Math.max(1, Math.ceil(h));
         const octx = off.getContext('2d');
-        octx.filter = `blur(${blur}px) saturate(1.15)`;
+        octx.filter = `blur(${blurPx}px) saturate(1.12) brightness(1.04)`;
         drawCoverImage(octx, image, 0, 0, w, h);
         octx.filter = 'none';
 
@@ -55,10 +59,14 @@
         roundRect(ctx, x, y, w, h, 14);
         ctx.clip();
         ctx.drawImage(off, x, y, w, h);
-        ctx.fillStyle = hexToRgba(tint, overlayAlpha);
-        ctx.fillRect(x, y, w, h);
-        ctx.fillStyle = `rgba(255, 255, 255, ${frostAlpha})`;
-        ctx.fillRect(x, y, w, h);
+        if (frost > 0) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${frost})`;
+            ctx.fillRect(x, y, w, h);
+        }
+        if (tintAlpha > 0 && opts.bgColor) {
+            ctx.fillStyle = hexToRgba(opts.bgColor, tintAlpha);
+            ctx.fillRect(x, y, w, h);
+        }
         ctx.restore();
     }
 
@@ -96,15 +104,45 @@
         return lines;
     }
 
+    function resolveDrawSize(image, opts) {
+        const imgW = image.naturalWidth || image.width;
+        const imgH = image.naturalHeight || image.height;
+        if (!imgW || !imgH) {
+            return { imgW: 0, imgH: 0, drawW: 0, drawH: 0, uiScale: 1 };
+        }
+
+        const padding = Number(opts.padding) || 24;
+        const outputWidth = Number(opts.outputWidth);
+        const previewMaxWidth = Number(opts.previewMaxWidth) || 0;
+
+        let targetContentW;
+        if (previewMaxWidth > 0) {
+            targetContentW = Math.max(1, previewMaxWidth - padding * 2);
+        } else if (outputWidth > 0) {
+            targetContentW = Math.max(1, outputWidth - padding * 2);
+        } else {
+            return { imgW, imgH, drawW: imgW, drawH: imgH, uiScale: imgW / REF_WIDTH };
+        }
+
+        const scale = targetContentW / imgW;
+        return {
+            imgW,
+            imgH,
+            drawW: Math.max(1, Math.round(imgW * scale)),
+            drawH: Math.max(1, Math.round(imgH * scale)),
+            uiScale: targetContentW / REF_WIDTH
+        };
+    }
+
     const PRESETS = {
         xhs: {
             label: '小红书经典',
             padding: 32,
             bgColor: '#f6edda',
             glassBg: true,
-            glassBlur: 32,
-            glassOverlay: 0.42,
-            glassFrost: 0.28,
+            glassBlur: 36,
+            glassFrost: 0.14,
+            glassTint: 0,
             borderWidth: 2.5,
             borderColor: '#26221c',
             borderRadius: 12,
@@ -113,16 +151,16 @@
             tiltDeg: -0.6,
             tape: true,
             captionFontSize: 14,
-            outputWidth: 390
+            outputWidth: 0
         },
         chat: {
             label: '对话条同款',
             padding: 20,
             bgColor: '#f6edda',
             glassBg: true,
-            glassBlur: 24,
-            glassOverlay: 0.5,
-            glassFrost: 0.3,
+            glassBlur: 28,
+            glassFrost: 0.16,
+            glassTint: 0,
             borderWidth: 2,
             borderColor: '#26221c',
             borderRadius: 12,
@@ -131,16 +169,16 @@
             tiltDeg: 0,
             tape: false,
             captionFontSize: 14,
-            outputWidth: 390
+            outputWidth: 0
         },
         polaroid: {
             label: '拍立得',
             padding: 28,
             bgColor: '#fffdf6',
             glassBg: true,
-            glassBlur: 20,
-            glassOverlay: 0.55,
-            glassFrost: 0.35,
+            glassBlur: 24,
+            glassFrost: 0.18,
+            glassTint: 0,
             borderWidth: 2,
             borderColor: '#26221c',
             borderRadius: 4,
@@ -149,7 +187,7 @@
             tiltDeg: 0,
             tape: false,
             captionFontSize: 15,
-            outputWidth: 390,
+            outputWidth: 0,
             extraBottomPadding: 48
         },
         minimal: {
@@ -165,7 +203,7 @@
             tiltDeg: 0,
             tape: false,
             captionFontSize: 13,
-            outputWidth: 390
+            outputWidth: 0
         }
     };
 
@@ -174,26 +212,40 @@
         return { ...PRESETS[presetKey], ...options, preset: presetKey };
     }
 
+    function scaledUi(value, uiScale, minVal) {
+        const v = Math.round(Number(value) * uiScale);
+        return Math.max(minVal ?? 1, v);
+    }
+
     function measureFrame(image, options) {
         const opts = mergeOptions(options);
-        const padding = Number(opts.padding) || 24;
-        const borderWidth = Number(opts.borderWidth) || 0;
-        const shadowOffset = Number(opts.shadowOffset) || 0;
-        const captionFontSize = Number(opts.captionFontSize) || 14;
-        const outputWidth = Number(opts.outputWidth) || 0;
-        const extraBottom = Number(opts.extraBottomPadding) || 0;
+        const size = resolveDrawSize(image, opts);
+        const { drawW, drawH, uiScale } = size;
+
+        const padding = scaledUi(opts.padding, uiScale, 8);
+        const borderWidth = scaledUi(opts.borderWidth, uiScale, 0);
+        const shadowOffset = scaledUi(opts.shadowOffset, uiScale, 0);
+        const borderRadius = scaledUi(opts.borderRadius, uiScale, 0);
+        const extraBottom = scaledUi(opts.extraBottomPadding || 0, uiScale, 0);
+        const captionFontSize = scaledUi(opts.captionFontSize, uiScale, 12);
         const caption = String(opts.caption || '').trim();
 
-        const imgW = image.naturalWidth || image.width;
-        const imgH = image.naturalHeight || image.height;
-        if (!imgW || !imgH) {
-            return { width: 100, height: 100, drawW: 80, drawH: 80, padding, captionLines: [] };
+        if (!drawW || !drawH) {
+            return {
+                width: 100,
+                height: 100,
+                drawW: 80,
+                drawH: 80,
+                padding,
+                borderWidth,
+                borderRadius,
+                shadowOffset,
+                captionLines: [],
+                captionFontSize,
+                uiScale,
+                opts
+            };
         }
-
-        const contentMaxW = outputWidth > 0 ? outputWidth - padding * 2 : imgW;
-        const scale = outputWidth > 0 ? contentMaxW / imgW : 1;
-        const drawW = Math.max(1, Math.round(imgW * scale));
-        const drawH = Math.max(1, Math.round(imgH * scale));
 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -218,8 +270,12 @@
             drawW,
             drawH,
             padding,
+            borderWidth,
+            borderRadius,
+            shadowOffset,
             captionLines,
             captionFontSize,
+            uiScale,
             opts
         };
     }
@@ -229,19 +285,21 @@
         const opts = measured.opts;
         const {
             bgColor,
-            borderWidth,
             borderColor,
-            borderRadius,
-            shadowOffset,
             shadowAlpha,
             tiltDeg,
             tape,
             glassBg
         } = opts;
+
         const padding = measured.padding;
+        const borderWidth = measured.borderWidth;
+        const borderRadius = measured.borderRadius;
+        const shadowOffset = measured.shadowOffset;
         const drawW = measured.drawW;
         const drawH = measured.drawH;
-        const extraBottom = Number(opts.extraBottomPadding) || 0;
+        const uiScale = measured.uiScale;
+        const extraBottom = scaledUi(opts.extraBottomPadding || 0, uiScale, 0);
         const captionBlockH = measured.captionLines.length
             ? measured.captionLines.length * measured.captionFontSize * 1.45 + 12
             : 0;
@@ -252,16 +310,18 @@
         const cardH = drawH + borderWidth * 2 + padding * 2 + extraBottom + captionBlockH;
 
         const canvas = document.createElement('canvas');
-        const dpr = Math.min(2, global.devicePixelRatio || 1);
-        canvas.width = Math.ceil(canvasW * dpr);
-        canvas.height = Math.ceil(canvasH * dpr);
+        canvas.width = canvasW;
+        canvas.height = canvasH;
         const ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
 
         const useGlass = glassBg !== false;
+        const imgW = image.naturalWidth || image.width;
+        const imgH = image.naturalHeight || image.height;
 
         if (useGlass) {
-            drawFrostedGlassBackground(ctx, image, 0, 0, canvasW, canvasH, opts);
+            drawBlurredImageBackground(ctx, image, 0, 0, canvasW, canvasH, opts, drawW);
         } else {
             ctx.fillStyle = bgColor;
             ctx.fillRect(0, 0, canvasW, canvasH);
@@ -275,14 +335,15 @@
         }
 
         if (useGlass) {
-            drawFrostedGlassBackground(ctx, image, 0, 0, cardW, cardH, opts);
+            drawBlurredImageBackground(ctx, image, 0, 0, cardW, cardH, opts, drawW);
         } else {
             fillSolidBackground(ctx, 0, 0, cardW, cardH, bgColor);
         }
 
         if (tape) {
-            drawTape(ctx, padding + 8, padding - 6, 52, 16, 'warm');
-            drawTape(ctx, cardW - padding - 60, padding - 6, 52, 16, 'default');
+            const ts = uiScale;
+            drawTape(ctx, padding + 8 * ts, padding - 6 * ts, 52 * ts, 16 * ts, 'warm');
+            drawTape(ctx, cardW - padding - 60 * ts, padding - 6 * ts, 52 * ts, 16 * ts, 'default');
         }
 
         const imgX = padding;
@@ -297,7 +358,7 @@
         ctx.save();
         roundRect(ctx, imgX, imgY, drawW, drawH, borderRadius);
         ctx.clip();
-        ctx.drawImage(image, imgX, imgY, drawW, drawH);
+        ctx.drawImage(image, 0, 0, imgW, imgH, imgX, imgY, drawW, drawH);
         ctx.restore();
 
         if (borderWidth > 0) {
@@ -308,22 +369,14 @@
         }
 
         if (measured.captionLines.length) {
-            ctx.fillStyle = '#26221c';
             ctx.font = `${measured.captionFontSize}px "Noto Sans SC", sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
             let captionY = imgY + drawH + borderWidth + 14 + extraBottom;
             const captionBlockHeight = measured.captionLines.length * measured.captionFontSize * 1.45;
-            if (glassBg !== false) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-                roundRect(
-                    ctx,
-                    padding,
-                    captionY - 6,
-                    cardW - padding * 2,
-                    captionBlockHeight + 10,
-                    8
-                );
+            if (useGlass) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                roundRect(ctx, padding, captionY - 6, cardW - padding * 2, captionBlockHeight + 10, 8);
                 ctx.fill();
             }
             ctx.fillStyle = '#26221c';
