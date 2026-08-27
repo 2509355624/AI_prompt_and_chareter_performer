@@ -70,16 +70,119 @@
         ctx.restore();
     }
 
-    function fillSolidBackground(ctx, x, y, w, h, color) {
+    function fillSolidBackground(ctx, x, y, w, h, color, radius = 14) {
         ctx.fillStyle = color;
-        roundRect(ctx, x, y, w, h, 14);
+        roundRect(ctx, x, y, w, h, radius);
+        ctx.fill();
+    }
+
+    function roundRectSketch(ctx, x, y, w, h) {
+        const s = Math.min(w, h) * 0.045;
+        const tl = s * 2.8;
+        const tr = s * 0.75;
+        const br = s * 2.4;
+        const bl = s * 0.85;
+        ctx.beginPath();
+        ctx.moveTo(x + tl, y);
+        ctx.lineTo(x + w - tr, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+        ctx.lineTo(x + w, y + h - br);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+        ctx.lineTo(x + bl, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+        ctx.lineTo(x, y + tl);
+        ctx.quadraticCurveTo(x, y, x + tl, y);
+        ctx.closePath();
+    }
+
+    function clipFramePath(ctx, x, y, w, h, radius, borderStyle) {
+        if (borderStyle === 'sketch') roundRectSketch(ctx, x, y, w, h);
+        else roundRect(ctx, x, y, w, h, radius);
+    }
+
+    function strokeFramePath(ctx, x, y, w, h, radius, borderStyle) {
+        clipFramePath(ctx, x, y, w, h, radius, borderStyle);
+        ctx.stroke();
+    }
+
+    function drawGradientFill(ctx, x, y, w, h, colors, radius = 14) {
+        ctx.save();
+        roundRect(ctx, x, y, w, h, radius);
+        ctx.clip();
+        const g = ctx.createLinearGradient(x, y, x, y + h);
+        g.addColorStop(0, colors[0]);
+        g.addColorStop(1, colors[1] || colors[0]);
+        ctx.fillStyle = g;
+        ctx.fillRect(x, y, w, h);
+        ctx.restore();
+    }
+
+    function drawCardBackground(ctx, image, x, y, w, h, opts, drawW) {
+        const radius = 14;
+        const useGlass = opts.glassBg !== false && opts.bgMode !== 'solid';
+        if (useGlass) {
+            drawBlurredImageBackground(ctx, image, x, y, w, h, opts, drawW);
+            if (opts.bgOverlay) {
+                ctx.save();
+                roundRect(ctx, x, y, w, h, radius);
+                ctx.clip();
+                ctx.fillStyle = opts.bgOverlay;
+                ctx.fillRect(x, y, w, h);
+                ctx.restore();
+            }
+            return;
+        }
+        if (opts.bgMode === 'gradient' && opts.bgGradient) {
+            drawGradientFill(ctx, x, y, w, h, opts.bgGradient, radius);
+            return;
+        }
+        fillSolidBackground(ctx, x, y, w, h, opts.bgColor || '#f6edda', radius);
+    }
+
+    function drawImageShadow(ctx, imgX, imgY, drawW, drawH, borderRadius, opts) {
+        const mode = opts.shadowMode || 'hard';
+        const offset = opts.shadowOffset || 0;
+        const alpha = opts.shadowAlpha ?? 0.45;
+        if (offset <= 0 && mode !== 'glow') return;
+
+        if (mode === 'glow' && opts.glowColor) {
+            ctx.save();
+            ctx.shadowColor = opts.glowColor;
+            ctx.shadowBlur = offset * 4;
+            ctx.fillStyle = 'rgba(0,0,0,0.01)';
+            roundRect(ctx, imgX, imgY, drawW, drawH, borderRadius);
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
+
+        if (mode === 'soft') {
+            ctx.save();
+            ctx.shadowColor = `rgba(0,0,0,${alpha})`;
+            ctx.shadowBlur = offset * 3;
+            ctx.shadowOffsetY = offset;
+            ctx.fillStyle = 'rgba(0,0,0,0.01)';
+            roundRect(ctx, imgX, imgY, drawW, drawH, borderRadius);
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
+
+        ctx.fillStyle = `rgba(38, 34, 28, ${alpha})`;
+        roundRect(ctx, imgX + offset, imgY + offset, drawW, drawH, borderRadius);
         ctx.fill();
     }
 
     function drawTape(ctx, x, y, w, h, variant) {
         ctx.save();
         ctx.globalAlpha = variant === 'warm' ? 0.32 : 0.28;
-        ctx.fillStyle = variant === 'warm' ? '#e8503a' : 'rgba(255, 248, 220, 0.95)';
+        const colors = {
+            warm: '#e8503a',
+            blue: 'rgba(47,124,214,0.55)',
+            yellow: 'rgba(255,235,150,0.55)',
+            default: 'rgba(255, 248, 220, 0.95)'
+        };
+        ctx.fillStyle = colors[variant] || colors.default;
         ctx.translate(x + w / 2, y + h / 2);
         ctx.rotate(-0.12);
         ctx.fillRect(-w / 2, -h / 2, w, h);
@@ -134,22 +237,168 @@
         };
     }
 
+    const PRESET_ALIASES = { xhs: 'paper-collage' };
+
     const PRESETS = {
-        xhs: {
-            label: '小红书经典',
+        'paper-collage': {
+            label: '贴纸剪贴 · paper-collage',
             padding: 32,
             bgColor: '#f6edda',
             glassBg: true,
             glassBlur: 36,
             glassFrost: 0.14,
-            glassTint: 0,
-            borderWidth: 2.5,
+            borderWidth: 3,
             borderColor: '#26221c',
-            borderRadius: 12,
-            shadowOffset: 3,
-            shadowAlpha: 0.45,
-            tiltDeg: -0.6,
+            borderRadius: 14,
+            shadowMode: 'hard',
+            shadowOffset: 5,
+            shadowAlpha: 0.9,
+            tiltDeg: -1.2,
             tape: true,
+            tapeVariant: 'blue',
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        'sketch-note': {
+            label: '手绘线稿 · sketch-note',
+            padding: 28,
+            bgColor: '#fbfaf5',
+            bgMode: 'solid',
+            glassBg: false,
+            borderWidth: 2.5,
+            borderColor: '#232323',
+            borderRadius: 12,
+            borderStyle: 'sketch',
+            shadowMode: 'hard',
+            shadowOffset: 0,
+            tiltDeg: -0.6,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        'apple-glass': {
+            label: '苹果浅蓝玻璃 · apple-light-blue-glass',
+            padding: 28,
+            bgMode: 'gradient',
+            bgGradient: ['#fbfdff', '#eef7ff'],
+            glassBg: true,
+            glassBlur: 28,
+            glassFrost: 0.22,
+            borderWidth: 1,
+            borderColor: 'rgba(37,99,235,0.35)',
+            borderRadius: 22,
+            shadowMode: 'soft',
+            shadowOffset: 4,
+            shadowAlpha: 0.12,
+            tiltDeg: 0,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        'apple-tech': {
+            label: '科技发布会 · apple-tech-gradient',
+            padding: 32,
+            bgMode: 'gradient',
+            bgGradient: ['#141210', '#000000'],
+            glassBg: true,
+            glassBlur: 32,
+            glassFrost: 0.08,
+            bgOverlay: 'rgba(0,0,0,0.52)',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.18)',
+            borderRadius: 18,
+            shadowMode: 'soft',
+            shadowOffset: 3,
+            shadowAlpha: 0.35,
+            tiltDeg: 0,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        editorial: {
+            label: '杂志编辑 · editorial-magazine',
+            padding: 30,
+            bgColor: '#faf9f6',
+            bgMode: 'solid',
+            glassBg: false,
+            borderWidth: 1,
+            borderColor: 'rgba(0,0,0,0.12)',
+            borderRadius: 0,
+            shadowMode: 'hard',
+            shadowOffset: 0,
+            tiltDeg: 0,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        finance: {
+            label: '财经演播室 · finance-studio-cards',
+            padding: 28,
+            bgMode: 'gradient',
+            bgGradient: ['#0d1422', '#0a0e17'],
+            glassBg: true,
+            glassBlur: 24,
+            glassFrost: 0.06,
+            bgOverlay: 'rgba(10,14,23,0.62)',
+            borderWidth: 1,
+            borderColor: 'rgba(0,212,170,0.55)',
+            borderRadius: 8,
+            shadowMode: 'glow',
+            shadowOffset: 8,
+            glowColor: 'rgba(0,212,170,0.38)',
+            tiltDeg: 0,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        ink: {
+            label: '墨蓝手稿 · ink-framework',
+            padding: 30,
+            bgColor: '#f7f2e7',
+            bgMode: 'solid',
+            glassBg: false,
+            borderWidth: 2,
+            borderColor: 'rgba(47,78,121,0.65)',
+            borderRadius: 6,
+            shadowMode: 'soft',
+            shadowOffset: 2,
+            shadowAlpha: 0.08,
+            tiltDeg: 0,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        manifesto: {
+            label: '宣言海报 · manifesto-poster',
+            padding: 28,
+            bgColor: '#f2efe6',
+            bgMode: 'solid',
+            glassBg: false,
+            borderWidth: 3,
+            borderColor: '#141414',
+            borderRadius: 0,
+            shadowMode: 'hard',
+            shadowOffset: 0,
+            tiltDeg: 0,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0
+        },
+        newspaper: {
+            label: '档案剪报 · newspaper-evidence',
+            padding: 28,
+            bgColor: '#f5f0e8',
+            bgMode: 'solid',
+            glassBg: false,
+            borderWidth: 1,
+            borderColor: 'rgba(26,26,26,0.18)',
+            borderRadius: 2,
+            shadowMode: 'hard',
+            shadowOffset: 3,
+            shadowAlpha: 0.14,
+            tiltDeg: -1.0,
+            tape: true,
+            tapeVariant: 'yellow',
             captionFontSize: 14,
             outputWidth: 0
         },
@@ -160,10 +409,10 @@
             glassBg: true,
             glassBlur: 28,
             glassFrost: 0.16,
-            glassTint: 0,
             borderWidth: 2,
             borderColor: '#26221c',
             borderRadius: 12,
+            shadowMode: 'hard',
             shadowOffset: 3,
             shadowAlpha: 0.45,
             tiltDeg: 0,
@@ -178,10 +427,10 @@
             glassBg: true,
             glassBlur: 24,
             glassFrost: 0.18,
-            glassTint: 0,
             borderWidth: 2,
             borderColor: '#26221c',
             borderRadius: 4,
+            shadowMode: 'hard',
             shadowOffset: 4,
             shadowAlpha: 0.35,
             tiltDeg: 0,
@@ -194,10 +443,12 @@
             label: '简约白边',
             padding: 24,
             bgColor: '#ffffff',
+            bgMode: 'solid',
             glassBg: false,
             borderWidth: 0,
             borderColor: '#26221c',
             borderRadius: 0,
+            shadowMode: 'hard',
             shadowOffset: 0,
             shadowAlpha: 0,
             tiltDeg: 0,
@@ -208,7 +459,9 @@
     };
 
     function mergeOptions(options) {
-        const presetKey = options?.preset && PRESETS[options.preset] ? options.preset : 'xhs';
+        let presetKey = options?.preset || 'paper-collage';
+        if (PRESET_ALIASES[presetKey]) presetKey = PRESET_ALIASES[presetKey];
+        if (!PRESETS[presetKey]) presetKey = 'paper-collage';
         return { ...PRESETS[presetKey], ...options, preset: presetKey };
     }
 
@@ -229,6 +482,9 @@
         const extraBottom = scaledUi(opts.extraBottomPadding || 0, uiScale, 0);
         const captionFontSize = scaledUi(opts.captionFontSize, uiScale, 12);
         const caption = String(opts.caption || '').trim();
+        const shadowExtra = opts.shadowMode === 'glow'
+            ? scaledUi((opts.shadowOffset || 0) * 4, uiScale, 0)
+            : shadowOffset;
 
         if (!drawW || !drawH) {
             return {
@@ -261,8 +517,8 @@
         const innerH = drawH + borderWidth * 2;
         const cardW = innerW + padding * 2;
         const cardH = innerH + padding * 2 + extraBottom + captionBlockH;
-        const width = cardW + shadowOffset;
-        const height = cardH + shadowOffset;
+        const width = cardW + shadowExtra;
+        const height = cardH + shadowExtra;
 
         return {
             width: Math.ceil(width),
@@ -286,28 +542,29 @@
         const {
             bgColor,
             borderColor,
-            shadowAlpha,
             tiltDeg,
             tape,
-            glassBg
+            tapeVariant,
+            borderStyle
         } = opts;
 
         const padding = measured.padding;
         const borderWidth = measured.borderWidth;
         const borderRadius = measured.borderRadius;
-        const shadowOffset = measured.shadowOffset;
         const drawW = measured.drawW;
         const drawH = measured.drawH;
         const uiScale = measured.uiScale;
         const extraBottom = scaledUi(opts.extraBottomPadding || 0, uiScale, 0);
-        const captionBlockH = measured.captionLines.length
-            ? measured.captionLines.length * measured.captionFontSize * 1.45 + 12
-            : 0;
+        const useGlass = opts.glassBg !== false && opts.bgMode !== 'solid';
 
         const canvasW = measured.width;
         const canvasH = measured.height;
         const cardW = drawW + borderWidth * 2 + padding * 2;
-        const cardH = drawH + borderWidth * 2 + padding * 2 + extraBottom + captionBlockH;
+        const cardH = drawH + borderWidth * 2 + padding * 2 + extraBottom + (
+            measured.captionLines.length
+                ? measured.captionLines.length * measured.captionFontSize * 1.45 + 12
+                : 0
+        );
 
         const canvas = document.createElement('canvas');
         canvas.width = canvasW;
@@ -316,16 +573,10 @@
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        const useGlass = glassBg !== false;
         const imgW = image.naturalWidth || image.width;
         const imgH = image.naturalHeight || image.height;
 
-        if (useGlass) {
-            drawBlurredImageBackground(ctx, image, 0, 0, canvasW, canvasH, opts, drawW);
-        } else {
-            ctx.fillStyle = bgColor;
-            ctx.fillRect(0, 0, canvasW, canvasH);
-        }
+        drawCardBackground(ctx, image, 0, 0, canvasW, canvasH, opts, drawW);
 
         if (tiltDeg) {
             ctx.save();
@@ -334,29 +585,24 @@
             ctx.translate(-canvasW / 2, -canvasH / 2);
         }
 
-        if (useGlass) {
-            drawBlurredImageBackground(ctx, image, 0, 0, cardW, cardH, opts, drawW);
-        } else {
-            fillSolidBackground(ctx, 0, 0, cardW, cardH, bgColor);
-        }
+        drawCardBackground(ctx, image, 0, 0, cardW, cardH, opts, drawW);
 
         if (tape) {
             const ts = uiScale;
-            drawTape(ctx, padding + 8 * ts, padding - 6 * ts, 52 * ts, 16 * ts, 'warm');
-            drawTape(ctx, cardW - padding - 60 * ts, padding - 6 * ts, 52 * ts, 16 * ts, 'default');
+            const variant = tapeVariant || 'warm';
+            drawTape(ctx, padding + 8 * ts, padding - 6 * ts, 52 * ts, 16 * ts, variant);
+            if (variant !== 'yellow') {
+                drawTape(ctx, cardW - padding - 60 * ts, padding - 6 * ts, 52 * ts, 16 * ts, 'default');
+            }
         }
 
         const imgX = padding;
         const imgY = padding;
 
-        if (shadowOffset > 0 && shadowAlpha > 0) {
-            ctx.fillStyle = `rgba(38, 34, 28, ${shadowAlpha})`;
-            roundRect(ctx, imgX + shadowOffset, imgY + shadowOffset, drawW, drawH, borderRadius);
-            ctx.fill();
-        }
+        drawImageShadow(ctx, imgX, imgY, drawW, drawH, borderRadius, opts);
 
         ctx.save();
-        roundRect(ctx, imgX, imgY, drawW, drawH, borderRadius);
+        clipFramePath(ctx, imgX, imgY, drawW, drawH, borderRadius, borderStyle);
         ctx.clip();
         ctx.drawImage(image, 0, 0, imgW, imgH, imgX, imgY, drawW, drawH);
         ctx.restore();
@@ -364,8 +610,7 @@
         if (borderWidth > 0) {
             ctx.strokeStyle = borderColor;
             ctx.lineWidth = borderWidth;
-            roundRect(ctx, imgX, imgY, drawW, drawH, borderRadius);
-            ctx.stroke();
+            strokeFramePath(ctx, imgX, imgY, drawW, drawH, borderRadius, borderStyle);
         }
 
         if (measured.captionLines.length) {
@@ -374,12 +619,11 @@
             ctx.textBaseline = 'top';
             let captionY = imgY + drawH + borderWidth + 14 + extraBottom;
             const captionBlockHeight = measured.captionLines.length * measured.captionFontSize * 1.45;
-            if (useGlass) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-                roundRect(ctx, padding, captionY - 6, cardW - padding * 2, captionBlockHeight + 10, 8);
-                ctx.fill();
-            }
-            ctx.fillStyle = '#26221c';
+            const captionBg = opts.captionBg || (useGlass ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.72)');
+            ctx.fillStyle = captionBg;
+            roundRect(ctx, padding, captionY - 6, cardW - padding * 2, captionBlockHeight + 10, 8);
+            ctx.fill();
+            ctx.fillStyle = opts.captionColor || '#26221c';
             for (const line of measured.captionLines) {
                 ctx.fillText(line, cardW / 2, captionY);
                 captionY += measured.captionFontSize * 1.45;

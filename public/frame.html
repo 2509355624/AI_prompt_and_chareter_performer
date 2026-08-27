@@ -71,7 +71,15 @@
                         <div class="style-field full">
                             <label for="presetSelect">预设模板</label>
                             <select id="presetSelect">
-                                <option value="xhs">小红书经典</option>
+                                <option value="paper-collage">贴纸剪贴 · paper-collage</option>
+                                <option value="sketch-note">手绘线稿 · sketch-note</option>
+                                <option value="apple-glass">苹果浅蓝玻璃 · apple-light-blue-glass</option>
+                                <option value="apple-tech">科技发布会 · apple-tech-gradient</option>
+                                <option value="editorial">杂志编辑 · editorial-magazine</option>
+                                <option value="finance">财经演播室 · finance-studio-cards</option>
+                                <option value="ink">墨蓝手稿 · ink-framework</option>
+                                <option value="manifesto">宣言海报 · manifesto-poster</option>
+                                <option value="newspaper">档案剪报 · newspaper-evidence</option>
                                 <option value="chat">对话条同款</option>
                                 <option value="polaroid">拍立得</option>
                                 <option value="minimal">简约白边</option>
@@ -146,7 +154,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=4"></script>
+    <script src="js/sticker-frame.js?v=5"></script>
     <script>
         const EXPORT_FOLDER_KEY = 'frameExportFolderPath';
         let files = [];
@@ -222,23 +230,30 @@
             return opts;
         }
 
+        function resolvePresetKey(key) {
+            const aliases = { xhs: 'paper-collage' };
+            return aliases[key] || key;
+        }
+
         function applyPresetToForm(presetKey) {
+            presetKey = resolvePresetKey(presetKey);
             const preset = StickerFrame.PRESETS[presetKey];
             if (!preset) return;
             els.paddingRange.value = preset.padding;
             els.paddingVal.textContent = preset.padding;
             els.borderRadiusRange.value = preset.borderRadius;
             els.radiusVal.textContent = preset.borderRadius;
-            els.shadowRange.value = preset.shadowOffset;
-            els.shadowVal.textContent = preset.shadowOffset;
-            els.bgColor.value = preset.bgColor;
-            els.glassBgCheck.checked = preset.glassBg !== false;
-            els.tiltRange.value = preset.tiltDeg;
-            els.tiltVal.textContent = preset.tiltDeg;
+            els.shadowRange.value = preset.shadowOffset ?? 0;
+            els.shadowVal.textContent = preset.shadowOffset ?? 0;
+            if (preset.bgColor) els.bgColor.value = preset.bgColor;
+            els.glassBgCheck.checked = preset.glassBg !== false && preset.bgMode !== 'solid';
+            els.tiltRange.value = preset.tiltDeg ?? 0;
+            els.tiltVal.textContent = preset.tiltDeg ?? 0;
             els.tapeCheck.checked = Boolean(preset.tape);
             if (preset.outputWidth != null) {
                 els.outputWidth.value = String(preset.outputWidth);
             }
+            syncSolidBgRowVisibility();
         }
 
         function loadImageFromFile(file) {
@@ -581,7 +596,7 @@
                 return;
             }
 
-            applyPresetToForm('xhs');
+            applyPresetToForm('paper-collage');
             syncSolidBgRowVisibility();
             bindStyleControls();
 
