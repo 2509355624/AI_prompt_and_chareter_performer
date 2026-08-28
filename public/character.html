@@ -536,7 +536,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=19">
+    <link rel="stylesheet" href="styles/character-paper.css?v=20">
 </head>
 <body>
 
@@ -603,6 +603,7 @@
                 </div>
             </div>
             <div class="chat-topbar-actions desktop-only-actions">
+                <button class="btn-icon" id="btnToggleSettings" onclick="toggleSettingsCollapsed()" title="展开/收起配置贴纸">⚙️ 配置</button>
                 <button class="btn-icon" onclick="openVisualRefEditor()" title="查看/编辑发给 AI 的上轮生图参考">🎨</button>
                 <button class="btn-icon" onclick="openExportModal()" title="导出对话截图">📸</button>
                 <button class="btn-icon" onclick="editCurrentCharacter()" title="编辑角色">✎</button>
@@ -637,7 +638,10 @@
         </div>
         <div class="settings-header">
             <h2>配置贴纸</h2>
-            <span class="kicker kicker-sm">AI + Comfy</span>
+            <div class="settings-header-actions">
+                <span class="kicker kicker-sm">AI + Comfy</span>
+                <button type="button" class="btn-icon settings-collapse-btn" onclick="toggleSettingsCollapsed()" title="收起配置">收起 ›</button>
+            </div>
         </div>
         <div class="settings-scroll config-body" id="settingsScroll">
             
@@ -796,6 +800,30 @@
                     </div>
                 </div>
 
+                <!-- 小红书贴纸导出 -->
+                <div class="form-group wf-full sticker-export-block">
+                    <label>小红书边框导出</label>
+                    <div class="sticker-export-fields">
+                        <label class="sticker-export-sublabel" for="stickerFramePreset">边框预设</label>
+                        <select id="stickerFramePreset" onchange="saveStickerExportSettings()">
+                            <option value="paper-collage" selected>贴纸剪贴 · paper-collage（磨砂玻璃）</option>
+                            <option value="sketch-note">手绘线稿 · sketch-note</option>
+                            <option value="apple-glass">苹果浅蓝玻璃</option>
+                            <option value="polaroid">拍立得</option>
+                            <option value="minimal">简约白边</option>
+                            <option value="chat">对话条同款</option>
+                        </select>
+                        <label class="sticker-export-sublabel" for="stickerExportFolderPath">导出文件夹</label>
+                        <div class="sticker-export-folder-row">
+                            <input type="text" id="stickerExportFolderPath" placeholder="选择或粘贴完整路径" oninput="onStickerExportFolderInput()">
+                            <button type="button" class="btn-icon" onclick="pickStickerExportFolder()">选择</button>
+                        </div>
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                            对话配图下方点「导出小红书边框」会用原图 + 当前预设（默认贴纸剪贴磨砂玻璃）写入此文件夹
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Force Prompt -->
                 <div class="form-group wf-full">
                     <label>强制提示词 / Force Prompt</label>
@@ -851,6 +879,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="js/sticker-frame.js?v=7"></script>
 <script>
     // --- Global State ---
     let characters = [];
@@ -864,7 +893,11 @@
     let activeChatTurn = null;
     const FORCE_PROMPT_STORAGE_KEY = 'characterForcePrompts';
     const EXPORT_FOLDER_STORAGE_KEY = 'chatExportFolderPath';
+    const STICKER_EXPORT_FOLDER_KEY = 'chatStickerExportFolderPath';
+    const STICKER_FRAME_PRESET_KEY = 'chatStickerFramePreset';
+    const SETTINGS_COLLAPSED_KEY = 'characterSettingsCollapsed';
     const TURN_MEMORY_STORE_MAX = 20;
+    let stickerExportDirHandle = null;
 
     function normalizeTurnMemory(raw) {
         if (!Array.isArray(raw)) return [];
@@ -1246,12 +1279,158 @@
         }
     }
 
+    function restoreStickerExportSettings() {
+        const folderInput = document.getElementById('stickerExportFolderPath');
+        const presetSelect = document.getElementById('stickerFramePreset');
+        const savedFolder = localStorage.getItem(STICKER_EXPORT_FOLDER_KEY)
+            || localStorage.getItem(EXPORT_FOLDER_STORAGE_KEY)
+            || '';
+        if (folderInput && savedFolder) folderInput.value = savedFolder;
+        const savedPreset = localStorage.getItem(STICKER_FRAME_PRESET_KEY) || 'paper-collage';
+        if (presetSelect && [...presetSelect.options].some((o) => o.value === savedPreset)) {
+            presetSelect.value = savedPreset;
+        }
+    }
+
+    function saveStickerExportSettings() {
+        const preset = document.getElementById('stickerFramePreset')?.value || 'paper-collage';
+        const folder = document.getElementById('stickerExportFolderPath')?.value?.trim() || '';
+        localStorage.setItem(STICKER_FRAME_PRESET_KEY, preset);
+        if (folder) {
+            localStorage.setItem(STICKER_EXPORT_FOLDER_KEY, folder);
+            localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, folder);
+        }
+    }
+
+    function onStickerExportFolderInput() {
+        stickerExportDirHandle = null;
+        saveStickerExportSettings();
+    }
+
+    async function pickStickerExportFolder() {
+        if (!('showDirectoryPicker' in window)) {
+            alert('当前浏览器不支持文件夹选择，请手动粘贴完整路径（如 D:\\素材\\角色导出）');
+            document.getElementById('stickerExportFolderPath')?.focus();
+            return;
+        }
+        try {
+            stickerExportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            const input = document.getElementById('stickerExportFolderPath');
+            if (input) input.value = stickerExportDirHandle.name;
+            localStorage.setItem(STICKER_EXPORT_FOLDER_KEY, stickerExportDirHandle.name);
+            localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, stickerExportDirHandle.name);
+        } catch (e) {
+            if (e.name !== 'AbortError') alert('选择文件夹失败: ' + e.message);
+        }
+    }
+
+    function restoreSettingsCollapsed() {
+        const collapsed = localStorage.getItem(SETTINGS_COLLAPSED_KEY) === '1';
+        setSettingsCollapsed(collapsed);
+    }
+
+    function setSettingsCollapsed(collapsed) {
+        const app = document.querySelector('.app-container');
+        if (!app) return;
+        app.classList.toggle('settings-collapsed', Boolean(collapsed));
+        localStorage.setItem(SETTINGS_COLLAPSED_KEY, collapsed ? '1' : '0');
+        const btn = document.getElementById('btnToggleSettings');
+        if (btn) btn.textContent = collapsed ? '⚙️ 展开配置' : '⚙️ 收起配置';
+        const sideBtn = document.querySelector('.settings-collapse-btn');
+        if (sideBtn) sideBtn.textContent = collapsed ? '‹ 展开' : '收起 ›';
+    }
+
+    function toggleSettingsCollapsed() {
+        if (document.body.classList.contains('mobile-shell')) {
+            toggleMobileDrawer('settings');
+            return;
+        }
+        const app = document.querySelector('.app-container');
+        setSettingsCollapsed(!app?.classList.contains('settings-collapsed'));
+    }
+
+    function canvasToPngBlob(canvas) {
+        return new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => {
+                if (blob) resolve(blob);
+                else reject(new Error('PNG 编码失败'));
+            }, 'image/png');
+        });
+    }
+
+    async function exportChatImageSticker(messageIndex) {
+        if (typeof StickerFrame === 'undefined') {
+            alert('边框脚本未加载，请强制刷新（Ctrl+F5）后重试');
+            return;
+        }
+        const msg = characterChatMessages[messageIndex];
+        if (!msg || !msg.imageUrl || msg.imageStatus !== 'ready') {
+            alert('这张配图还不能导出');
+            return;
+        }
+
+        const folderPath = document.getElementById('stickerExportFolderPath')?.value?.trim() || '';
+        if (!stickerExportDirHandle && !folderPath) {
+            alert('请先在右侧「配置贴纸 → 小红书边框导出」里设置导出文件夹');
+            setSettingsCollapsed(false);
+            document.getElementById('stickerExportFolderPath')?.focus();
+            return;
+        }
+
+        const preset = document.getElementById('stickerFramePreset')?.value || 'paper-collage';
+        const charName = (currentCharacter?.name || 'character').replace(/[^\w\u4e00-\u9fff\-]+/g, '_');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `${charName}_xhs_${String(messageIndex).padStart(3, '0')}_${stamp}.png`;
+
+        const buttons = document.querySelectorAll(`[data-sticker-export="${messageIndex}"]`);
+        buttons.forEach((b) => { b.disabled = true; b.textContent = '导出中…'; });
+
+        try {
+            const img = await loadImageForExport(msg.imageUrl);
+            const canvas = StickerFrame.renderStickerFrame(img, {
+                preset,
+                caption: '',
+                glassBg: (preset === 'paper-collage' || preset === 'apple-glass') ? true : undefined,
+                previewMaxWidth: 0,
+                outputWidth: 0
+            });
+            const blob = await canvasToPngBlob(canvas);
+
+            if (stickerExportDirHandle) {
+                const perm = await stickerExportDirHandle.requestPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') throw new Error('没有写入所选文件夹的权限');
+                await saveBlobToPickedDir(stickerExportDirHandle, filename, blob);
+                alert(`已导出小红书边框图：\n${stickerExportDirHandle.name}\\${filename}`);
+            } else {
+                const dataUrl = canvas.toDataURL('image/png');
+                const res = await fetch('/api/export-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folderPath, name: filename, data: dataUrl })
+                });
+                const result = await res.json().catch(() => ({}));
+                if (!res.ok || !result.ok) {
+                    throw new Error(result.error || `导出失败 (${res.status})`);
+                }
+                localStorage.setItem(STICKER_EXPORT_FOLDER_KEY, folderPath);
+                alert(`已导出小红书边框图：\n${result.folderPath || folderPath}\\${filename}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('导出失败: ' + e.message);
+        } finally {
+            buttons.forEach((b) => { b.disabled = false; b.textContent = '导出小红书边框'; });
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         initMobileShell();
         loadCharacters();
         toggleProviderSettings();
         loadWorkflowOptions();
-        
+        restoreStickerExportSettings();
+        restoreSettingsCollapsed();
+
         // Setup Character Chat Enter Key
         document.getElementById('charChatInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -2190,6 +2369,7 @@
                 } else if (msg.imageStatus && msg.imageStatus !== 'ready') {
                     imageBlock = `<div class="image-pending">${escapeHtml(imageStatusLabel(msg))}</div>`;
                 }
+                const hasReadyImage = Boolean(msg.imageUrl && msg.imageStatus === 'ready');
                 const thinkingPast = msg.debugInfo?.thinkingText
                     ? `<details class="thinking-fold thinking-fold--past"><summary>思考过程</summary><pre class="thinking-text">${escapeHtml(msg.debugInfo.thinkingText)}</pre></details>`
                     : '';
@@ -2200,7 +2380,10 @@
                         ${thinkingPast}
                         ${escapeHtml(msg.content).replace(/\n/g, '<br>')}
                         ${imageBlock}
-                        ${canShowLog ? `<button type="button" class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
+                        ${(hasReadyImage || canShowLog) ? `<div class="msg-image-tools">
+                            ${hasReadyImage ? `<button type="button" class="debug-btn debug-btn-export" data-sticker-export="${index}" onclick="exportChatImageSticker(${index})">导出小红书边框</button>` : ''}
+                            ${canShowLog ? `<button type="button" class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
+                        </div>` : ''}
                         ${emotion && emotion.primaryEmotion ? `<div class="emotion-tag">${emotion.primaryEmotion} ${emotion.intensity || 0}/10</div>` : ''}
                         ${msg.timing ? `
                         <div class="timing-info">

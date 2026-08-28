@@ -463,6 +463,68 @@ body {
   border-bottom: 2px dashed var(--rule);
   flex-shrink: 0;
 }
+.settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-collapse-btn {
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+
+/* desktop: collapse right settings to widen chat */
+body:not(.mobile-shell) .app-container.settings-collapsed {
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr) !important;
+}
+body:not(.mobile-shell) .app-container.settings-collapsed .settings-panel {
+  display: none !important;
+}
+
+.sticker-export-block {
+  padding: 10px;
+  border: 2px dashed var(--rule);
+  border-radius: 12px;
+  background: rgba(232, 80, 58, 0.06);
+}
+.sticker-export-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sticker-export-sublabel {
+  font-size: 11px !important;
+  color: var(--text-mute) !important;
+  margin-top: 4px;
+}
+.sticker-export-folder-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sticker-export-folder-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-image-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.debug-btn-export {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--text) !important;
+}
+.debug-btn-export:hover {
+  background: #d2432f !important;
+}
+.debug-btn-export:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .settings-header h2 {
   margin: 0;
   font-family: var(--font-display);
