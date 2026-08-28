@@ -782,19 +782,39 @@ function formatNumberedPngName(seq) {
     return `${String(seq).padStart(3, '0')}.png`;
 }
 
+/** Reject relative paths like "1_sex" that silently write under the server cwd. */
+function resolveExportFolderPath(folderPath) {
+    const raw = String(folderPath || '').trim();
+    if (!raw) {
+        const err = new Error('folderPath is required');
+        err.status = 400;
+        throw err;
+    }
+    const isWinAbs = /^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith('\\\\');
+    const isUnixAbs = raw.startsWith('/');
+    if (process.platform === 'win32' ? !isWinAbs : !isUnixAbs) {
+        const err = new Error(
+            '导出路径必须是绝对路径（例如 D:\\\\素材\\\\导出）。仅文件夹名会写到服务端项目目录，容易找错。'
+        );
+        err.status = 400;
+        throw err;
+    }
+    return path.resolve(raw);
+}
+
 app.get('/api/export-next-seq', (req, res) => {
     const folderPath = String(req.query.folderPath || '').trim();
     if (!folderPath) {
         return res.status(400).json({ ok: false, error: 'folderPath is required' });
     }
     try {
-        const resolved = path.resolve(folderPath);
+        const resolved = resolveExportFolderPath(folderPath);
         if (!fs.existsSync(resolved)) {
             fs.mkdirSync(resolved, { recursive: true });
         }
         res.json({ ok: true, folderPath: resolved, nextSeq: nextNumberedPngSeq(resolved) });
     } catch (e) {
-        res.status(500).json({ ok: false, error: e.message });
+        res.status(e.status || 500).json({ ok: false, error: e.message });
     }
 });
 
@@ -807,7 +827,12 @@ app.post('/api/export-chat-strips', (req, res) => {
         return res.status(400).json({ error: 'files array is required' });
     }
 
-    const resolved = path.resolve(folderPath.trim());
+    let resolved;
+    try {
+        resolved = resolveExportFolderPath(folderPath);
+    } catch (e) {
+        return res.status(e.status || 400).json({ error: e.message });
+    }
     try {
         if (!fs.existsSync(resolved)) {
             fs.mkdirSync(resolved, { recursive: true });
@@ -850,7 +875,12 @@ app.post('/api/export-image', (req, res) => {
         return res.status(400).json({ error: 'data is required' });
     }
 
-    const resolved = path.resolve(folderPath.trim());
+    let resolved;
+    try {
+        resolved = resolveExportFolderPath(folderPath);
+    } catch (e) {
+        return res.status(e.status || 400).json({ error: e.message });
+    }
     let safeName;
     if (autoNumber || !name || name === 'auto') {
         safeName = formatNumberedPngName(nextNumberedPngSeq(resolved));
@@ -879,6 +909,12 @@ app.post('/api/export-image', (req, res) => {
 /* ---------- ComfyUI generate page (independent presets) ---------- */
 const generateService = require('./generate_service');
 generateService.ensureDirs();
+const abandonedOnBoot = generateService.jobStore.abandonRunningJobs(
+    '服务重启，上一轮生成已中断（可重新点开始生成）'
+);
+if (abandonedOnBoot > 0) {
+    console.log(`[ComfyGenerate] abandoned ${abandonedOnBoot} orphan running job(s) on boot`);
+}
 
 app.get('/api/comfy/generate-presets', (req, res) => {
     try {
@@ -976,10 +1012,90 @@ app.get('/api/comfy/generate-jobs', (req, res) => {
     }
 });
 
+app.get('/api/comfy/output-images', (req, res) => {
+    try {
+        const listed = comfyClient.listRecentOutputImages(Number(req.query.limit) || 48);
+        res.json({ ok: true, ...listed });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message, outputDir: '', images: [] });
+    }
+});
+
+app.get('/api/comfy/output-images/file', (req, res) => {
+    try {
+        const full = comfyClient.resolveOutputImagePath(req.query.name);
+        if (!full) return res.status(404).json({ ok: false, error: '文件不存在' });
+        res.sendFile(full);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post('/api/comfy/open-output-folder', (req, res) => {
+    try {
+        const outputDir = comfyClient.resolveComfyOutputDir();
+        if (!outputDir || !fs.existsSync(outputDir)) {
+            return res.status(404).json({ ok: false, error: '未找到 ComfyUI output 目录（可设 COMFYUI_OUTPUT_DIR）' });
+        }
+        const { exec } = require('child_process');
+        if (process.platform === 'win32') {
+            exec(`explorer "${outputDir}"`);
+        } else if (process.platform === 'darwin') {
+            exec(`open "${outputDir}"`);
+        } else {
+            exec(`xdg-open "${outputDir}"`);
+        }
+        res.json({ ok: true, outputDir });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post('/api/comfy/import-image', (req, res) => {
+    try {
+        const body = req.body || {};
+        let imported;
+        if (body.source === 'output' || body.filename) {
+            imported = generateService.importFromComfyOutput(body.filename || body.name);
+        } else if (body.data) {
+            imported = generateService.importFromBase64(body.data, body.name || 'import.png');
+        } else {
+            return res.status(400).json({ ok: false, error: '请提供 filename（output）或 data（base64）' });
+        }
+        res.json({ ok: true, ...imported });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 app.get('/api/comfy/generate-jobs/active', (req, res) => {
     try {
-        const active = generateService.jobStore.findActiveJob();
+        const active = generateService.getLiveActiveJob();
         res.json({ ok: true, job: active });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post('/api/comfy/generate-jobs/cancel-all', async (req, res) => {
+    try {
+        const n = generateService.requestCancelAll(
+            (req.body && req.body.reason) || '用户取消全部生成'
+        );
+        res.json({ ok: true, cancelled: n });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post('/api/comfy/generate-jobs/:id/cancel', async (req, res) => {
+    try {
+        const job = generateService.requestCancelJob(
+            req.params.id,
+            (req.body && req.body.reason) || '用户取消生成'
+        );
+        if (!job) return res.status(404).json({ ok: false, error: '任务不存在' });
+        res.json({ ok: true, job });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=10">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=14">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -54,18 +54,22 @@
                                     <span id="singleIndexLabel">0 / 0</span>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnNext">▶</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大</button>
-                                    <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderSingle">重渲</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderSingle" title="从 Comfy output 或本机选图替换当前槽位">换图</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制词</button>
                                     <button type="button" class="btn btn-accent2 btn-sm" id="btnExportCurrent" disabled>导出</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnExportSelected" disabled>导出选中</button>
                                 </div>
                             </div>
                         </div>
+                        <div class="run-status" id="runStatus" aria-live="polite">
+                            <span class="run-status-dot" aria-hidden="true"></span>
+                            <span class="run-status-text" id="progressText">就绪 · 选好预设后点「开始生成」</span>
+                            <button type="button" class="btn btn-ghost btn-sm run-status-cancel" id="btnCancelGenerate" hidden>取消占用</button>
+                        </div>
                         <div class="single-bottom" id="workspaceBottom">
                             <div class="composer-dock open" id="composerDock">
                                 <div class="composer-bar">
                                     <span class="bar-preset" id="activePresetLabel">未选择预设</span>
-                                    <span class="bar-progress" id="progressText"></span>
                                     <button type="button" class="btn btn-primary btn-sm" id="btnGenerate">开始生成</button>
                                 </div>
                                 <div class="composer-drawer" id="composerDrawer">
@@ -174,10 +178,11 @@
                             </label>
                             <label>导出文件夹
                                 <div class="sticker-export-folder-row" style="display:flex;gap:6px;">
-                                    <input type="text" id="exportFolderPath" placeholder="选择或粘贴完整路径" style="flex:1;">
+                                    <input type="text" id="exportFolderPath" placeholder="选择或粘贴完整路径，如 D:\素材\导出" style="flex:1;">
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnPickFolder">选择</button>
                                 </div>
                             </label>
+                            <p class="config-hint" id="exportFolderHint">点「选择」用浏览器授权直写；刷新后会尽量恢复。也可粘贴完整绝对路径（D:\…）。</p>
                         </div>
 
                         <div class="config-actions">
@@ -199,12 +204,30 @@
                 <span id="lightboxIndexLabel">0 / 0</span>
                 <button type="button" class="btn btn-ghost" id="btnLightboxNext">▶</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnCopyLightboxPrompt">复制提示词</button>
-                <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderLightbox">重新渲染</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderLightbox" title="从 Comfy output 或本机选图替换">换图</button>
                 <button type="button" class="btn btn-accent2 btn-sm" id="btnExportLightbox">导出当前</button>
             </div>
             <div class="prompt-box lightbox-prompt" id="lightboxPromptBox" hidden>
                 <pre id="lightboxPromptText"></pre>
             </div>
+        </div>
+    </div>
+
+    <div class="import-modal" id="importModal" aria-hidden="true">
+        <div class="import-modal-card" role="dialog" aria-labelledby="importModalTitle">
+            <div class="import-modal-head">
+                <strong id="importModalTitle">换图 · 手动导入</strong>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnImportModalClose">关闭</button>
+            </div>
+            <p class="import-modal-hint" id="importModalHint">原先的「重新渲染」只是重画边框预览。这里可从 ComfyUI output 选图，或从本机导入，替换当前槽位。</p>
+            <div class="import-modal-path">
+                <code id="importOutputPath">查找 output…</code>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnOpenOutputFolder">打开文件夹</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnRefreshOutputList">刷新列表</button>
+                <button type="button" class="btn btn-accent2 btn-sm" id="btnPickLocalImage">本机选图</button>
+                <input type="file" id="importLocalFile" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden>
+            </div>
+            <div class="import-modal-grid" id="importModalGrid"></div>
         </div>
     </div>
 
@@ -229,6 +252,111 @@
             syncModeUi();
         }
         const SESSION_KEY = 'comfy_generate_session_v1';
+        const EXPORT_HANDLE_IDB = 'comfy_generate_export_handles_v1';
+        const EXPORT_HANDLE_KEY = 'exportDir';
+
+        function isAbsoluteExportPath(p) {
+            const s = String(p || '').trim();
+            if (!s) return false;
+            if (/^[a-zA-Z]:[\\/]/.test(s)) return true;
+            if (s.startsWith('\\\\')) return true;
+            if (s.startsWith('/')) return true;
+            return false;
+        }
+
+        function setExportFolderHint(text, isWarn) {
+            const el = $('exportFolderHint');
+            if (!el) return;
+            el.textContent = text;
+            el.style.color = isWarn ? 'var(--accent)' : '';
+        }
+
+        function openExportIdb() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(EXPORT_HANDLE_IDB, 1);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles');
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error || new Error('IndexedDB 打开失败'));
+            });
+        }
+
+        async function saveExportDirHandle(handle) {
+            if (!handle) return;
+            const db = await openExportIdb();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readwrite');
+                tx.objectStore('handles').put(handle, EXPORT_HANDLE_KEY);
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+            db.close();
+        }
+
+        async function loadExportDirHandle() {
+            try {
+                const db = await openExportIdb();
+                const handle = await new Promise((resolve, reject) => {
+                    const tx = db.transaction('handles', 'readonly');
+                    const req = tx.objectStore('handles').get(EXPORT_HANDLE_KEY);
+                    req.onsuccess = () => resolve(req.result || null);
+                    req.onerror = () => reject(req.error);
+                });
+                db.close();
+                return handle || null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        async function clearExportDirHandleStore() {
+            try {
+                const db = await openExportIdb();
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('handles', 'readwrite');
+                    tx.objectStore('handles').delete(EXPORT_HANDLE_KEY);
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = () => reject(tx.error);
+                });
+                db.close();
+            } catch (_) {}
+        }
+
+        async function ensureExportDirPermission(handle) {
+            if (!handle) return null;
+            try {
+                let perm = await handle.queryPermission({ mode: 'readwrite' });
+                if (perm === 'prompt') {
+                    perm = await handle.requestPermission({ mode: 'readwrite' });
+                }
+                return perm === 'granted' ? handle : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        async function restoreExportDirHandle() {
+            const stored = await loadExportDirHandle();
+            const granted = await ensureExportDirPermission(stored);
+            state.exportDirHandle = granted;
+            if (granted) {
+                if (!isAbsoluteExportPath(els.exportFolderPath.value)) {
+                    els.exportFolderPath.value = granted.name;
+                }
+                setExportFolderHint(`已恢复浏览器直写：${granted.name}。若目标不对请重新「选择」，或粘贴完整路径 D:\\…`);
+                return true;
+            }
+            const pathVal = (els.exportFolderPath.value || '').trim();
+            if (pathVal && !isAbsoluteExportPath(pathVal)) {
+                setExportFolderHint(
+                    `当前「${pathVal}」不是完整路径，刷新后浏览器授权已失效。请重新点「选择」，或粘贴如 D:\\素材\\${pathVal}`,
+                    true
+                );
+            }
+            return false;
+        }
 
         const state = {
             presets: [],
@@ -247,7 +375,8 @@
             resultsRenderToken: 0,
             lightboxPaintToken: 0,
             framePreviewCache: new Map(),
-            frameRenderChain: Promise.resolve()
+            frameRenderChain: Promise.resolve(),
+            importTargetIndex: -1
         };
 
         const $ = (id) => document.getElementById(id);
@@ -265,6 +394,7 @@
             countWrap: $('countWrap'),
             countInput: $('countInput'),
             progressText: $('progressText'),
+            runStatus: $('runStatus'),
             activePresetLabel: $('activePresetLabel'),
             btnGenerate: $('btnGenerate'),
             exportWithFrame: $('exportWithFrame'),
@@ -286,6 +416,30 @@
         function currentMode() {
             const checked = document.querySelector('input[name="promptMode"]:checked');
             return checked ? checked.value : 'ai';
+        }
+
+        function syncRunBusy() {
+            if (els.runStatus) els.runStatus.classList.toggle('busy', !!state.generating);
+            const btnCancel = $('btnCancelGenerate');
+            if (btnCancel) btnCancel.hidden = !state.generating;
+        }
+
+        function setProgress(msg) {
+            const text = msg == null ? '' : String(msg);
+            const display = text.trim()
+                ? text
+                : (state.generating ? '任务进行中…' : '就绪 · 选好预设后点「开始生成」');
+            if (els.progressText) els.progressText.textContent = display;
+            if (state.generating && els.resultMeta) {
+                els.resultMeta.textContent = display;
+            }
+            syncRunBusy();
+        }
+
+        function setGenerating(on) {
+            state.generating = !!on;
+            if (els.btnGenerate) els.btnGenerate.disabled = !!on;
+            syncRunBusy();
         }
 
         function loadSession() {
@@ -351,10 +505,9 @@
         async function applyJobSnapshot(job, opts = {}) {
             if (!job) return;
             if (job.id) state.jobId = job.id;
-            if (job.message) els.progressText.textContent = job.message;
+            if (job.message) setProgress(job.message);
             if (job.status === 'running') {
-                state.generating = true;
-                els.btnGenerate.disabled = true;
+                setGenerating(true);
                 if (Array.isArray(job.images) && job.images.length && !state.images.length) {
                     await applyImagesFromJob(job.images, { resetIndex: false });
                 }
@@ -370,14 +523,13 @@
             }
             if (job.status === 'done') {
                 stopJobPoll();
-                state.generating = false;
-                els.btnGenerate.disabled = false;
+                setGenerating(false);
                 await applyImagesFromJob(job.images || []);
                 const sec = Math.round((job.elapsedMs || 0) / 1000);
                 const msg = `完成 ${(job.images || []).length} 张` +
                     (sec ? ` · ${sec}s` : '') +
                     (job.source ? ` · ${job.source}` : '');
-                els.progressText.textContent = msg;
+                setProgress(msg);
                 saveSession({
                     status: 'done',
                     jobId: job.id,
@@ -392,9 +544,8 @@
             }
             if (job.status === 'error') {
                 stopJobPoll();
-                state.generating = false;
-                els.btnGenerate.disabled = false;
-                els.progressText.textContent = '';
+                setGenerating(false);
+                setProgress('');
                 saveSession({
                     status: 'error',
                     jobId: job.id,
@@ -421,6 +572,29 @@
             };
             tick();
             state.pollTimer = setInterval(tick, 2000);
+        }
+
+        async function cancelCurrentGenerate() {
+            const jobId = state.jobId;
+            setProgress('正在取消并解除队列占用…');
+            try {
+                if (jobId) {
+                    await fetch(`/api/comfy/generate-jobs/${encodeURIComponent(jobId)}/cancel`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason: '用户取消生成' })
+                    });
+                }
+                await fetch('/api/comfy/generate-jobs/cancel-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: '用户解除队列占用' })
+                });
+            } catch (_) {}
+            stopJobPoll();
+            setGenerating(false);
+            setProgress('已取消 · 可重新开始生成');
+            saveSession({ status: 'idle', jobId: '', progressText: '已取消 · 可重新开始生成' });
         }
 
         async function restoreSession() {
@@ -454,9 +628,11 @@
                     await applyImagesFromJob(session.images);
                 }
                 if (session.progressText && session.status === 'done') {
-                    els.progressText.textContent = session.progressText;
+                    setProgress(session.progressText);
                 }
             }
+
+            await restoreExportDirHandle();
 
             // Prefer live server job over stale local "running"
             try {
@@ -483,7 +659,7 @@
             }
 
             if (session?.status === 'running' && !jobId) {
-                els.progressText.textContent = '上次任务状态未知（可重新生成）';
+                setProgress('上次任务状态未知（可重新生成）');
                 saveSession({ status: 'idle' });
             }
         }
@@ -505,7 +681,7 @@
                     document.execCommand('copy');
                     ta.remove();
                 }
-                els.progressText.textContent = '提示词已复制';
+                setProgress('提示词已复制');
             } catch (e) {
                 alert('复制失败：' + e.message);
             }
@@ -1019,58 +1195,157 @@
             });
         }
 
-        async function rerenderImageAt(index, { openLightboxAfter = false } = {}) {
-            const item = state.images[index];
-            if (!item) return;
-            invalidateFrameCache(item.url);
-            const btn = $('btnRerenderSingle');
-            if (btn) {
-                btn.disabled = true;
-                btn.textContent = '渲染中…';
+        async function replaceImageAt(index, url, { openLightboxAfter = false } = {}) {
+            if (!state.images[index] || !url) return;
+            const oldUrl = state.images[index].url;
+            invalidateFrameCache(oldUrl);
+            state.images[index] = {
+                ...state.images[index],
+                url,
+                selected: state.images[index].selected !== false
+            };
+            saveSession({ images: state.images, status: 'done' });
+            setProgress(`已替换第 ${index + 1} 张`);
+            await refreshResults();
+            if (openLightboxAfter || (els.lightbox.classList.contains('open') && state.lightboxIndex === index)) {
+                await paintLightbox();
             }
+        }
+
+        function closeImportModal() {
+            const modal = $('importModal');
+            if (!modal) return;
+            modal.classList.remove('open');
+            modal.setAttribute('aria-hidden', 'true');
+            state.importTargetIndex = -1;
+        }
+
+        async function loadOutputImageList() {
+            const grid = $('importModalGrid');
+            const pathEl = $('importOutputPath');
+            if (grid) grid.innerHTML = '<div class="import-empty">加载 output 列表…</div>';
             try {
-                if (state.viewMode === 'grid') {
-                    const cards = els.resultsGrid.querySelectorAll('.result-card');
-                    const card = cards[index];
-                    if (!card) {
-                        await refreshResults();
-                        return;
-                    }
-                    const thumb = card.querySelector('.thumb');
-                    if (!thumb) return;
-                    thumb.classList.add('rerendering');
-                    try {
-                        const node = await renderFramedCanvas(item.url, '', undefined, { skipCache: true });
-                        thumb.replaceChildren(node);
-                    } catch (_) {
-                        thumb.replaceChildren(plainPreviewNode(item.url));
-                    } finally {
-                        thumb.classList.remove('rerendering');
-                    }
+                const res = await fetch('/api/comfy/output-images?limit=48');
+                const data = await res.json();
+                if (pathEl) pathEl.textContent = data.outputDir || '（未找到 ComfyUI output，可设环境变量 COMFYUI_OUTPUT_DIR）';
+                if (!grid) return;
+                if (!data.ok || !Array.isArray(data.images) || !data.images.length) {
+                    grid.innerHTML = '<div class="import-empty">output 里暂无近期图片。可点「打开文件夹」手动查看，或「本机选图」。</div>';
+                    return;
+                }
+                grid.innerHTML = '';
+                data.images.forEach((img) => {
+                    const card = document.createElement('button');
+                    card.type = 'button';
+                    card.className = 'import-thumb';
+                    card.title = img.name;
+                    const thumb = document.createElement('img');
+                    thumb.src = img.previewUrl;
+                    thumb.alt = img.name;
+                    thumb.loading = 'lazy';
+                    const label = document.createElement('span');
+                    label.textContent = img.name;
+                    card.appendChild(thumb);
+                    card.appendChild(label);
+                    card.addEventListener('click', () => importFromOutputName(img.name));
+                    grid.appendChild(card);
+                });
+            } catch (e) {
+                if (pathEl) pathEl.textContent = '读取 output 失败';
+                if (grid) grid.innerHTML = `<div class="import-empty">加载失败：${escapeHtml(e.message || String(e))}</div>`;
+            }
+        }
+
+        async function openImportModal(index, { openExplorer = true } = {}) {
+            if (index < 0) {
+                // 无现有结果时，导入会新增一张
+                index = 0;
+            }
+            state.importTargetIndex = index;
+            const modal = $('importModal');
+            if (!modal) return;
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+            const hint = $('importModalHint');
+            if (hint) {
+                hint.textContent = state.images[index]
+                    ? `将替换第 ${index + 1} 张。点下方缩略图导入，或打开文件夹 / 本机选图。`
+                    : '当前还没有结果图：导入后会作为第 1 张加入。';
+            }
+            await loadOutputImageList();
+            if (openExplorer) {
+                try {
+                    await fetch('/api/comfy/open-output-folder', { method: 'POST' });
+                } catch (_) {}
+            }
+        }
+
+        async function importFromOutputName(filename) {
+            const index = state.importTargetIndex;
+            setProgress(`导入 ${filename}…`);
+            try {
+                const res = await fetch('/api/comfy/import-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source: 'output', filename })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) throw new Error(data.error || '导入失败');
+                if (state.images[index]) {
+                    await replaceImageAt(index, data.url, {
+                        openLightboxAfter: els.lightbox.classList.contains('open')
+                    });
                 } else {
-                    // 单图：强制跳过缓存重画，并给用户可见反馈
-                    els.singleStage.classList.add('rerendering');
-                    try {
-                        const node = await renderFramedCanvas(item.url, '', undefined, { skipCache: true });
-                        if (state.singleIndex === index) {
-                            els.singleStage.replaceChildren(node);
-                        }
-                        els.progressText.textContent = `已重新渲染第 ${index + 1} 张边框预览`;
-                    } catch (e) {
-                        els.singleStage.replaceChildren(plainPreviewNode(item.url));
-                        els.progressText.textContent = '重新渲染失败，已回退原图';
-                    } finally {
-                        els.singleStage.classList.remove('rerendering');
-                    }
+                    state.images = [{ url: data.url, prompt: '', selected: true }];
+                    state.singleIndex = 0;
+                    saveSession({ images: state.images, status: 'done' });
+                    setProgress('已导入 1 张');
+                    await refreshResults();
                 }
-                if (openLightboxAfter || (els.lightbox.classList.contains('open') && state.lightboxIndex === index)) {
-                    await paintLightbox();
+                closeImportModal();
+            } catch (e) {
+                alert('导入失败：' + e.message);
+                setProgress('');
+            }
+        }
+
+        function readFileAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('读取文件失败'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function importFromLocalFile(file) {
+            if (!file) return;
+            const index = state.importTargetIndex;
+            setProgress(`导入 ${file.name}…`);
+            try {
+                const dataUrl = await readFileAsDataUrl(file);
+                const res = await fetch('/api/comfy/import-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: dataUrl, name: file.name })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) throw new Error(data.error || '导入失败');
+                if (state.images[index]) {
+                    await replaceImageAt(index, data.url, {
+                        openLightboxAfter: els.lightbox.classList.contains('open')
+                    });
+                } else {
+                    state.images = [{ url: data.url, prompt: '', selected: true }];
+                    state.singleIndex = 0;
+                    saveSession({ images: state.images, status: 'done' });
+                    setProgress('已导入 1 张');
+                    await refreshResults();
                 }
-            } finally {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.textContent = '重新渲染';
-                }
+                closeImportModal();
+            } catch (e) {
+                alert('导入失败：' + e.message);
+                setProgress('');
             }
         }
 
@@ -1086,7 +1361,11 @@
 
         async function refreshResults() {
             const n = state.images.length;
-            els.resultMeta.textContent = n ? `${n} 张 · 点击图片可放大` : '0 张 · 点击图片可放大';
+            if (!state.generating) {
+                els.resultMeta.textContent = n ? `${n} 张 · 点击图片可放大` : '0 张 · 点击图片可放大';
+            } else if (els.progressText && els.progressText.textContent) {
+                els.resultMeta.textContent = els.progressText.textContent;
+            }
             els.resultsEmpty.style.display = n ? 'none' : 'flex';
             syncExportButtons();
 
@@ -1118,7 +1397,7 @@
                     meta.className = 'meta';
                     meta.innerHTML = `
                         <label><input type="checkbox" ${item.selected ? 'checked' : ''} data-i="${i}"> ${String(i + 1).padStart(3, '0')}</label>
-                        <button type="button" class="btn-rerender" data-rerender="${i}" title="重新渲染边框预览">重渲</button>
+                        <button type="button" class="btn-rerender" data-rerender="${i}" title="从 output / 本机换图">换图</button>
                     `;
                     meta.querySelector('input').addEventListener('change', (e) => {
                         state.images[i].selected = e.target.checked;
@@ -1126,7 +1405,7 @@
                     });
                     meta.querySelector('[data-rerender]').addEventListener('click', (e) => {
                         e.stopPropagation();
-                        rerenderImageAt(i);
+                        openImportModal(i, { openExplorer: true });
                     });
                     card.appendChild(thumb);
                     card.appendChild(meta);
@@ -1245,11 +1524,11 @@
                         });
                     }
                     if (payload.message) {
-                        els.progressText.textContent = payload.message;
+                        setProgress(payload.message);
                     } else if (payload.phase === 'expanding') {
-                        els.progressText.textContent = 'AI 扩写中…';
+                        setProgress('AI 扩写中…');
                     } else if (payload.phase === 'generating' || payload.phase === 'queued' || payload.phase === 'job') {
-                        els.progressText.textContent = payload.message || 'Comfy 生成中…';
+                        setProgress(payload.message || 'Comfy 生成中…');
                     }
                     if (payload.message || payload.phase) {
                         saveSession({
@@ -1293,10 +1572,9 @@
             }
 
             stopJobPoll();
-            state.generating = true;
+            setGenerating(true);
             state.jobId = '';
-            els.btnGenerate.disabled = true;
-            els.progressText.textContent = mode === 'ai' ? 'AI 扩写中…' : '提交 Comfy…';
+            setProgress(mode === 'ai' ? 'AI 扩写中…' : '提交 Comfy…');
             saveSession({
                 status: 'running',
                 jobId: '',
@@ -1351,8 +1629,8 @@
                 }));
                 state.singleIndex = 0;
                 const sec = Math.round((data.elapsedMs || 0) / 1000);
-                els.progressText.textContent = `完成 ${state.images.length} 张 · ${sec}s` +
-                    (data.source ? ` · ${data.source}` : '');
+                setProgress(`完成 ${state.images.length} 张 · ${sec}s` +
+                    (data.source ? ` · ${data.source}` : ''));
                 saveSession({
                     status: 'done',
                     jobId: state.jobId,
@@ -1363,12 +1641,12 @@
                 await refreshResults();
             } catch (e) {
                 if (e.resume || e.message === '__RESUME__' || (state.jobId && /network|fetch|abort/i.test(String(e.message || e.name || '')))) {
-                    els.progressText.textContent = '连接中断，正在跟踪后台任务…';
+                    setProgress('连接中断，正在跟踪后台任务…');
                     saveSession({ status: 'running', jobId: state.jobId, progressText: els.progressText.textContent });
                     startJobPoll(state.jobId);
                     return;
                 }
-                els.progressText.textContent = '';
+                setProgress('');
                 saveSession({
                     status: 'error',
                     jobId: state.jobId || e.jobId || '',
@@ -1376,12 +1654,10 @@
                     error: e.message
                 });
                 alert('生成失败：' + e.message);
-                state.generating = false;
-                els.btnGenerate.disabled = false;
+                setGenerating(false);
             } finally {
                 if (!state.pollTimer) {
-                    state.generating = false;
-                    els.btnGenerate.disabled = false;
+                    setGenerating(false);
                 }
             }
         }
@@ -1437,8 +1713,11 @@
             if ('showDirectoryPicker' in window) {
                 try {
                     state.exportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    // 浏览器安全限制拿不到完整磁盘路径，只能显示文件夹名；授权句柄会存 IndexedDB
                     els.exportFolderPath.value = state.exportDirHandle.name;
+                    await saveExportDirHandle(state.exportDirHandle);
                     saveSession({ exportFolderPath: els.exportFolderPath.value });
+                    setExportFolderHint(`已授权浏览器直写「${state.exportDirHandle.name}」。也可改粘贴完整路径 D:\\… 走服务端写入。`);
                     return;
                 } catch (e) {
                     if (e.name !== 'AbortError') alert('选择文件夹失败: ' + e.message);
@@ -1446,7 +1725,7 @@
                 }
             }
             els.exportFolderPath.focus();
-            alert('当前浏览器不支持直接选文件夹，请粘贴完整路径');
+            alert('当前浏览器不支持直接选文件夹，请粘贴完整路径（如 D:\\素材\\导出）');
         }
 
         async function saveBlob(dirHandle, name, blob) {
@@ -1485,26 +1764,42 @@
                 alert('请至少勾选一张图');
                 return;
             }
+
+            let dirHandle = await ensureExportDirPermission(state.exportDirHandle);
+            if (!dirHandle) {
+                dirHandle = await ensureExportDirPermission(await loadExportDirHandle());
+                state.exportDirHandle = dirHandle;
+            }
             const folderPath = els.exportFolderPath.value.trim();
-            if (!state.exportDirHandle && !folderPath) {
-                alert('请先在右侧「壁纸 / 边框导出」里设置导出文件夹');
+
+            if (!dirHandle && !isAbsoluteExportPath(folderPath)) {
+                alert(
+                    '导出文件夹无效。\n\n' +
+                    '点「选择」会用浏览器授权写入（刷新后会尝试自动恢复）。\n' +
+                    '或粘贴完整路径，例如：D:\\素材\\1_sex\n\n' +
+                    '以前只保存了文件夹名时，文件可能被写到项目目录下的同名文件夹里。'
+                );
                 setConfigOpen(true);
+                setExportFolderHint('请重新「选择」文件夹，或粘贴完整绝对路径', true);
                 return;
             }
 
             const withFrame = els.exportWithFrame.checked;
             if (els.btnExportSelected) els.btnExportSelected.disabled = true;
             if (els.btnExportCurrent) els.btnExportCurrent.disabled = true;
-            els.progressText.textContent = '导出中…';
+            setProgress('导出中…');
 
             try {
-                let seq = state.exportDirHandle
-                    ? await nextNumberedPngSeqFromHandle(state.exportDirHandle)
+                let seq = dirHandle
+                    ? await nextNumberedPngSeqFromHandle(dirHandle)
                     : await nextNumberedPngSeqFromPath(folderPath);
                 let done = 0;
+                let lastSavedTo = dirHandle
+                    ? `浏览器授权文件夹「${dirHandle.name}」`
+                    : folderPath;
                 for (const item of selected) {
                     done += 1;
-                    els.progressText.textContent = `导出 ${done}/${selected.length}…`;
+                    setProgress(`导出 ${done}/${selected.length}…`);
                     let blob;
                     if (withFrame) {
                         const canvas = await renderFramedCanvas(item.url, '', undefined, { fullRes: true });
@@ -1515,8 +1810,8 @@
                     }
                     const name = formatNumberedPngName(seq);
                     seq += 1;
-                    if (state.exportDirHandle) {
-                        await saveBlob(state.exportDirHandle, name, blob);
+                    if (dirHandle) {
+                        await saveBlob(dirHandle, name, blob);
                     } else {
                         const data = await StickerFrame.blobToBase64(blob);
                         const res = await fetch('/api/export-image', {
@@ -1526,13 +1821,14 @@
                         });
                         const out = await res.json();
                         if (!res.ok || !out.ok) throw new Error(out.error || '导出失败');
+                        if (out.folderPath) lastSavedTo = out.folderPath;
                     }
                 }
-                els.progressText.textContent = `已导出 ${selected.length} 张`;
-                alert(`已导出 ${selected.length} 张`);
+                setProgress(`已导出 ${selected.length} 张 → ${lastSavedTo}`);
+                alert(`已导出 ${selected.length} 张\n位置：${lastSavedTo}`);
             } catch (e) {
                 alert('导出失败：' + e.message);
-                els.progressText.textContent = '';
+                setProgress('');
             } finally {
                 syncExportButtons();
             }
@@ -1579,6 +1875,10 @@
                 saveSession({ count: Number(els.countInput.value) || 1 });
             });
             els.btnGenerate.addEventListener('click', onGenerate);
+            const btnCancelGenerate = $('btnCancelGenerate');
+            if (btnCancelGenerate) {
+                btnCancelGenerate.addEventListener('click', () => cancelCurrentGenerate());
+            }
             $('btnNewPreset').addEventListener('click', newPreset);
             $('btnSavePreset').addEventListener('click', savePreset);
             $('btnDeletePreset').addEventListener('click', deletePreset);
@@ -1623,8 +1923,7 @@
             els.singleStage.addEventListener('click', () => openLightbox(state.singleIndex));
             $('btnOpenLightbox').addEventListener('click', () => openLightbox(state.singleIndex));
             $('btnRerenderSingle').addEventListener('click', () => {
-                if (!state.images.length) return;
-                rerenderImageAt(state.singleIndex);
+                openImportModal(state.images.length ? state.singleIndex : -1, { openExplorer: true });
             });
             if (els.btnExportCurrent) {
                 els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
@@ -1652,10 +1951,45 @@
                 }
             });
             $('btnRerenderLightbox').addEventListener('click', () => {
-                if (!state.images.length) return;
-                rerenderImageAt(state.lightboxIndex, { openLightboxAfter: true });
+                openImportModal(state.images.length ? state.lightboxIndex : -1, { openExplorer: true });
             });
+            const importModal = $('importModal');
+            if (importModal) {
+                importModal.addEventListener('click', (e) => {
+                    if (e.target === importModal) closeImportModal();
+                });
+            }
+            const btnImportClose = $('btnImportModalClose');
+            if (btnImportClose) btnImportClose.addEventListener('click', closeImportModal);
+            const btnOpenOutput = $('btnOpenOutputFolder');
+            if (btnOpenOutput) {
+                btnOpenOutput.addEventListener('click', async () => {
+                    try {
+                        const res = await fetch('/api/comfy/open-output-folder', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok || !data.ok) alert(data.error || '无法打开文件夹');
+                    } catch (e) {
+                        alert('无法打开文件夹：' + e.message);
+                    }
+                });
+            }
+            const btnRefreshOutput = $('btnRefreshOutputList');
+            if (btnRefreshOutput) btnRefreshOutput.addEventListener('click', () => loadOutputImageList());
+            const btnPickLocal = $('btnPickLocalImage');
+            const importLocalFile = $('importLocalFile');
+            if (btnPickLocal && importLocalFile) {
+                btnPickLocal.addEventListener('click', () => importLocalFile.click());
+                importLocalFile.addEventListener('change', () => {
+                    const file = importLocalFile.files && importLocalFile.files[0];
+                    importLocalFile.value = '';
+                    if (file) importFromLocalFile(file);
+                });
+            }
             document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && $('importModal')?.classList.contains('open')) {
+                    closeImportModal();
+                    return;
+                }
                 if (!els.lightbox.classList.contains('open')) return;
                 if (e.key === 'Escape') closeLightbox();
                 if (e.key === 'ArrowLeft' && state.lightboxIndex > 0) {
@@ -1692,7 +2026,16 @@
             }
             els.exportFolderPath.addEventListener('input', () => {
                 state.exportDirHandle = null;
-                saveSession({ exportFolderPath: els.exportFolderPath.value.trim() });
+                clearExportDirHandleStore();
+                const val = els.exportFolderPath.value.trim();
+                saveSession({ exportFolderPath: val });
+                if (!val) {
+                    setExportFolderHint('点「选择」用浏览器授权直写；刷新后会尽量恢复。也可粘贴完整绝对路径（D:\\…）。');
+                } else if (isAbsoluteExportPath(val)) {
+                    setExportFolderHint('将使用服务端按此绝对路径写入。');
+                } else {
+                    setExportFolderHint('这不是完整路径。请点「选择」授权，或改成 D:\\… 完整路径。', true);
+                }
             });
 
             let draftTimer = null;

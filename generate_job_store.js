@@ -151,6 +151,39 @@ function findActiveJob() {
     return null;
 }
 
+/** Mark all disk "running" jobs as failed (e.g. after server restart). */
+function abandonRunningJobs(reason = '任务已中断') {
+    const msg = String(reason || '任务已中断');
+    let n = 0;
+    for (const f of listJobFiles()) {
+        const job = readJob(f.id);
+        if (!job || job.status !== 'running') continue;
+        updateJob(job.id, {
+            status: 'error',
+            phase: 'abandoned',
+            message: msg,
+            error: msg,
+            finishedAt: Date.now()
+        });
+        n += 1;
+    }
+    return n;
+}
+
+function cancelJob(id, reason = '用户取消') {
+    const job = readJob(id);
+    if (!job) return null;
+    if (job.status !== 'running') return publicJob(job);
+    const msg = String(reason || '用户取消');
+    return publicJob(updateJob(id, {
+        status: 'error',
+        phase: 'cancelled',
+        message: msg,
+        error: msg,
+        finishedAt: Date.now()
+    }));
+}
+
 module.exports = {
     JOBS_DIR,
     ensureJobsDir,
@@ -160,5 +193,7 @@ module.exports = {
     publicJob,
     listRecentJobs,
     findActiveJob,
+    abandonRunningJobs,
+    cancelJob,
     pruneJobs
 };

@@ -55,6 +55,46 @@ function ensureDirs() {
     jobStore.ensureJobsDir();
 }
 
+/** In-flight generate jobs in this Node process (disk may still say running after crash). */
+const liveJobIds = new Set();
+const cancelFlags = new Set();
+
+function isJobLive(jobId) {
+    return Boolean(jobId && liveJobIds.has(jobId));
+}
+
+function requestCancelJob(jobId, reason = '用户取消生成') {
+    if (jobId) cancelFlags.add(jobId);
+    const job = jobId
+        ? jobStore.cancelJob(jobId, reason)
+        : null;
+    // Also clear any other orphaned running rows
+    if (!jobId) {
+        jobStore.abandonRunningJobs(reason);
+    }
+    Promise.resolve(comfyClient.interruptComfy()).catch(() => {});
+    return job;
+}
+
+function requestCancelAll(reason = '用户取消全部生成') {
+    for (const id of [...liveJobIds]) cancelFlags.add(id);
+    const n = jobStore.abandonRunningJobs(reason);
+    Promise.resolve(comfyClient.interruptComfy()).catch(() => {});
+    return n;
+}
+
+function getLiveActiveJob() {
+    const active = jobStore.findActiveJob();
+    if (!active) return null;
+    if (isJobLive(active.id)) return active;
+    // Disk says running but this process is not executing it → ghost after kill/restart
+    jobStore.cancelJob(
+        active.id,
+        '服务端已无此任务（进程曾中断），已自动解除队列占用'
+    );
+    return null;
+}
+
 function defaultSettings() {
     return {
         clothingExpandSystem: CLOTHING_EXPAND_SYSTEM,
@@ -381,6 +421,10 @@ async function runGenerateJob({
 
     progress({ phase: 'job', jobId: job.id, message: '任务已登记，可离开页面稍后回来查看' });
 
+    liveJobIds.add(job.id);
+    cancelFlags.delete(job.id);
+    const isCancelled = () => cancelFlags.has(job.id);
+
     try {
         let clothingPrompts;
         let expandRaw = '';
@@ -400,6 +444,7 @@ async function runGenerateJob({
                 count: isKrea2 ? Math.min(Number(count) || 1, 4) : count,
                 naturalLanguage: isKrea2
             });
+            if (isCancelled()) throw new Error('用户取消生成');
             clothingPrompts = expanded.prompts;
             expandRaw = expanded.raw;
             progress({
@@ -416,19 +461,21 @@ async function runGenerateJob({
         jobStore.updateJob(job.id, { batchId });
         progress({ phase: 'queued', message: '提交 Comfy 生成…', batchId });
 
-        const comfyOptions = presetToComfyOptions(preset, overrides);
+        const comfyOptions = {
+            ...presetToComfyOptions(preset, overrides),
+            isCancelled,
+            onProgress: progress
+        };
         const result = isKrea2
             ? await comfyClient.generateKrea2BatchToDir({
                 ...comfyOptions,
                 multiPrompts: clothingPrompts,
-                turnPrompt: clothingPrompts,
-                onProgress: progress
+                turnPrompt: clothingPrompts
             }, destDir)
             : await comfyClient.generateBatchToDir({
                 ...comfyOptions,
                 multiPrompts: clothingPrompts,
-                turnPrompt: clothingPrompts,
-                onProgress: progress
+                turnPrompt: clothingPrompts
             }, destDir);
 
         const images = (result.files || []).map((f, i) => ({
@@ -481,9 +528,10 @@ async function runGenerateJob({
         };
     } catch (e) {
         const elapsedMs = Date.now() - startedAt;
+        const cancelled = cancelFlags.has(job.id) || /取消/.test(String(e.message || ''));
         jobStore.updateJob(job.id, {
             status: 'error',
-            phase: 'error',
+            phase: cancelled ? 'cancelled' : 'error',
             message: e.message || '生成失败',
             error: e.message || '生成失败',
             elapsedMs,
@@ -501,7 +549,42 @@ async function runGenerateJob({
         const err = e instanceof Error ? e : new Error(String(e));
         err.jobId = job.id;
         throw err;
+    } finally {
+        liveJobIds.delete(job.id);
+        cancelFlags.delete(job.id);
     }
+}
+
+function importImageBuffer(buf, originalName = 'import.png') {
+    ensureDirs();
+    const dir = path.join(OUTPUT_DIR, 'imported');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const ext = (path.extname(String(originalName || '')) || '.png').toLowerCase();
+    const safeExt = /\.(png|jpe?g|webp)$/i.test(ext) ? ext : '.png';
+    const name = `imp_${Date.now()}_${crypto.randomBytes(3).toString('hex')}${safeExt}`;
+    const full = path.join(dir, name);
+    fs.writeFileSync(full, buf);
+    return {
+        name,
+        url: `/uploads/generate/imported/${name}`,
+        bytes: buf.length
+    };
+}
+
+function importFromComfyOutput(filename) {
+    const full = comfyClient.resolveOutputImagePath(filename);
+    if (!full) throw new Error('找不到该 output 图片，或文件名不合法');
+    const buf = fs.readFileSync(full);
+    return importImageBuffer(buf, path.basename(full));
+}
+
+function importFromBase64(data, name) {
+    const raw = String(data || '');
+    const m = raw.match(/^data:[^;]+;base64,(.+)$/);
+    const b64 = m ? m[1] : raw;
+    const buf = Buffer.from(b64, 'base64');
+    if (!buf.length) throw new Error('图片数据为空');
+    return importImageBuffer(buf, name || 'import.png');
 }
 
 module.exports = {
@@ -520,6 +603,13 @@ module.exports = {
     splitManualPrompts,
     expandClothingPrompts,
     runGenerateJob,
+    importImageBuffer,
+    importFromComfyOutput,
+    importFromBase64,
+    isJobLive,
+    getLiveActiveJob,
+    requestCancelJob,
+    requestCancelAll,
     PRESETS_FILE,
     SETTINGS_FILE,
     OUTPUT_DIR,

@@ -328,6 +328,70 @@ function resolveComfyOutputDir() {
     return fromEnv || '';
 }
 
+function safeOutputBasename(name) {
+    const base = path.basename(String(name || '').trim());
+    if (!base || base === '.' || base === '..') return '';
+    if (!/\.(png|jpe?g|webp)$/i.test(base)) return '';
+    if (/[\\/]/.test(String(name || ''))) return '';
+    return base;
+}
+
+/** Recent images in ComfyUI output/ (newest first). */
+function listRecentOutputImages(limit = 48) {
+    const outputDir = resolveComfyOutputDir();
+    const max = Math.max(1, Math.min(120, Number(limit) || 48));
+    if (!outputDir || !fs.existsSync(outputDir)) {
+        return { outputDir: outputDir || '', images: [] };
+    }
+    let names = [];
+    try {
+        names = fs.readdirSync(outputDir);
+    } catch (_) {
+        return { outputDir, images: [] };
+    }
+    const images = names
+        .filter((name) => /\.(png|jpe?g|webp)$/i.test(name))
+        .map((name) => {
+            const full = path.join(outputDir, name);
+            let st;
+            try {
+                st = fs.statSync(full);
+            } catch (_) {
+                return null;
+            }
+            if (!st.isFile()) return null;
+            return {
+                name,
+                full,
+                mtimeMs: st.mtimeMs,
+                size: st.size
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.mtimeMs - a.mtimeMs)
+        .slice(0, max)
+        .map(({ name, mtimeMs, size }) => ({
+            name,
+            mtimeMs,
+            size,
+            previewUrl: `/api/comfy/output-images/file?name=${encodeURIComponent(name)}`
+        }));
+    return { outputDir, images };
+}
+
+function resolveOutputImagePath(name) {
+    const base = safeOutputBasename(name);
+    if (!base) return null;
+    const outputDir = resolveComfyOutputDir();
+    if (!outputDir) return null;
+    const resolvedDir = path.resolve(outputDir);
+    const full = path.resolve(resolvedDir, base);
+    const rel = path.relative(resolvedDir, full);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    if (!fs.existsSync(full)) return null;
+    return full;
+}
+
 function batchTimeoutMs() {
     const n = Number(process.env.COMFYUI_BATCH_TIMEOUT_MS);
     if (Number.isFinite(n) && n > 0) return n;
@@ -378,6 +442,7 @@ function firstSavedImage(historyEntry) {
 async function waitForHistory(promptId, opts = {}) {
     const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : config.timeoutMs;
     const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+    const isCancelled = typeof opts.isCancelled === 'function' ? opts.isCancelled : null;
     const filenamePrefix = opts.filenamePrefix || '';
     const expectedCount = Math.max(0, Number(opts.expectedCount) || 0);
     const outputDir = opts.outputDir || resolveComfyOutputDir();
@@ -386,6 +451,9 @@ async function waitForHistory(promptId, opts = {}) {
     let lastMsgAt = 0;
 
     while (Date.now() - started < timeoutMs) {
+        if (isCancelled && isCancelled()) {
+            throw new Error('用户取消生成');
+        }
         try {
             const { data } = await axios.get(`${config.comfyUrl}/history/${promptId}`, { timeout: 10000 });
             const entry = data?.[promptId];
@@ -401,7 +469,7 @@ async function waitForHistory(promptId, opts = {}) {
                 if (done && images.length) {
                     return { entry, images, source: 'history' };
                 }
-                if (onProgress && Date.now() - lastMsgAt > 2000) {
+                if (onProgress && Date.now() - lastMsgAt > 1000) {
                     lastMsgAt = Date.now();
                     onProgress({
                         phase: 'generating',
@@ -412,7 +480,7 @@ async function waitForHistory(promptId, opts = {}) {
                         imageCount: images.length
                     });
                 }
-            } else if (onProgress && Date.now() - lastMsgAt > 2500) {
+            } else if (onProgress && Date.now() - lastMsgAt > 1000) {
                 lastMsgAt = Date.now();
                 onProgress({
                     phase: 'queued',
@@ -422,7 +490,7 @@ async function waitForHistory(promptId, opts = {}) {
                 });
             }
         } catch (e) {
-            if (e.message && e.message.startsWith('ComfyUI job failed')) throw e;
+            if (e.message && (e.message.startsWith('ComfyUI job failed') || e.message.includes('取消'))) throw e;
         }
 
         if (filenamePrefix && outputDir) {
@@ -529,6 +597,7 @@ async function generateOnce(options) {
     const waited = await waitForHistory(promptId, {
         timeoutMs: options.timeoutMs,
         onProgress: options.onProgress,
+        isCancelled: options.isCancelled,
         filenamePrefix: options.filenamePrefix || 'character_chat',
         expectedCount: 1,
         sinceMs: Date.now()
@@ -602,6 +671,7 @@ async function generateBatchToDir(options, destDir) {
         const waited = await waitForHistory(promptId, {
             timeoutMs: options.timeoutMs || batchTimeoutMs(),
             onProgress,
+            isCancelled: options.isCancelled,
             filenamePrefix,
             expectedCount: expectedCount || 0,
             sinceMs,
@@ -657,6 +727,9 @@ async function generateKrea2BatchToDir(options, destDir) {
         fs.mkdirSync(destDir, { recursive: true });
 
         for (let i = 0; i < prompts.length; i++) {
+            if (typeof options.isCancelled === 'function' && options.isCancelled()) {
+                throw new Error('用户取消生成');
+            }
             const positive = combineKrea2Positive(options.basePrompt, prompts[i]);
             const filenamePrefix = `${options.filenamePrefix || 'Krea2_q4_retroanime'}_${String(i + 1).padStart(3, '0')}`;
             const graph = buildKrea2PromptGraph({
@@ -712,6 +785,7 @@ async function generateKrea2BatchToDir(options, destDir) {
             const waited = await waitForHistory(promptId, {
                 timeoutMs: options.timeoutMs || batchTimeoutMs(),
                 onProgress,
+                isCancelled: options.isCancelled,
                 filenamePrefix,
                 expectedCount: 1,
                 sinceMs,
@@ -750,6 +824,19 @@ async function listUpscaleModels() {
     return ['2x_Ani4Kv2_G6i2_Compact_107500.pth'];
 }
 
+async function interruptComfy() {
+    const results = { interrupt: false, clearQueue: false };
+    try {
+        await axios.post(`${config.comfyUrl}/interrupt`, {}, { timeout: 5000 });
+        results.interrupt = true;
+    } catch (_) {}
+    try {
+        await axios.post(`${config.comfyUrl}/queue`, { clear: true }, { timeout: 5000 });
+        results.clearQueue = true;
+    } catch (_) {}
+    return results;
+}
+
 module.exports = {
     ping,
     listCheckpoints,
@@ -766,5 +853,9 @@ module.exports = {
     joinMultiPrompts,
     allSavedImages,
     resolveComfyOutputDir,
+    listRecentOutputImages,
+    resolveOutputImagePath,
+    safeOutputBasename,
+    interruptComfy,
     batchTimeoutMs,
 };
