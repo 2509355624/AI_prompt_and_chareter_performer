@@ -58,20 +58,17 @@ class AIService {
 【注意】只分析情绪与对白语气；不要输出服饰、动作、场景或任何 SD 出图 tags。只输出 JSON。`;
 
         // 阶段3（对白之后）：生图 tags — 仅本轮一问一答 + continuity 快照
-        this.sd15PhotographerHandbook = `【SD 1.5 摄影师手册】
-1. 输出会拼成一条 tag 串给 SD 1.5；模型不懂字段分区，靠前 tag 权重更高。
-2. 本轮用户原话 + 角色本轮回复中的动作/姿势，优先级最高；与 continuity 冲突时以本轮为准。
-3. 不要写角色固定外貌（发色瞳色等由底模负责）。
-4. 可手持物（tablet, phone, book, pen, cup）只写在 action 且角色确实拿着；禁止写在 scene。
-5. scene 只用 2～4 个环境级 tag（如 indoors, art_studio），不要 desk, window, drawing_tablet, computer, chair。
-6. 需要全身/站立/特定姿势 → action/camera 写清楚（full_body, standing, legs 等）；不要擅自改成更安全保守的姿势。
-7. continuity 快照只继承服饰与场景类型；action/expression 必须根据本轮对话重写，禁止复制上一轮动作。`;
+        this.sd15PhotographerHandbook = `【要点】
+1. 从【本轮用户】和【角色回复】提取动作/地点/穿着关键词，写成英文 Danbooru tags。
+2. 用户说「床上/躺着/张开腿」→ action 写 lying_on_back, legs_spread 等；scene 写 bedroom, on_bed。
+3. continuity 只是默认值；对话里已经出现的地点/姿势必须优先于 continuity。
+4. 不要写角色固定外貌（发色瞳色等由底模负责）。`;
 
-        this.outfitVisualAnalysisPrompt = `你是 SD 1.5 出图 tag 策划。根据【本轮对话】决定本帧各字段的英文 SD tags。
+        this.outfitVisualAnalysisPrompt = `你是 SD 1.5 出图 tag 策划。读对话，提取关键词，输出英文 tags。
 
 {sd15_handbook}
 
-【上一轮 continuity 快照（仅服饰 + 场景类型 + 氛围；无动作）】
+【continuity 参考（对话未提及时才沿用）】
 {continuity_snapshot}
 
 【本轮用户】
@@ -80,35 +77,24 @@ class AIService {
 【本轮角色回复】
 {assistant_reply}
 
-【输出格式 — 严格按以下 ### 分段输出，不要 JSON，不要 markdown 代码块】
+【输出 — 严格 ### 分段，每段一行英文逗号分隔 tags，不要 JSON/解释】
 
 ###服饰
-light_blue_dress, casual_home_clothes
 
 ###动作
-standing, full_body, looking_down, adjusting_skirt
 
 ###表情
-blush, embarrassed, shy
 
 ###场景
-changing_room
 
 ###氛围
-intimate, flustered, soft_morning_light
 
 ###机位
-full_body_shot, from_front, eye_level
 
-【规则】
-- 只输出上述 ### 分段；每段下方写英文逗号分隔 tags。
-- 动作/表情/机位：只根据【本轮用户】和【本轮角色回复】决定。
-- 服饰（最重要）：
-  · 若角色回复已描述当前穿着（如「换好了」「穿着…连衣裙/居家服」）→ 必须写入对应英文服饰 tags，即使 continuity 是 nude。
-  · 若用户明确要求换装/脱衣 → 更新服饰 tags。
-  · 仅当本轮对话未提及穿着变化、角色也未描述新穿着 → 才复制 continuity 快照中的服饰。
-- 场景：未换地点则继承 continuity 场景类型（保持抽象，不加 desk/tablet 等道具 tag）。
-- 只输出 ### 分段内容，不要解释。`;
+【原则】
+- 动作/表情/机位：只看本轮用户 + 角色回复。
+- 场景：用户或角色提到床/卧室/躺着 → bedroom, on_bed；未换地点且对话没提场景 → 可沿用 continuity。
+- 服饰：按对话当前穿着写；未提及变化 → 沿用 continuity。`;
     }
 
     // 解析火山引擎模型别名
@@ -370,29 +356,121 @@ full_body_shot, from_front, eye_level
         return response.data?.choices?.[0]?.message?.content || '';
     }
 
+    /** Tags that belong in action (held items), not in scene background */
     scenePropTagPattern() {
-        return /(?:drawing_tablet|tablet|ipad|phone|smartphone|computer|monitor|laptop|keyboard|mouse|desk|table|chair|stool|bed|window|bookshelf|book|pen|pencil|cup|mug|bottle|art_supplies|sketches_on_wall|mannequin|clothes_rack|hanger|mirror|lamp|pendant_light|curtain|door|closet|wardrobe)/i;
+        return /(?:drawing_tablet|tablet|ipad|phone|smartphone|computer|monitor|laptop|keyboard|mouse|pen|pencil|cup|mug|bottle|holding|carrying|clutching)/i;
     }
 
-    abstractTagsFromField(raw) {
+    normalizeSceneField(raw) {
         return String(raw || '')
             .split(/[\n,;，；]+/)
             .map((part) => part.trim())
-            .filter((part) => part && !this.scenePropTagPattern().test(part) && !this.isNegationTag(part));
+            .filter((part) => part && !this.scenePropTagPattern().test(part) && !this.isNegationTag(part))
+            .join(', ');
+    }
+
+    collectDialogueText(userText, assistantReply = '', recentTurns = []) {
+        const parts = [String(userText || '').trim(), String(assistantReply || '').trim()];
+        if (Array.isArray(recentTurns)) {
+            for (const m of recentTurns.slice(-8)) {
+                if (m?.content) parts.push(String(m.content).trim());
+            }
+        }
+        return parts.filter(Boolean).join('\n');
+    }
+
+    /** 从对白提取场景/动作关键词（用户说「床上」等时优先于 stale continuity） */
+    inferDialogueVisualHints(userText, assistantReply = '', recentTurns = []) {
+        const combined = this.collectDialogueText(userText, assistantReply, recentTurns);
+        const hints = { scene: '', actionAdd: [], sceneFromDialogue: false, camera: '' };
+        if (!combined) return hints;
+
+        if (/(?:躺|趴|卧|睡在|在床上|床上|床铺|被窝里|床单|枕头|床边)|lying(?:\s+on|\s+in)?(?:\s+the)?\s+bed|on_bed/i.test(combined)) {
+            hints.scene = 'bedroom, on_bed, bed, pillow, sheets';
+            hints.sceneFromDialogue = true;
+            if (/(?:躺|仰卧|平躺|躺着|躺在床上)|lying_on_back|on_back/i.test(combined)) {
+                hints.actionAdd.push('lying_on_back', 'on_bed');
+            } else if (/(?:趴|俯卧)|lying_on_stomach|prone/i.test(combined)) {
+                hints.actionAdd.push('lying_on_stomach', 'on_bed');
+            } else {
+                hints.actionAdd.push('lying', 'on_bed');
+            }
+            if (/(?:张开|分开|打开).{0,6}(?:腿|双腿)|legs_spread|spread_legs/i.test(combined)) {
+                hints.actionAdd.push('legs_spread');
+            }
+            if (/(?:手|抚|摸|按).{0,8}(?:胸|乳|胸前)|hands_on_chest/i.test(combined)) {
+                hints.actionAdd.push('hands_on_chest');
+            }
+            if (/(?:转过来|面对|正面|不要背)/.test(combined)) {
+                hints.actionAdd.push('facing_viewer');
+            }
+            if (/(?:别过头|不敢看|转开|扭过头)|turning_face_away/i.test(combined)) {
+                hints.actionAdd.push('turning_face_away');
+            }
+            hints.camera = 'full_body_shot, from_above, high_angle';
+        } else if (/(?:拉(?:上|好)?窗帘|关(?:上)?门|进(?:入|到)?(?:房间|卧室))|bedroom/i.test(combined)) {
+            hints.scene = 'bedroom, indoors, curtains';
+            hints.sceneFromDialogue = true;
+        }
+
+        return hints;
+    }
+
+    mergeActionWithHints(action, actionAdd = []) {
+        const existing = String(action || '').split(/,\s*/).map((s) => s.trim()).filter(Boolean);
+        const merged = [...existing];
+        for (const tag of actionAdd) {
+            const t = String(tag || '').trim();
+            if (t && !merged.some((x) => x.toLowerCase() === t.toLowerCase())) merged.push(t);
+        }
+        return merged.join(', ');
+    }
+
+    applyDialogueVisualHints(plan, hints) {
+        const applied = [];
+        if (!plan || !hints) return applied;
+
+        if (hints.sceneFromDialogue && hints.scene) {
+            plan.scene = hints.scene;
+            applied.push('scene_from_dialogue');
+        } else if (!String(plan.scene || '').trim() && hints.scene) {
+            plan.scene = hints.scene;
+            applied.push('scene_hint');
+        }
+
+        if (hints.actionAdd?.length) {
+            const merged = this.mergeActionWithHints(plan.action, hints.actionAdd);
+            if (merged !== String(plan.action || '').trim()) {
+                plan.action = merged;
+                applied.push('action_from_dialogue');
+            }
+        }
+
+        if (!String(plan.camera || '').trim() && hints.camera) {
+            plan.camera = hints.camera;
+            applied.push('camera_from_dialogue');
+        }
+
+        return applied;
+    }
+
+    /** @deprecated use normalizeSceneField — kept for callers */
+    abstractTagsFromField(raw) {
+        return this.normalizeSceneField(raw).split(/,\s*/).filter(Boolean);
     }
 
     formatContinuitySnapshotForImageAI(previousVisual) {
         if (!previousVisual) return '（首轮，无上一轮）';
         const outfit = this.formatPreviousOutfitTags(previousVisual);
         const prev = typeof previousVisual === 'object' ? previousVisual : {};
-        const sceneAbstract = this.abstractTagsFromField(prev.scene).join(', ');
-        const atmosphereAbstract = this.abstractTagsFromField(prev.atmosphere).join(', ');
+        const sceneLine = String(prev.scene || '').trim();
+        const atmosphereLine = String(prev.atmosphere || '').trim();
         const lines = [];
         if (outfit && outfit !== '（无，首轮）' && outfit !== '（无）') {
             lines.push(`- 服饰：${outfit}`);
         }
-        if (sceneAbstract) lines.push(`- 场景类型：${sceneAbstract}`);
-        if (atmosphereAbstract) lines.push(`- 氛围：${atmosphereAbstract}`);
+        if (sceneLine) lines.push(`- 场景：${sceneLine}`);
+        if (atmosphereLine) lines.push(`- 氛围：${atmosphereLine}`);
         return lines.length ? lines.join('\n') : '（首轮，无上一轮）';
     }
 
@@ -625,12 +703,9 @@ camera: medium_shot, from_front, upper_body
 
     resolveChangeIntent(lastUserMsg, emotionResult, previousVisual, assistantReply = '') {
         const fromRegex = this.detectVisualChangeIntent(lastUserMsg);
-        const fromReply = this.detectOutfitFromReply(assistantReply);
         const removeClothing = this.detectRemoveClothingIntent(lastUserMsg);
-        const outfitChange = fromRegex.outfitChange || removeClothing || fromReply.outfitChange;
-
         return {
-            outfitChange,
+            outfitChange: fromRegex.outfitChange || removeClothing,
             sceneChange: fromRegex.sceneChange,
             sceneTargetHint: fromRegex.sceneTargetHint
         };
@@ -762,11 +837,8 @@ camera: medium_shot, from_front, upper_body
             visualResult.outfitPlan = { changeOutfit: false, outfitTags: '', note: '' };
         }
         const plan = visualResult.outfitPlan;
-        const userIntent = this.detectVisualChangeIntent(lastUserMsg);
-        const replyOutfit = this.detectOutfitFromReply(assistantReply);
+        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
         const prev = this.formatPreviousOutfitTags(previousVisual);
-        const prevIsNude = this.isNudeOutfitTags(prev);
-        const aiTags = String(plan.outfitTags || '').trim();
 
         if (this.detectRemoveClothingIntent(lastUserMsg)) {
             plan.changeOutfit = true;
@@ -775,86 +847,75 @@ camera: medium_shot, from_front, upper_body
             return;
         }
 
-        if (replyOutfit.wearingClothes && replyOutfit.outfitTags) {
-            if (this.isNudeOutfitTags(aiTags) || prevIsNude) {
-                plan.changeOutfit = true;
-                plan.outfitTags = this.isNudeOutfitTags(aiTags) ? replyOutfit.outfitTags : aiTags;
-                plan.note = plan.note || '角色回复已描述穿着，更新服饰';
-                return;
-            }
-        }
-
-        if (replyOutfit.wearingClothes && prevIsNude && aiTags && !this.isNudeOutfitTags(aiTags)) {
-            plan.changeOutfit = true;
-            plan.note = plan.note || '本轮角色已换装';
+        const aiTags = String(plan.outfitTags || '').trim();
+        if (aiTags) {
+            plan.changeOutfit = Boolean(
+                changeIntent.outfitChange
+                || (prev && prev !== '（无，首轮）' && prev !== '（无）' && prev !== aiTags)
+            );
             return;
         }
 
-        if (!userIntent.outfitChange && !replyOutfit.outfitChange) {
-            if (prev && prev !== '（无，首轮）' && prev !== '（无）') {
-                if (!(prevIsNude && replyOutfit.wearingClothes)) {
-                    plan.changeOutfit = false;
-                    plan.outfitTags = prev;
-                    plan.note = '沿用上一张已出图服饰';
-                    return;
-                }
-            }
-        }
-
-        if (aiTags) return;
-
-        if (prev && prev !== '（无，首轮）' && prev !== '（无）' && !(prevIsNude && replyOutfit.wearingClothes)) {
+        if (!changeIntent.outfitChange && prev && prev !== '（无，首轮）' && prev !== '（无）') {
             plan.changeOutfit = false;
             plan.outfitTags = prev;
             plan.note = plan.note || '沿用上一张服饰';
         }
     }
 
-    ensureVisualPlan(visualResult, previousVisual, lastUserMsg, assistantReply = '') {
+    ensureVisualPlan(visualResult, previousVisual, lastUserMsg, assistantReply = '', recentTurns = []) {
         if (!visualResult) return;
         if (!visualResult.visualPlan || typeof visualResult.visualPlan !== 'object') {
             visualResult.visualPlan = {};
         }
         const plan = visualResult.visualPlan;
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualResult, previousVisual, assistantReply);
+        const changeIntent = this.detectVisualChangeIntent(lastUserMsg);
         const prev = previousVisual && typeof previousVisual === 'object' ? previousVisual : {};
+        const hints = this.inferDialogueVisualHints(lastUserMsg, assistantReply, recentTurns);
+        const dialogueApplied = this.applyDialogueVisualHints(plan, hints);
+        if (dialogueApplied.length) {
+            visualResult.dialogueVisualApplied = dialogueApplied;
+        }
+        visualResult.dialogueVisualHints = hints;
 
-        if (!changeIntent.sceneChange) {
+        if (!changeIntent.sceneChange && !hints.sceneFromDialogue) {
             if (!String(plan.scene || '').trim() && prev.scene) {
-                plan.scene = this.abstractTagsFromField(prev.scene).join(', ');
+                plan.scene = String(prev.scene).trim();
             }
             if (!String(plan.atmosphere || '').trim() && prev.atmosphere) {
-                plan.atmosphere = this.abstractTagsFromField(prev.atmosphere).join(', ');
+                plan.atmosphere = String(prev.atmosphere).trim();
             }
         }
 
         for (const key of ['action', 'expression', 'scene', 'atmosphere', 'camera']) {
             plan[key] = this.stripNegationTags(plan[key]);
         }
-        plan.scene = this.abstractTagsFromField(plan.scene).join(', ');
         if (this.detectRemoveHeldPropIntent(lastUserMsg)) {
             plan.action = this.stripHeldPropTags(plan.action);
-            if (!String(plan.action || '').trim()) {
-                plan.action = 'arms_outstretched, shy_pose';
-            }
         }
         if (this.shouldStripClothing(visualResult, lastUserMsg, assistantReply)) {
             this.stripClothingFromVisualPlan(plan);
         }
     }
 
-    buildVisualFromEmotionPlan(visualAnalysisResult, previousVisual, changeIntent, lastUserMsg = '', assistantReply = '') {
+    buildVisualFromEmotionPlan(visualAnalysisResult, previousVisual, changeIntent, lastUserMsg = '', assistantReply = '', recentTurns = []) {
         const vp = visualAnalysisResult?.visualPlan || {};
+        const hints = visualAnalysisResult?.dialogueVisualHints
+            || this.inferDialogueVisualHints(lastUserMsg, assistantReply, recentTurns);
         const merged = {
             action: this.stripNegationTags(this.sanitizeEnglishTags(vp.action) || String(vp.action || '').trim()),
             outfit: '',
             expression: this.stripNegationTags(this.sanitizeEnglishTags(vp.expression) || String(vp.expression || '').trim()),
-            scene: this.abstractTagsFromField(this.sanitizeEnglishTags(vp.scene) || String(vp.scene || '')).join(', '),
+            scene: this.normalizeSceneField(this.sanitizeEnglishTags(vp.scene) || String(vp.scene || '')),
             atmosphere: this.stripNegationTags(this.sanitizeEnglishTags(vp.atmosphere) || String(vp.atmosphere || '').trim()),
             camera: this.stripNegationTags(this.sanitizeEnglishTags(vp.camera) || String(vp.camera || '').trim())
         };
         const { visual: afterContinuity, enforced } = this.enforceVisualContinuity(
-            merged, previousVisual, changeIntent, { skipOutfit: true, skipSceneContinuity: true }
+            merged, previousVisual, changeIntent, {
+                skipOutfit: true,
+                skipSceneContinuity: false,
+                sceneFromDialogue: hints.sceneFromDialogue
+            }
         );
         const { visual: withOutfit, outfitEnforced } = this.applyOutfitPlanToVisual(
             afterContinuity, visualAnalysisResult, previousVisual, changeIntent
@@ -1058,8 +1119,6 @@ camera: medium_shot, from_front, upper_body
 
         const explicitRelocate = /换(?:个|到|成|为)?(?:地方|场景|地点|房间|背景|设定)|(?:切换|改换|更换)(?:到|成|为)?(?:场景|地点|背景)?|离开(?:这里|这儿|这|那|店|家|房间)?|出门(?:了)?|去(?:外面|户外)|转移(?:到|地点)|移步/i.test(combined);
 
-        const arriveAtPlace = /(?:到了|来到|已在|现在在|我们在|坐在|站在|躺在|身在)(?:了)?/i.test(combined);
-
         const relocateVerb = /(?:我们|咱们|一起|带你?|跟我|要|先|快)?(?:去|往|到|来到|走进|进入|进去|换到|移到|带到|回|直奔|前往|溜进|钻进)/i;
 
         const placeTarget = /(?:服装|蛋糕|甜品|咖啡|书|便利|百货|宠物|花|理发|美容|奶茶|面包|超市|药)?店|餐厅|饭店|食堂|酒馆|酒吧|浴室|卫生间|厕所|淋浴|洗手间|厨房|客厅|卧室|房间|学校|教室|走廊|楼道|泳池|游泳池|公园|商场|地铁|办公室|工作室|画桌|海边|沙滩|森林|阳台|天台|家|家里|家中|卧室|旅馆|酒店|宾馆|医院|图书馆|游乐园|电影院|车站|机场|便利店|clothing store|restaurant|bathroom|bedroom|kitchen|living room|pool|park|school|outdoor|shower|beach|mall|cafe|office|home|hotel|hospital|library|cinema|station|airport|supermarket|convenience store/i.test(combined);
@@ -1075,10 +1134,10 @@ camera: medium_shot, from_front, upper_body
 
         const inviteGo = /(?:要不|不如|我们|咱们).{0,8}(?:去|到|来)/i.test(combined) && placeTarget;
 
+        // 不因「躺在卧室」等静态描述误判为换场景；需明确移动/离开
         const sceneChange = explicitRelocate
             || (relocateVerb.test(combined) && (placeTarget || goEatOut))
             || goToPlace
-            || (arriveAtPlace && placeTarget)
             || narrationMove
             || inviteGo;
 
@@ -1089,18 +1148,18 @@ camera: medium_shot, from_front, upper_body
 
     visualChangeHint(changeIntent, userMessage) {
         if (!userMessage) return '';
-        const lines = ['#本轮意图'];
+        const lines = ['#本轮意图（轻约束：默认继承 continuity，对话明确变化才改）'];
         if (changeIntent.sceneChange) {
-            lines.push(`- 换场景${changeIntent.sceneTargetHint ? ` → ${changeIntent.sceneTargetHint}` : ''}：重写 scene + atmosphere`);
+            lines.push(`- 换场景${changeIntent.sceneTargetHint ? ` → ${changeIntent.sceneTargetHint}` : ''}`);
         } else {
-            lines.push('- 场景不变：复制上一张 scene/atmosphere');
+            lines.push('- 场景不变：继承 continuity 的 scene/atmosphere');
         }
         if (changeIntent.outfitChange) {
-            lines.push('- 换装：重写 outfit');
+            lines.push('- 换装：按对话更新 outfit');
         } else {
-            lines.push('- 服装不变：复制上一张 outfit');
+            lines.push('- 服装不变：继承 continuity 的 outfit');
         }
-        lines.push('- 更新 action / expression / camera');
+        lines.push('- 动作/表情/机位：按本轮对白更新');
         lines.push(`- 用户原话：${userMessage.slice(0, 200)}`);
         return lines.join('\n');
     }
@@ -1641,8 +1700,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
     }
 
     /**
-     * When the user did not request outfit/scene change, forcibly copy from previousVisual.
-     * LLMs often ignore continuity instructions and revert to primed examples (e.g. bathroom).
+     * 仅在字段为空时用 continuity 补全；不再把 AI/对话写好的 scene 强行改回上一轮。
      */
     enforceVisualContinuity(visual, previousVisual, changeIntent = {}, options = {}) {
         if (!visual || !previousVisual || typeof previousVisual !== 'object') {
@@ -1654,32 +1712,32 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         if (!options.skipOutfit && !changeIntent.outfitChange && previousVisual.outfit) {
             const prev = String(previousVisual.outfit).trim();
             const cur = String(merged.outfit || '').trim();
-            if (prev && cur !== prev) {
+            if (!cur && prev) {
                 merged.outfit = prev;
-                enforced.push('outfit');
+                enforced.push('outfit_fill');
             }
         }
-        if (!changeIntent.sceneChange && !options.skipSceneContinuity) {
+        if (!changeIntent.sceneChange && !options.skipSceneContinuity && !options.sceneFromDialogue) {
             if (previousVisual.scene) {
                 const prev = String(previousVisual.scene).trim();
                 const cur = String(merged.scene || '').trim();
-                if (prev && cur !== prev) {
+                if (!cur && prev) {
                     merged.scene = prev;
-                    enforced.push('scene');
+                    enforced.push('scene_fill');
                 }
             }
             if (previousVisual.atmosphere) {
                 const prev = String(previousVisual.atmosphere).trim();
                 const cur = String(merged.atmosphere || '').trim();
-                if (prev && cur !== prev) {
+                if (!cur && prev) {
                     merged.atmosphere = prev;
-                    enforced.push('atmosphere');
+                    enforced.push('atmosphere_fill');
                 }
             }
         }
 
         if (enforced.length) {
-            console.log('[continuity] enforced fields from previousVisual:', enforced.join(', '));
+            console.log('[continuity] fill empty fields from previousVisual:', enforced.join(', '));
         }
         const normalized = this.normalizeVisual(merged) || merged;
         return { visual: normalized, enforced };
@@ -1727,7 +1785,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             : this.parseOutfitVisualResponse('');
 
         this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg, displayReply);
-        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg, displayReply);
+        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg, displayReply, recentTurns);
         const visualAnalysis = outfitOnly;
         const emotionResult = this.mergeVisualAnalysis(emotionOnly, outfitOnly);
 
@@ -1740,7 +1798,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
 
         const changeIntent = this.resolveChangeIntent(lastUserMsg, visualAnalysis, previousVisual, displayReply);
         const { visual, enforced: allEnforced, visualFromPlan } = this.buildVisualFromEmotionPlan(
-            visualAnalysis, previousVisual, changeIntent, lastUserMsg, displayReply
+            visualAnalysis, previousVisual, changeIntent, lastUserMsg, displayReply, recentTurns
         );
         const replyTimeMs = Date.now() - replyStartTime;
         const totalTimeMs = Date.now() - totalStartTime;
@@ -1790,6 +1848,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                 visual,
                 visualBeforeEnforce: allEnforced.length ? visualFromPlan : null,
                 continuityEnforced: allEnforced.length ? allEnforced : null,
+                dialogueVisualApplied: visualAnalysis?.dialogueVisualApplied || null,
                 outfitPlan: emotionResult?.outfitPlan || null,
                 visualPlan: emotionResult?.visualPlan || null,
                 changeIntent,

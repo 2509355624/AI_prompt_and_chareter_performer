@@ -105,9 +105,24 @@ function buildTurnPrompt({ visual }) {
     return 'standing, from_front, soft_light, cozy, indoors';
 }
 
+function stripConflictingBaseTags(basePrompt, visual) {
+    const action = `${String(visual?.action || '')},${String(visual?.prompt || '')}`.toLowerCase();
+    if (!/(?:lying|on_bed|supine|prone|sleeping|legs_spread)/.test(action)) {
+        return String(basePrompt || '');
+    }
+    return String(basePrompt || '')
+        .replace(/\bstanding naturally\b,?\s*/gi, '')
+        .replace(/\bvertical composition\b,?\s*/gi, '')
+        .replace(/\bupper body and thighs visible\b,?\s*/gi, '')
+        .replace(/,\s*,/g, ',')
+        .replace(/,\s*$/g, '')
+        .trim();
+}
+
 function buildPositivePrompt(args) {
     const skipOutfit = Boolean(args.visual && tagsFromVisual(args.visual));
-    const base = buildBasePrompt(args.character, { skipOutfit });
+    const baseRaw = buildBasePrompt(args.character, { skipOutfit });
+    const base = stripConflictingBaseTags(baseRaw, args.visual);
     const turn = buildTurnPrompt(args);
     return [base, turn].filter(Boolean).join('\n');
 }

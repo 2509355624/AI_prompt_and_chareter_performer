@@ -27,10 +27,10 @@ module.exports = {
         { name: 'loras\\anima-masterpieces-nlmix2-e41.safetensors', strengthModel: 0.5, strengthClip: 1 }
     ],
     stylePrefix:
-        'masterpiece, best quality, ultra-detailed, absurdres, tianliang_duohe_fangdongye (0.6 weight), ciloranko, sho_(sho_lwlw) (0.8 weight), sfw',
+        'masterpiece, best quality, ultra-detailed, absurdres, tianliang_duohe_fangdongye (0.6 weight), ciloranko, sho_(sho_lwlw) (0.8 weight)',
     lightingPrefix: 'dramatic lighting, long shadows, cool color grade, dark teal and orange atmosphere',
     negativePrompt:
-        'lowres, worst quality, bad anatomy, seductive posture, exaggerated twist body, leaning hips, transparent fabric, bare thighs, provocative gaze, nsfw',
+        'lowres, worst quality, bad anatomy, bad hands, extra fingers, blurry, watermark, text',
     testPromptTurn:
         'school blazer and plaid skirt, loosened ribbon, holding books to chest, classroom doorway, close-up, soft warm sunlight, lens flare, cozy, endearing, subtle smile, intimate portrait-style, gentle ambiance, nostalgic',
     testPromptBase:
