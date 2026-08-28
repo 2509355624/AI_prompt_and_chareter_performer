@@ -247,6 +247,29 @@ html.gen-page body {
   border-top: 1px solid var(--rule);
 }
 
+.results-grid .result-card .btn-rerender {
+  border: 1.5px solid var(--text);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  flex-shrink: 0;
+}
+
+.results-grid .result-card .btn-rerender:hover {
+  background: #fff;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.results-grid .result-card .thumb.rerendering {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .single-view {
   display: none;
   height: 100%;

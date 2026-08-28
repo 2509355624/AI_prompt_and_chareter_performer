@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=6">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=7">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -54,6 +54,7 @@
                                 <span id="singleIndexLabel">0 / 0</span>
                                 <button type="button" class="btn btn-ghost" id="btnNext">下一张 ▶</button>
                                 <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大查看</button>
+                                <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderSingle">重新渲染</button>
                                 <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制提示词</button>
                             </div>
                             <div class="prompt-box" id="singlePromptBox" hidden>
@@ -189,6 +190,7 @@
                 <span id="lightboxIndexLabel">0 / 0</span>
                 <button type="button" class="btn btn-ghost" id="btnLightboxNext">▶</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnCopyLightboxPrompt">复制提示词</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderLightbox">重新渲染</button>
             </div>
             <div class="prompt-box lightbox-prompt" id="lightboxPromptBox" hidden>
                 <pre id="lightboxPromptText"></pre>
@@ -196,7 +198,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=6"></script>
+    <script src="js/sticker-frame.js?v=7"></script>
     <script>
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
@@ -790,29 +792,47 @@
             return `${state.framePreset}|${previewCap}|${url}`;
         }
 
+        function invalidateFrameCache(url) {
+            const prefix = `${state.framePreset}|`;
+            for (const key of [...state.framePreviewCache.keys()]) {
+                if (!key.startsWith(prefix)) continue;
+                if (!url || key.endsWith(`|${url}`)) {
+                    state.framePreviewCache.delete(key);
+                }
+            }
+        }
+
         function isFramedCanvasCorrupt(canvas) {
             if (!canvas || !canvas.width || !canvas.height) return true;
             try {
                 const ctx = canvas.getContext('2d');
                 const w = canvas.width;
                 const h = canvas.height;
-                const x0 = Math.floor(w * 0.2);
-                const y0 = Math.floor(h * 0.12);
-                const sw = Math.max(1, Math.floor(w * 0.6));
-                const sh = Math.max(1, Math.floor(h * 0.55));
-                const data = ctx.getImageData(x0, y0, sw, sh).data;
-                let dark = 0;
-                let total = 0;
-                for (let i = 0; i < data.length; i += 16) {
-                    const r = data[i];
-                    const g = data[i + 1];
-                    const b = data[i + 2];
-                    const a = data[i + 3];
-                    if (a < 12) continue;
-                    total += 1;
-                    if (r + g + b < 48) dark += 1;
+                // 重点检查下半区：黑边故障常见为上半正常、下半全黑
+                const samples = [
+                    [0.2, 0.12, 0.6, 0.35],
+                    [0.2, 0.55, 0.6, 0.35]
+                ];
+                for (const [rx, ry, rw, rh] of samples) {
+                    const x0 = Math.floor(w * rx);
+                    const y0 = Math.floor(h * ry);
+                    const sw = Math.max(1, Math.floor(w * rw));
+                    const sh = Math.max(1, Math.floor(h * rh));
+                    const data = ctx.getImageData(x0, y0, sw, sh).data;
+                    let dark = 0;
+                    let total = 0;
+                    for (let i = 0; i < data.length; i += 16) {
+                        const r = data[i];
+                        const g = data[i + 1];
+                        const b = data[i + 2];
+                        const a = data[i + 3];
+                        if (a < 12) continue;
+                        total += 1;
+                        if (r + g + b < 48) dark += 1;
+                    }
+                    if (total > 24 && dark / total > 0.82) return true;
                 }
-                return total > 24 && dark / total > 0.82;
+                return false;
             } catch (_) {
                 return false;
             }
@@ -834,7 +854,6 @@
         async function renderFramedCanvas(url, caption, previewMaxWidth, options = {}) {
             return enqueueFrameRender(async () => {
                 const img = await loadImage(url);
-                // 导出要原图像素；预览必须降采样，否则连画多张 2K 玻璃模糊易把末张画黑
                 if (options.fullRes) {
                     return StickerFrame.renderStickerFrame(img, {
                         preset: state.framePreset,
@@ -853,12 +872,23 @@
                     if (!isFramedCanvasCorrupt(cached)) return cached;
                     state.framePreviewCache.delete(cacheKey);
                 }
-                const source = downscaleForPreview(img, previewCap);
-                const canvas = StickerFrame.renderStickerFrame(source, {
-                    preset: state.framePreset,
-                    caption: caption || '',
-                    previewMaxWidth: previewCap
-                });
+
+                async function drawOnce(cap) {
+                    const source = downscaleForPreview(img, cap);
+                    // 让出一帧，减轻连续 blur 压力
+                    await new Promise((r) => requestAnimationFrame(r));
+                    return StickerFrame.renderStickerFrame(source, {
+                        preset: state.framePreset,
+                        caption: caption || '',
+                        previewMaxWidth: cap
+                    });
+                }
+
+                let canvas = await drawOnce(previewCap);
+                if (isFramedCanvasCorrupt(canvas)) {
+                    await new Promise((r) => setTimeout(r, 40));
+                    canvas = await drawOnce(Math.min(previewCap, 360));
+                }
                 if (isFramedCanvasCorrupt(canvas)) {
                     return plainPreviewNode(url);
                 }
@@ -871,6 +901,36 @@
                 }
                 return cloneCanvas(canvas);
             });
+        }
+
+        async function rerenderImageAt(index, { openLightboxAfter = false } = {}) {
+            const item = state.images[index];
+            if (!item) return;
+            invalidateFrameCache(item.url);
+            if (state.viewMode === 'grid') {
+                const cards = els.resultsGrid.querySelectorAll('.result-card');
+                const card = cards[index];
+                if (!card) {
+                    await refreshResults();
+                    return;
+                }
+                const thumb = card.querySelector('.thumb');
+                if (!thumb) return;
+                thumb.classList.add('rerendering');
+                try {
+                    const node = await renderFramedCanvas(item.url, '', undefined, { skipCache: true });
+                    thumb.replaceChildren(node);
+                } catch (_) {
+                    thumb.replaceChildren(plainPreviewNode(item.url));
+                } finally {
+                    thumb.classList.remove('rerendering');
+                }
+            } else if (state.singleIndex === index) {
+                await refreshResults();
+            }
+            if (openLightboxAfter || (els.lightbox.classList.contains('open') && state.lightboxIndex === index)) {
+                await paintLightbox();
+            }
         }
 
         function prefetchLightboxNeighbors(centerIndex) {
@@ -913,10 +973,17 @@
                     thumb.addEventListener('click', () => openLightbox(i));
                     const meta = document.createElement('div');
                     meta.className = 'meta';
-                    meta.innerHTML = `<label><input type="checkbox" ${item.selected ? 'checked' : ''} data-i="${i}"> ${String(i + 1).padStart(3, '0')}</label>`;
+                    meta.innerHTML = `
+                        <label><input type="checkbox" ${item.selected ? 'checked' : ''} data-i="${i}"> ${String(i + 1).padStart(3, '0')}</label>
+                        <button type="button" class="btn-rerender" data-rerender="${i}" title="重新渲染边框预览">重渲</button>
+                    `;
                     meta.querySelector('input').addEventListener('change', (e) => {
                         state.images[i].selected = e.target.checked;
                         els.btnExport.disabled = !state.images.some((x) => x.selected);
+                    });
+                    meta.querySelector('[data-rerender]').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        rerenderImageAt(i);
                     });
                     card.appendChild(thumb);
                     card.appendChild(meta);
@@ -1363,6 +1430,10 @@
             });
             els.singleStage.addEventListener('click', () => openLightbox(state.singleIndex));
             $('btnOpenLightbox').addEventListener('click', () => openLightbox(state.singleIndex));
+            $('btnRerenderSingle').addEventListener('click', () => {
+                if (!state.images.length) return;
+                rerenderImageAt(state.singleIndex);
+            });
             $('btnLightboxClose').addEventListener('click', closeLightbox);
             els.lightbox.addEventListener('click', (e) => {
                 if (e.target === els.lightbox) closeLightbox();
@@ -1378,6 +1449,10 @@
                     state.lightboxIndex += 1;
                     paintLightbox();
                 }
+            });
+            $('btnRerenderLightbox').addEventListener('click', () => {
+                if (!state.images.length) return;
+                rerenderImageAt(state.lightboxIndex, { openLightboxAfter: true });
             });
             document.addEventListener('keydown', (e) => {
                 if (!els.lightbox.classList.contains('open')) return;

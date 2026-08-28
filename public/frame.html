@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>图片边框 - 批量贴纸框</title>
-    <link rel="stylesheet" href="styles/frame-paper.css?v=2">
+    <link rel="stylesheet" href="styles/frame-paper.css?v=3">
 </head>
 <body>
     <a href="index.html" class="back-home">
@@ -59,6 +59,7 @@
                         <button type="button" id="prevPreviewBtn">◀ 上一张</button>
                         <span id="previewIndexLabel">1 / 1</span>
                         <button type="button" id="nextPreviewBtn">下一张 ▶</button>
+                        <button type="button" id="rerenderPreviewBtn">重新渲染</button>
                     </div>
                 </div>
             </section>
@@ -154,7 +155,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=5"></script>
+    <script src="js/sticker-frame.js?v=7"></script>
     <script>
         const EXPORT_FOLDER_KEY = 'frameExportFolderPath';
         let files = [];
@@ -178,6 +179,7 @@
             previewIndexLabel: document.getElementById('previewIndexLabel'),
             prevPreviewBtn: document.getElementById('prevPreviewBtn'),
             nextPreviewBtn: document.getElementById('nextPreviewBtn'),
+            rerenderPreviewBtn: document.getElementById('rerenderPreviewBtn'),
             presetSelect: document.getElementById('presetSelect'),
             outputWidth: document.getElementById('outputWidth'),
             paddingRange: document.getElementById('paddingRange'),
@@ -391,6 +393,42 @@
             previewTimer = setTimeout(renderPreview, 120);
         }
 
+        function downscaleImageForPreview(img, maxSide) {
+            const w = img.naturalWidth || img.width;
+            const h = img.naturalHeight || img.height;
+            if (!w || !h || Math.max(w, h) <= maxSide) return img;
+            const scale = maxSide / Math.max(w, h);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(w * scale));
+            canvas.height = Math.max(1, Math.round(h * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            return canvas;
+        }
+
+        function isPreviewCanvasCorrupt(canvas) {
+            if (!canvas || !canvas.width || !canvas.height) return true;
+            try {
+                const ctx = canvas.getContext('2d');
+                const w = canvas.width;
+                const h = canvas.height;
+                const y0 = Math.floor(h * 0.55);
+                const data = ctx.getImageData(Math.floor(w * 0.2), y0, Math.max(1, Math.floor(w * 0.6)), Math.max(1, Math.floor(h * 0.35))).data;
+                let dark = 0;
+                let total = 0;
+                for (let i = 0; i < data.length; i += 16) {
+                    if (data[i + 3] < 12) continue;
+                    total += 1;
+                    if (data[i] + data[i + 1] + data[i + 2] < 48) dark += 1;
+                }
+                return total > 24 && dark / total > 0.82;
+            } catch (_) {
+                return false;
+            }
+        }
+
         async function renderPreview() {
             const oldCanvas = document.getElementById('previewCanvas');
             if (oldCanvas) oldCanvas.remove();
@@ -406,19 +444,30 @@
             previewIndex = Math.max(0, Math.min(previewIndex, files.length - 1));
             const item = files[previewIndex];
             els.previewEmpty.hidden = true;
+            els.previewEmpty.textContent = '上传图片后在此预览加框效果';
             els.previewImage.hidden = true;
-            els.previewNav.hidden = files.length <= 1;
+            els.previewNav.hidden = false;
             els.previewFileName.textContent = item.name;
             els.previewIndexLabel.textContent = `${previewIndex + 1} / ${files.length}`;
             els.prevPreviewBtn.disabled = previewIndex <= 0;
             els.nextPreviewBtn.disabled = previewIndex >= files.length - 1;
+            if (els.rerenderPreviewBtn) els.rerenderPreviewBtn.disabled = true;
 
             try {
                 const img = await loadImageFromFile(item.file);
-                const canvas = StickerFrame.renderStickerFrame(
-                    img,
+                const source = downscaleImageForPreview(img, 1280);
+                let canvas = StickerFrame.renderStickerFrame(
+                    source,
                     readStyleOptions(item.caption, { forPreview: true })
                 );
+                if (isPreviewCanvasCorrupt(canvas)) {
+                    await new Promise((r) => setTimeout(r, 40));
+                    const smaller = downscaleImageForPreview(img, 720);
+                    canvas = StickerFrame.renderStickerFrame(
+                        smaller,
+                        { ...readStyleOptions(item.caption, { forPreview: true }), previewMaxWidth: 720 }
+                    );
+                }
                 revokePreviewUrl();
 
                 const logicalW = canvas.width;
@@ -436,11 +485,19 @@
                 previewCanvas.style.height = `${logicalH * scale}px`;
                 previewCanvas.getContext('2d').drawImage(canvas, 0, 0);
                 els.previewWrap.appendChild(previewCanvas);
+
+                if (isPreviewCanvasCorrupt(previewCanvas)) {
+                    els.previewEmpty.hidden = false;
+                    els.previewEmpty.textContent = '预览渲染异常（下半发黑）。请点「重新渲染」再试一次。';
+                    previewCanvas.remove();
+                }
             } catch (e) {
                 console.error(e);
                 els.previewEmpty.hidden = false;
                 els.previewEmpty.textContent = '预览失败：' + e.message;
                 els.previewImage.hidden = true;
+            } finally {
+                if (els.rerenderPreviewBtn) els.rerenderPreviewBtn.disabled = false;
             }
         }
 
@@ -641,6 +698,9 @@
                     renderFileList();
                     schedulePreview();
                 }
+            });
+            els.rerenderPreviewBtn.addEventListener('click', () => {
+                renderPreview();
             });
 
             els.pickFolderBtn.addEventListener('click', pickExportFolder);

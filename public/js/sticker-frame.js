@@ -39,25 +39,41 @@
         ctx.drawImage(image, sx, sy, sw, sh);
     }
 
-    /** Blurred same-image background — the photo itself, not a color wash. */
+    /** Blurred same-image background — blur on a small offscreen, then upscale (GPU-safe). */
     function drawBlurredImageBackground(ctx, image, x, y, w, h, opts, drawW) {
         const baseBlur = Number(opts.glassBlur) || 36;
-        const blurPx = baseBlur * (Math.max(w, drawW || w) / REF_WIDTH);
+        const maxSide = Math.max(w, h, 1);
+        const isPreview = Number(opts.previewMaxWidth) > 0;
+        // 预览/大图都在小画布上做模糊，再放大贴回，避免整幅高清 blur 把 canvas 画黑
+        const blurCanvasMax = isPreview ? 420 : 720;
+        const shrink = Math.min(1, blurCanvasMax / maxSide);
+        const offW = Math.max(1, Math.ceil(w * shrink));
+        const offH = Math.max(1, Math.ceil(h * shrink));
+        const blurPx = Math.min(
+            48,
+            Math.max(6, baseBlur * (Math.max(offW, drawW * shrink || offW) / REF_WIDTH))
+        );
+
+        const off = document.createElement('canvas');
+        off.width = offW;
+        off.height = offH;
+        const octx = off.getContext('2d', { alpha: true });
+        octx.imageSmoothingEnabled = true;
+        octx.imageSmoothingQuality = 'medium';
+        octx.filter = `blur(${blurPx}px) saturate(1.12) brightness(1.04)`;
+        // 多画一圈，减少 blur 边缘发黑
+        const pad = Math.ceil(blurPx * 2);
+        drawCoverImage(octx, image, -pad, -pad, offW + pad * 2, offH + pad * 2);
+        octx.filter = 'none';
+
         const frostAlpha = Number(opts.glassFrost);
         const frost = Number.isFinite(frostAlpha) ? frostAlpha : 0.14;
         const tintAlpha = Number(opts.glassTint) || 0;
 
-        const off = document.createElement('canvas');
-        off.width = Math.max(1, Math.ceil(w));
-        off.height = Math.max(1, Math.ceil(h));
-        const octx = off.getContext('2d');
-        octx.filter = `blur(${blurPx}px) saturate(1.12) brightness(1.04)`;
-        drawCoverImage(octx, image, 0, 0, w, h);
-        octx.filter = 'none';
-
         ctx.save();
         roundRect(ctx, x, y, w, h, 14);
         ctx.clip();
+        ctx.imageSmoothingEnabled = true;
         ctx.drawImage(off, x, y, w, h);
         if (frost > 0) {
             ctx.fillStyle = `rgba(255, 255, 255, ${frost})`;
@@ -463,11 +479,7 @@
         if (PRESET_ALIASES[presetKey]) presetKey = PRESET_ALIASES[presetKey];
         if (!PRESETS[presetKey]) presetKey = 'paper-collage';
         const merged = { ...PRESETS[presetKey], ...options, preset: presetKey };
-        // 预览模式跳过玻璃模糊，避免连画多张时 GPU 把末张 canvas 画黑
-        const previewMaxWidth = Number(options?.previewMaxWidth) || 0;
-        if (previewMaxWidth > 0) {
-            merged.glassBg = false;
-        }
+        // 预览保留玻璃模糊；模糊本身在小画布上完成（见 drawBlurredImageBackground）
         return merged;
     }
 

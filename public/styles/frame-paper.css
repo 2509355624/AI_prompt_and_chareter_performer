@@ -310,6 +310,11 @@ html, body {
   cursor: not-allowed;
 }
 
+.preview-nav #rerenderPreviewBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
 .style-form {
   display: flex;
   flex-direction: column;
