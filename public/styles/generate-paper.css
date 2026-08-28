@@ -186,7 +186,7 @@ html.gen-page body {
 }
 
 .results-body {
-  --dock-h: clamp(118px, 18vh, 156px);
+  --dock-h: clamp(132px, 20vh, 168px);
   --status-h: 44px;
   position: relative;
   height: 100%;
@@ -198,20 +198,7 @@ html.gen-page body {
 }
 
 .results-empty {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  right: 8px;
-  bottom: calc(var(--dock-h) + var(--status-h) + 24px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-mute);
-  font-size: 14px;
-  text-align: center;
-  padding: 24px;
-  z-index: 2;
-  pointer-events: none;
+  display: none;
 }
 
 .results-grid {
@@ -220,12 +207,25 @@ html.gen-page body {
   gap: 10px;
   padding: 2px;
   align-content: start;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
 }
 
-.results-grid.hidden { display: none; }
+.results-grid.hidden { display: none !important; }
+
+.results-grid-empty {
+  grid-column: 1 / -1;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-mute);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px;
+  pointer-events: none;
+}
 
 .results-grid .result-card {
   border: 2px solid var(--text);
@@ -289,7 +289,7 @@ html.gen-page body {
 
 .single-view {
   display: none;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
   gap: 6px;
@@ -302,7 +302,7 @@ html.gen-page body {
 /* 图占绝大部分 */
 .single-hero {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -310,7 +310,7 @@ html.gen-page body {
 
 .single-stage {
   flex: 1;
-  min-height: 0;
+  min-height: 160px;
   width: 100%;
   display: flex;
   align-items: center;
@@ -318,7 +318,29 @@ html.gen-page body {
   overflow: hidden;
   cursor: zoom-in;
   background: rgba(255, 255, 255, 0.35);
+  border: 2px dashed rgba(38, 34, 28, 0.22);
   border-radius: 10px;
+}
+
+.single-stage:has(canvas),
+.single-stage:has(img) {
+  border-style: solid;
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.single-stage:has(.stage-placeholder) {
+  cursor: default;
+}
+
+.stage-placeholder {
+  color: var(--text-mute);
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.55;
+  padding: 24px;
+  max-width: 28em;
+  pointer-events: none;
 }
 
 .single-stage.rerendering {
@@ -409,15 +431,16 @@ html.gen-page body {
   100% { box-shadow: 0 0 0 0 rgba(196, 74, 42, 0); }
 }
 
-/* 底栏：左下输入 + 右下提示词，合计约 1/5～1/4 高度，图占其余 */
+/* 底栏：左下输入 + 右下提示词；始终固定高度，避免空图时塌成一条红杠 */
 .single-bottom {
   flex: 0 0 var(--dock-h);
   height: var(--dock-h);
-  min-height: 118px;
-  max-height: 156px;
+  min-height: 132px;
+  max-height: 168px;
   display: grid;
   grid-template-columns: minmax(220px, 1.15fr) minmax(160px, 0.85fr);
   gap: 8px;
+  align-self: stretch;
 }
 
 .single-bottom:has(.prompt-box[hidden]) {
@@ -445,8 +468,13 @@ html.gen-page body {
   border: 2px solid var(--text);
   border-radius: 10px;
   box-shadow: var(--shadow-sm, 2px 2px 0 var(--text));
-  min-height: 0;
+  min-height: 36px;
   flex-shrink: 0;
+}
+
+.composer-bar .btn-primary {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .composer-bar .bar-preset {
@@ -547,7 +575,7 @@ html.gen-page body {
 .composer-input {
   width: 100%;
   flex: 1;
-  min-height: 0;
+  min-height: 56px;
   max-height: none;
   height: auto;
   resize: none;

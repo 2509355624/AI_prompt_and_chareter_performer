@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=14">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=15">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -16,8 +16,8 @@
                 <span class="gen-status" id="comfyStatus">Comfy 检测中…</span>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnTogglePresets">收起预设</button>
                 <div class="view-toggle" title="展示模式">
-                    <button type="button" id="btnViewSingle">单图</button>
-                    <button type="button" class="active" id="btnViewGrid">网格</button>
+                    <button type="button" class="active" id="btnViewSingle">单图</button>
+                    <button type="button" id="btnViewGrid">网格</button>
                 </div>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnToggleConfig">展开配置</button>
             </div>
@@ -44,11 +44,13 @@
                         <span class="progress-text" id="resultMeta">0 张 · 点击图片可放大</span>
                     </div>
                     <div class="gen-panel-body results-body">
-                        <div class="results-empty" id="resultsEmpty">选好预设后，在左下角输入场景并生成。<br>默认以带边框样式展示，点击图片可全屏放大。</div>
-                        <div class="results-grid" id="resultsGrid"></div>
-                        <div class="single-view" id="singleView">
+                        <div class="results-empty" id="resultsEmpty" hidden>选好预设后，在左下角输入场景并生成。</div>
+                        <div class="results-grid hidden" id="resultsGrid"></div>
+                        <div class="single-view active" id="singleView">
                             <div class="single-hero">
-                                <div class="single-stage" id="singleStage" title="点击放大"></div>
+                                <div class="single-stage" id="singleStage" title="点击放大">
+                                    <div class="stage-placeholder">选好预设后，在左下角输入场景并生成。<br>出图后默认带边框预览，点击可放大。</div>
+                                </div>
                                 <div class="single-nav">
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnPrev">◀</button>
                                     <span id="singleIndexLabel">0 / 0</span>
@@ -364,7 +366,7 @@
             defaults: null,
             options: null,
             images: [], // {url, prompt, selected, framedUrl?}
-            viewMode: 'grid', // grid | single
+            viewMode: 'single', // grid | single
             singleIndex: 0,
             lightboxIndex: 0,
             exportDirHandle: null,
@@ -626,6 +628,10 @@
                 }
                 if (Array.isArray(session.images) && session.images.length) {
                     await applyImagesFromJob(session.images);
+                } else if (state.viewMode === 'grid') {
+                    // 无图时网格空壳会把底栏挤扁，初始化统一用单图骨架
+                    state.viewMode = 'single';
+                    syncViewToggle();
                 }
                 if (session.progressText && session.status === 'done') {
                     setProgress(session.progressText);
@@ -1366,7 +1372,8 @@
             } else if (els.progressText && els.progressText.textContent) {
                 els.resultMeta.textContent = els.progressText.textContent;
             }
-            els.resultsEmpty.style.display = n ? 'none' : 'flex';
+            // 空状态提示放进主画布，不再用绝对定位遮罩（会把初始化布局挤扁）
+            if (els.resultsEmpty) els.resultsEmpty.hidden = true;
             syncExportButtons();
 
             if (state.viewMode === 'grid') {
@@ -1375,6 +1382,13 @@
                 const promptBox = $('singlePromptBox');
                 if (promptBox) promptBox.hidden = true;
                 els.resultsGrid.innerHTML = '';
+                if (!n) {
+                    const empty = document.createElement('div');
+                    empty.className = 'results-grid-empty';
+                    empty.innerHTML = '选好预设后，在左下角输入场景并生成。<br>也可切到「单图」查看大图布局。';
+                    els.resultsGrid.appendChild(empty);
+                    return;
+                }
                 const renderToken = (state.resultsRenderToken = (state.resultsRenderToken || 0) + 1);
                 for (let i = 0; i < state.images.length; i++) {
                     if (renderToken !== state.resultsRenderToken) return;
@@ -1421,7 +1435,7 @@
                 els.singleIndexLabel.textContent = n ? `${state.singleIndex + 1} / ${n}` : '0 / 0';
                 syncSinglePromptBox();
                 if (!n) {
-                    els.singleStage.innerHTML = '';
+                    els.singleStage.innerHTML = '<div class="stage-placeholder">选好预设后，在左下角输入场景并生成。<br>出图后默认带边框预览，点击可放大。</div>';
                     return;
                 }
                 const item = state.images[state.singleIndex];
@@ -2071,6 +2085,7 @@
                 await loadPresets();
                 await loadAiSettings();
                 await restoreSession();
+                await refreshResults();
             } catch (e) {
                 console.error(e);
                 alert('初始化失败：' + e.message);
