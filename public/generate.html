@@ -217,7 +217,9 @@
             framePreset: 'paper-collage',
             jobId: '',
             pollTimer: null,
-            resultsRenderToken: 0
+            resultsRenderToken: 0,
+            lightboxPaintToken: 0,
+            framePreviewCache: new Map()
         };
 
         const $ = (id) => document.getElementById(id);
@@ -309,6 +311,7 @@
         }
 
         function applyImagesFromJob(images, opts = {}) {
+            clearFramePreviewCache();
             state.images = (images || []).map((img) => ({
                 url: img.url,
                 prompt: img.prompt || '',
@@ -770,6 +773,22 @@
             return canvas;
         }
 
+        function clearFramePreviewCache() {
+            state.framePreviewCache.clear();
+        }
+
+        function cloneCanvas(source) {
+            const canvas = document.createElement('canvas');
+            canvas.width = source.width;
+            canvas.height = source.height;
+            canvas.getContext('2d').drawImage(source, 0, 0);
+            return canvas;
+        }
+
+        function frameCacheKey(url, previewCap) {
+            return `${state.framePreset}|${previewCap}|${url}`;
+        }
+
         async function renderFramedCanvas(url, caption, previewMaxWidth, options = {}) {
             const img = await loadImage(url);
             // 导出要原图像素；预览必须降采样，否则连画多张 2K 玻璃模糊易把末张画黑
@@ -785,11 +804,34 @@
                 maxW = state.viewMode === 'grid' ? 420 : 900;
             }
             const previewCap = maxW > 0 ? maxW : 900;
+            const cacheKey = frameCacheKey(url, previewCap);
+            if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
+                return cloneCanvas(state.framePreviewCache.get(cacheKey));
+            }
             const source = downscaleForPreview(img, previewCap);
-            return StickerFrame.renderStickerFrame(source, {
+            const canvas = StickerFrame.renderStickerFrame(source, {
                 preset: state.framePreset,
                 caption: caption || '',
                 previewMaxWidth: previewCap
+            });
+            if (!options.skipCache) {
+                state.framePreviewCache.set(cacheKey, canvas);
+                // 控制缓存体积：最多留约 24 张预览
+                while (state.framePreviewCache.size > 24) {
+                    const oldest = state.framePreviewCache.keys().next().value;
+                    state.framePreviewCache.delete(oldest);
+                }
+            }
+            return cloneCanvas(canvas);
+        }
+
+        function prefetchLightboxNeighbors(centerIndex) {
+            const indexes = [centerIndex - 1, centerIndex + 1, centerIndex + 2]
+                .filter((i) => i >= 0 && i < state.images.length);
+            indexes.forEach((i) => {
+                const url = state.images[i] && state.images[i].url;
+                if (!url) return;
+                renderFramedCanvas(url, '', 900).catch(() => {});
             });
         }
 
@@ -840,42 +882,45 @@
                 els.singleView.classList.add('active');
                 state.singleIndex = Math.max(0, Math.min(state.singleIndex, Math.max(0, n - 1)));
                 els.singleIndexLabel.textContent = n ? `${state.singleIndex + 1} / ${n}` : '0 / 0';
-                els.singleStage.innerHTML = '';
+                syncSinglePromptBox();
                 if (!n) {
-                    syncSinglePromptBox();
+                    els.singleStage.innerHTML = '';
                     return;
                 }
                 const item = state.images[state.singleIndex];
+                let node;
                 try {
-                    const canvas = await renderFramedCanvas(item.url, '');
-                    els.singleStage.appendChild(canvas);
+                    node = await renderFramedCanvas(item.url, '');
                 } catch (_) {
-                    const img = document.createElement('img');
-                    img.src = item.url;
-                    els.singleStage.appendChild(img);
+                    node = document.createElement('img');
+                    node.src = item.url;
                 }
-                syncSinglePromptBox();
+                els.singleStage.replaceChildren(node);
             }
         }
 
         async function paintLightbox() {
+            const paintToken = ++state.lightboxPaintToken;
+            const index = state.lightboxIndex;
             const n = state.images.length;
-            els.lightboxIndexLabel.textContent = n ? `${state.lightboxIndex + 1} / ${n}` : '0 / 0';
-            els.lightboxStage.innerHTML = '';
+            els.lightboxIndexLabel.textContent = n ? `${index + 1} / ${n}` : '0 / 0';
+            syncLightboxPromptBox();
             if (!n) {
-                syncLightboxPromptBox();
+                els.lightboxStage.innerHTML = '';
                 return;
             }
-            const item = state.images[state.lightboxIndex];
+            const item = state.images[index];
+            let node;
             try {
-                const canvas = await renderFramedCanvas(item.url, '', 900);
-                els.lightboxStage.appendChild(canvas);
+                node = await renderFramedCanvas(item.url, '', 900);
             } catch (_) {
-                const img = document.createElement('img');
-                img.src = item.url;
-                els.lightboxStage.appendChild(img);
+                node = document.createElement('img');
+                node.src = item.url;
             }
-            syncLightboxPromptBox();
+            // 画好再替换，避免先清空导致白闪；过期请求直接丢弃
+            if (paintToken !== state.lightboxPaintToken || state.lightboxIndex !== index) return;
+            els.lightboxStage.replaceChildren(node);
+            prefetchLightboxNeighbors(index);
         }
 
         function openLightbox(index) {
@@ -887,6 +932,7 @@
         }
 
         function closeLightbox() {
+            state.lightboxPaintToken += 1;
             els.lightbox.classList.remove('open');
             els.lightbox.setAttribute('aria-hidden', 'true');
             els.lightboxStage.innerHTML = '';
@@ -1042,6 +1088,7 @@
                 }
 
                 if (data.jobId) state.jobId = data.jobId;
+                clearFramePreviewCache();
                 state.images = (data.images || []).map((img) => ({
                     url: img.url,
                     prompt: img.prompt || '',
@@ -1298,6 +1345,7 @@
             });
             els.framePresetSelect.addEventListener('change', () => {
                 state.framePreset = els.framePresetSelect.value;
+                clearFramePreviewCache();
                 saveSession({ framePreset: state.framePreset });
                 refreshResults();
             });
