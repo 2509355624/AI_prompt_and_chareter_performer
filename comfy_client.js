@@ -206,6 +206,49 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveComfyOutputDir() {
+    const fromEnv = String(process.env.COMFYUI_OUTPUT_DIR || '').trim();
+    if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+    const candidates = [
+        path.join(__dirname, '..', 'ComfyUI-master', 'ComfyUI', 'output'),
+        path.join('D:', 'AI', 'ComfyUI-master', 'ComfyUI', 'output'),
+        path.join(process.cwd(), '..', 'ComfyUI-master', 'ComfyUI', 'output')
+    ];
+    for (const c of candidates) {
+        try {
+            if (fs.existsSync(c)) return c;
+        } catch (_) {}
+    }
+    return fromEnv || '';
+}
+
+function batchTimeoutMs() {
+    const n = Number(process.env.COMFYUI_BATCH_TIMEOUT_MS);
+    if (Number.isFinite(n) && n > 0) return n;
+    return 45 * 60 * 1000;
+}
+
+function listOutputFilesByPrefix(outputDir, prefix, sinceMs) {
+    if (!outputDir || !fs.existsSync(outputDir)) return [];
+    const pref = String(prefix || 'comfy_generate');
+    let names = [];
+    try {
+        names = fs.readdirSync(outputDir);
+    } catch (_) {
+        return [];
+    }
+    return names
+        .filter((name) => name.toLowerCase().startsWith(pref.toLowerCase()) && /\.(png|jpe?g|webp)$/i.test(name))
+        .map((name) => {
+            const full = path.join(outputDir, name);
+            let mtimeMs = 0;
+            try { mtimeMs = fs.statSync(full).mtimeMs; } catch (_) {}
+            return { name, full, mtimeMs };
+        })
+        .filter((f) => !sinceMs || f.mtimeMs >= sinceMs - 2000)
+        .sort((a, b) => a.mtimeMs - b.mtimeMs || a.name.localeCompare(b.name));
+}
+
 function allSavedImages(historyEntry) {
     const outputs = historyEntry?.outputs || {};
     const found = [];
@@ -226,30 +269,122 @@ function firstSavedImage(historyEntry) {
     return all[0] || null;
 }
 
-async function waitForHistory(promptId) {
+async function waitForHistory(promptId, opts = {}) {
+    const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : config.timeoutMs;
+    const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+    const filenamePrefix = opts.filenamePrefix || '';
+    const expectedCount = Math.max(0, Number(opts.expectedCount) || 0);
+    const outputDir = opts.outputDir || resolveComfyOutputDir();
     const started = Date.now();
-    while (Date.now() - started < config.timeoutMs) {
-        const { data } = await axios.get(`${config.comfyUrl}/history/${promptId}`, { timeout: 10000 });
-        const entry = data?.[promptId];
-        if (entry) {
-            if (entry.status?.status_str === 'error') {
-                const msgs = (entry.status.messages || []).map((m) => JSON.stringify(m)).join('; ');
-                throw new Error(`ComfyUI job failed: ${msgs || 'unknown error'}`);
-            }
-            if (firstSavedImage(entry) || entry.status?.completed) {
-                const saved = firstSavedImage(entry);
-                if (!saved) {
-                    throw new Error('ComfyUI finished but produced no image');
+    const sinceMs = opts.sinceMs || started;
+    let lastMsgAt = 0;
+
+    while (Date.now() - started < timeoutMs) {
+        try {
+            const { data } = await axios.get(`${config.comfyUrl}/history/${promptId}`, { timeout: 10000 });
+            const entry = data?.[promptId];
+            if (entry) {
+                if (entry.status?.status_str === 'error') {
+                    const msgs = (entry.status.messages || []).map((m) => JSON.stringify(m)).join('; ');
+                    throw new Error(`ComfyUI job failed: ${msgs || 'unknown error'}`);
                 }
-                return entry;
+                const images = allSavedImages(entry);
+                const done = Boolean(entry.status?.completed) || (
+                    images.length > 0 && (!expectedCount || images.length >= expectedCount)
+                );
+                if (done && images.length) {
+                    return { entry, images, source: 'history' };
+                }
+                if (onProgress && Date.now() - lastMsgAt > 2000) {
+                    lastMsgAt = Date.now();
+                    onProgress({
+                        phase: 'generating',
+                        message: `Comfy 生成中… 已等 ${Math.round((Date.now() - started) / 1000)}s` +
+                            (images.length ? `（history 已有 ${images.length} 张）` : ''),
+                        promptId,
+                        elapsedMs: Date.now() - started,
+                        imageCount: images.length
+                    });
+                }
+            } else if (onProgress && Date.now() - lastMsgAt > 2500) {
+                lastMsgAt = Date.now();
+                onProgress({
+                    phase: 'queued',
+                    message: `Comfy 队列中… 已等 ${Math.round((Date.now() - started) / 1000)}s`,
+                    promptId,
+                    elapsedMs: Date.now() - started
+                });
+            }
+        } catch (e) {
+            if (e.message && e.message.startsWith('ComfyUI job failed')) throw e;
+        }
+
+        if (filenamePrefix && outputDir) {
+            const files = listOutputFilesByPrefix(outputDir, filenamePrefix, sinceMs);
+            if (expectedCount > 0 && files.length >= expectedCount) {
+                return {
+                    entry: null,
+                    images: files.map((f) => ({
+                        filename: f.name,
+                        subfolder: '',
+                        type: 'output',
+                        _localPath: f.full
+                    })),
+                    source: 'output_dir'
+                };
+            }
+            if (onProgress && files.length && Date.now() - lastMsgAt > 2000) {
+                lastMsgAt = Date.now();
+                onProgress({
+                    phase: 'generating',
+                    message: `Comfy 输出目录已出现 ${files.length} 张…`,
+                    promptId,
+                    elapsedMs: Date.now() - started,
+                    imageCount: files.length
+                });
             }
         }
+
         await sleep(config.pollMs);
     }
-    throw new Error(`ComfyUI timed out after ${config.timeoutMs}ms (prompt_id=${promptId})`);
+
+    try {
+        const { data } = await axios.get(`${config.comfyUrl}/history/${promptId}`, { timeout: 10000 });
+        const entry = data?.[promptId];
+        const images = entry ? allSavedImages(entry) : [];
+        if (images.length) {
+            return { entry, images, source: 'history_after_timeout' };
+        }
+    } catch (_) {}
+
+    if (filenamePrefix && outputDir) {
+        const files = listOutputFilesByPrefix(outputDir, filenamePrefix, sinceMs);
+        if (files.length) {
+            return {
+                entry: null,
+                images: files.map((f) => ({
+                    filename: f.name,
+                    subfolder: '',
+                    type: 'output',
+                    _localPath: f.full
+                })),
+                source: 'output_dir_after_timeout'
+            };
+        }
+    }
+
+    throw new Error(
+        `ComfyUI timed out after ${timeoutMs}ms (prompt_id=${promptId})` +
+        (outputDir ? `；也未在 output 目录找到前缀 ${filenamePrefix || '(none)'} 的新图` : '')
+    );
 }
 
 async function downloadView(imageMeta, destPath) {
+    if (imageMeta && imageMeta._localPath && fs.existsSync(imageMeta._localPath)) {
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
+        fs.copyFileSync(imageMeta._localPath, destPath);
+        return;
+    }
     const params = new URLSearchParams({
         filename: imageMeta.filename,
         subfolder: imageMeta.subfolder || '',
@@ -286,13 +421,19 @@ async function generateOnce(options) {
         throw new Error(`ComfyUI did not return prompt_id: ${JSON.stringify(submit.data)}`);
     }
 
-    const history = await waitForHistory(promptId);
-    const saved = firstSavedImage(history);
+    const waited = await waitForHistory(promptId, {
+        timeoutMs: options.timeoutMs,
+        onProgress: options.onProgress,
+        filenamePrefix: options.filenamePrefix || 'character_chat',
+        expectedCount: 1,
+        sinceMs: Date.now()
+    });
+    const saved = waited.images[0];
     if (!saved) {
         throw new Error('ComfyUI finished but produced no image');
     }
     const seed = graph['53']?.inputs?.seed ?? graph['7']?.inputs?.seed;
-    return { promptId, saved, seed };
+    return { promptId, saved, seed, source: waited.source };
 }
 
 async function generateToFile(options, destPath) {
@@ -306,15 +447,24 @@ async function generateToFile(options, destPath) {
 /**
  * Run one Comfy job that may produce multiple images (--- split prompts).
  * Downloads every saved output into destDir as 001.png, 002.png, ...
+ * Also watches Comfy output folder as fallback when history polling times out.
  */
 async function generateBatchToDir(options, destDir) {
     return enqueue(async () => {
         const multiPrompts = joinMultiPrompts(options.multiPrompts || options.turnPrompt || '');
+        const expectedCount = Array.isArray(options.multiPrompts)
+            ? options.multiPrompts.filter(Boolean).length
+            : String(multiPrompts).split(/\n\s*---\s*\n|\n---\n|---/).filter((x) => x.trim()).length;
+        const filenamePrefix = options.filenamePrefix || 'comfy_generate';
         const graph = buildPromptGraph({
             ...options,
             turnPrompt: multiPrompts,
-            filenamePrefix: options.filenamePrefix || 'comfy_generate'
+            filenamePrefix
         });
+        const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+        if (onProgress) onProgress({ phase: 'submitting', message: '正在提交 Comfy 工作流…' });
+
+        const sinceMs = Date.now();
         await ensureComfySocket();
         let submit;
         try {
@@ -335,11 +485,34 @@ async function generateBatchToDir(options, destDir) {
         if (!promptId) {
             throw new Error(`ComfyUI did not return prompt_id: ${JSON.stringify(submit.data)}`);
         }
+        if (onProgress) {
+            onProgress({
+                phase: 'queued',
+                message: '已提交，等待 Comfy 出图…',
+                promptId,
+                expectedCount
+            });
+        }
 
-        const history = await waitForHistory(promptId);
-        const savedList = allSavedImages(history);
+        const waited = await waitForHistory(promptId, {
+            timeoutMs: options.timeoutMs || batchTimeoutMs(),
+            onProgress,
+            filenamePrefix,
+            expectedCount: expectedCount || 0,
+            sinceMs,
+            outputDir: options.outputDir || resolveComfyOutputDir()
+        });
+        const savedList = waited.images || [];
         if (!savedList.length) {
             throw new Error('ComfyUI finished but produced no images');
+        }
+        if (onProgress) {
+            onProgress({
+                phase: 'downloading',
+                message: `下载结果 ${savedList.length} 张（来源: ${waited.source}）…`,
+                promptId,
+                imageCount: savedList.length
+            });
         }
 
         fs.mkdirSync(destDir, { recursive: true });
@@ -352,7 +525,7 @@ async function generateBatchToDir(options, destDir) {
         }
 
         const seed = graph['53']?.inputs?.seed ?? null;
-        return { promptId, seed, files, multiPrompts };
+        return { promptId, seed, files, multiPrompts, source: waited.source };
     });
 }
 
@@ -380,4 +553,6 @@ module.exports = {
     buildPromptGraph,
     joinMultiPrompts,
     allSavedImages,
+    resolveComfyOutputDir,
+    batchTimeoutMs,
 };

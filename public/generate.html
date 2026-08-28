@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="gen-page">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=1">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=2">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -107,24 +107,18 @@
                         <label>Checkpoint
                             <select id="cfgCheckpoint"></select>
                         </label>
-                        <div class="config-row">
-                            <label>宽<input type="number" id="cfgWidth" min="64" step="8"></label>
-                            <label>高<input type="number" id="cfgHeight" min="64" step="8"></label>
-                        </div>
-                        <div class="config-row">
-                            <label>Steps<input type="number" id="cfgSteps" min="1" max="150"></label>
-                            <label>CFG<input type="number" id="cfgCfg" min="0" max="30" step="0.1"></label>
-                        </div>
-                        <div class="config-row">
-                            <label>Sampler<select id="cfgSampler"></select></label>
-                            <label>Scheduler<select id="cfgScheduler"></select></label>
-                        </div>
+                        <label>宽<input type="number" id="cfgWidth" min="64" step="8"></label>
+                        <label>高<input type="number" id="cfgHeight" min="64" step="8"></label>
+                        <label>Steps<input type="number" id="cfgSteps" min="1" max="150"></label>
+                        <label>CFG<input type="number" id="cfgCfg" min="0" max="30" step="0.1"></label>
+                        <label>Sampler<select id="cfgSampler"></select></label>
+                        <label>Scheduler<select id="cfgScheduler"></select></label>
                         <label>Negative
                             <textarea id="cfgNegative" rows="3"></textarea>
                         </label>
 
                         <label class="config-check"><input type="checkbox" id="cfgEnableHires"> 高清修复（默认关）</label>
-                        <div class="config-row" id="hiresRow" hidden>
+                        <div id="hiresRow" hidden>
                             <label>Hires 宽<input type="number" id="cfgHiresW" min="64" step="8"></label>
                             <label>Hires 高<input type="number" id="cfgHiresH" min="64" step="8"></label>
                         </div>
@@ -134,16 +128,14 @@
                             <select id="cfgUpscaleModel"></select>
                         </label>
 
-                        <div class="config-row">
-                            <label>LoRA1
-                                <select id="cfgLora1"></select>
-                                <input type="number" id="cfgLora1Str" min="-2" max="2" step="0.05" placeholder="强度">
-                            </label>
-                            <label>LoRA2
-                                <select id="cfgLora2"></select>
-                                <input type="number" id="cfgLora2Str" min="-2" max="2" step="0.05" placeholder="强度">
-                            </label>
-                        </div>
+                        <label>LoRA1
+                            <select id="cfgLora1"></select>
+                            <input type="number" id="cfgLora1Str" min="-2" max="2" step="0.05" placeholder="强度">
+                        </label>
+                        <label>LoRA2
+                            <select id="cfgLora2"></select>
+                            <input type="number" id="cfgLora2Str" min="-2" max="2" step="0.05" placeholder="强度">
+                        </label>
                         <label>LoRA3
                             <select id="cfgLora3"></select>
                             <input type="number" id="cfgLora3Str" min="-2" max="2" step="0.05" placeholder="强度">
@@ -460,6 +452,46 @@
             els.btnToggleConfig.textContent = open ? '收起配置' : '展开配置';
         }
 
+        async function readSseGenerate(res) {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalPayload = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const chunks = buffer.split('\n\n');
+                buffer = chunks.pop() || '';
+                for (const chunk of chunks) {
+                    const line = chunk.split('\n').find((l) => l.startsWith('data: '));
+                    if (!line) continue;
+                    let payload;
+                    try {
+                        payload = JSON.parse(line.slice(6));
+                    } catch (_) {
+                        continue;
+                    }
+                    if (payload.message) {
+                        els.progressText.textContent = payload.message;
+                    } else if (payload.phase === 'expanding') {
+                        els.progressText.textContent = 'AI 扩写中…';
+                    } else if (payload.phase === 'generating' || payload.phase === 'queued') {
+                        els.progressText.textContent = payload.message || 'Comfy 生成中…';
+                    }
+                    if (payload.phase === 'done' && payload.ok !== false && payload.images) {
+                        finalPayload = payload;
+                    }
+                    if (payload.phase === 'error') {
+                        throw new Error(payload.error || '生成失败');
+                    }
+                }
+            }
+            if (!finalPayload) throw new Error('生成结束但未收到结果');
+            return finalPayload;
+        }
+
         async function onGenerate() {
             if (state.generating) return;
             const preset = activePreset();
@@ -480,18 +512,38 @@
             els.progressText.textContent = mode === 'ai' ? 'AI 扩写中…' : '提交 Comfy…';
 
             try {
-                const res = await fetch('/api/comfy/generate', {
+                const res = await fetch('/api/comfy/generate?stream=1', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
                     body: JSON.stringify({
                         presetId: preset.id,
                         mode,
                         scene,
-                        count: Number(els.countInput.value) || 1
+                        count: Number(els.countInput.value) || 1,
+                        stream: true
                     })
                 });
-                const data = await res.json();
-                if (!res.ok || !data.ok) throw new Error(data.error || '生成失败');
+
+                if (!res.ok) {
+                    let errMsg = '生成失败';
+                    try {
+                        const errData = await res.json();
+                        errMsg = errData.error || errMsg;
+                    } catch (_) {}
+                    throw new Error(errMsg);
+                }
+
+                const contentType = res.headers.get('content-type') || '';
+                let data;
+                if (contentType.includes('text/event-stream') && res.body) {
+                    data = await readSseGenerate(res);
+                } else {
+                    data = await res.json();
+                    if (!data.ok) throw new Error(data.error || '生成失败');
+                }
 
                 state.images = (data.images || []).map((img) => ({
                     url: img.url,
@@ -499,7 +551,9 @@
                     selected: true
                 }));
                 state.singleIndex = 0;
-                els.progressText.textContent = `完成 ${state.images.length} 张 · ${Math.round((data.elapsedMs || 0) / 1000)}s`;
+                const sec = Math.round((data.elapsedMs || 0) / 1000);
+                els.progressText.textContent = `完成 ${state.images.length} 张 · ${sec}s` +
+                    (data.source ? ` · ${data.source}` : '');
                 await refreshResults();
             } catch (e) {
                 els.progressText.textContent = '';

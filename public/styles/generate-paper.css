@@ -5,10 +5,18 @@
   max-width: min(1920px, 100%);
   margin: 0 auto;
   padding: 52px 10px 12px;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+html.gen-page,
+html.gen-page body {
+  height: 100%;
+  overflow: hidden;
 }
 
 .gen-topbar {
@@ -53,7 +61,7 @@
 }
 
 .gen-layout.config-open {
-  grid-template-columns: 220px minmax(0, 1fr) 320px;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
 }
 
 .gen-panel {
@@ -84,6 +92,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overflow-x: hidden;
   padding: 10px;
 }
 
@@ -400,16 +409,20 @@
 
 .config-panel {
   display: none;
+  min-width: 0;
 }
 
 .gen-layout.config-open .config-panel {
   display: flex;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .config-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .config-form label {
@@ -418,6 +431,7 @@
   gap: 4px;
   font-size: 12px;
   color: var(--text-2);
+  min-width: 0;
 }
 
 .config-form input,
@@ -429,6 +443,14 @@
   font-size: 13px;
   font-family: var(--font-body);
   background: #fff;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.config-form select {
+  text-overflow: ellipsis;
 }
 
 .config-form textarea {
@@ -437,9 +459,10 @@
 }
 
 .config-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .config-check {
@@ -453,6 +476,10 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  background: var(--card);
+  padding-top: 8px;
 }
 
 .progress-text {
@@ -461,10 +488,22 @@
 }
 
 @media (max-width: 1100px) {
+  html.gen-page,
+  html.gen-page body {
+    overflow: auto;
+  }
+  .gen-app {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
   .gen-layout,
   .gen-layout.config-open {
     grid-template-columns: 1fr;
   }
   .config-panel { display: none; }
-  .gen-layout.config-open .config-panel { display: flex; max-height: 50vh; }
+  .gen-layout.config-open .config-panel {
+    display: flex;
+    max-height: 50vh;
+  }
 }

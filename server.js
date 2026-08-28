@@ -843,8 +843,42 @@ app.get('/api/comfy/upscale-models', async (req, res) => {
 
 app.post('/api/comfy/generate', async (req, res) => {
     const started = Date.now();
+    const body = req.body || {};
+    const wantsStream = String(req.headers.accept || '').includes('text/event-stream')
+        || body.stream === true
+        || req.query.stream === '1';
+
+    if (wantsStream) {
+        res.status(200);
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+        const send = (obj) => {
+            if (res.writableEnded) return;
+            res.write(`data: ${JSON.stringify({ ...obj, elapsedMs: Date.now() - started })}\n\n`);
+        };
+
+        try {
+            const result = await generateService.runGenerateJob({
+                presetId: body.presetId,
+                mode: body.mode === 'manual' ? 'manual' : 'ai',
+                scene: body.scene || body.prompt || '',
+                count: body.count,
+                overrides: body.overrides || {},
+                onProgress: send
+            });
+            send({ phase: 'done', ok: true, ...result });
+        } catch (e) {
+            console.error('[ComfyGenerate]', e.message);
+            send({ phase: 'error', ok: false, error: e.message });
+        }
+        if (!res.writableEnded) res.end();
+        return;
+    }
+
     try {
-        const body = req.body || {};
         const result = await generateService.runGenerateJob({
             presetId: body.presetId,
             mode: body.mode === 'manual' ? 'manual' : 'ai',

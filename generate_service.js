@@ -201,9 +201,15 @@ async function runGenerateJob({
     mode = 'ai',
     scene = '',
     count = 1,
-    overrides = {}
+    overrides = {},
+    onProgress = null
 }) {
+    const progress = (payload) => {
+        if (typeof onProgress === 'function') onProgress(payload);
+    };
+
     ensureDirs();
+    progress({ phase: 'validating', message: '检查预设…' });
     const state = readPresets();
     const preset = state.presets.find((p) => p.id === (presetId || state.activePresetId));
     if (!preset) {
@@ -220,13 +226,20 @@ async function runGenerateJob({
         if (!clothingPrompts.length) {
             throw new Error('手动 Prompt 为空，请用 --- 分隔多条服饰动作提示词');
         }
+        progress({ phase: 'manual', message: `手动 Prompt：${clothingPrompts.length} 条` });
     } else {
         if (!String(scene || '').trim()) {
             throw new Error('请先填写场景描述');
         }
+        progress({ phase: 'expanding', message: 'AI 扩写服饰动作中…' });
         const expanded = await expandClothingPrompts({ scene, count });
         clothingPrompts = expanded.prompts;
         expandRaw = expanded.raw;
+        progress({
+            phase: 'expanded',
+            message: `AI 扩写完成：${clothingPrompts.length} 条，准备提交 Comfy…`,
+            clothingCount: clothingPrompts.length
+        });
     }
 
     const batchId = `gen_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
@@ -237,7 +250,8 @@ async function runGenerateJob({
     const result = await comfyClient.generateBatchToDir({
         ...comfyOptions,
         multiPrompts: clothingPrompts,
-        turnPrompt: clothingPrompts
+        turnPrompt: clothingPrompts,
+        onProgress: progress
     }, destDir);
 
     const images = (result.files || []).map((f, i) => ({
@@ -247,6 +261,12 @@ async function runGenerateJob({
         prompt: clothingPrompts[i] || ''
     }));
 
+    progress({
+        phase: 'done',
+        message: `完成 ${images.length} 张`,
+        imageCount: images.length
+    });
+
     return {
         ok: true,
         batchId,
@@ -255,6 +275,7 @@ async function runGenerateJob({
         mode,
         promptId: result.promptId,
         seed: result.seed,
+        source: result.source,
         clothingPrompts,
         expandRaw,
         images
