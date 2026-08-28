@@ -787,6 +787,29 @@ app.get('/api/comfy/generate-presets', (req, res) => {
     }
 });
 
+app.get('/api/comfy/generate-settings', (req, res) => {
+    try {
+        res.json({
+            ok: true,
+            settings: generateService.readSettings(),
+            defaults: generateService.defaultSettings(),
+            promptFormula: '最终 Comfy 正向提示词 ≈ 预设 basePrompt + 该张「服饰/动作」提示词'
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.put('/api/comfy/generate-settings', (req, res) => {
+    try {
+        const body = req.body || {};
+        const settings = generateService.writeSettings(body.settings || body);
+        res.json({ ok: true, settings });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 app.put('/api/comfy/generate-presets', (req, res) => {
     try {
         const body = req.body || {};

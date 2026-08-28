@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=4">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=6">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -54,6 +54,11 @@
                                 <span id="singleIndexLabel">0 / 0</span>
                                 <button type="button" class="btn btn-ghost" id="btnNext">下一张 ▶</button>
                                 <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大查看</button>
+                                <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制提示词</button>
+                            </div>
+                            <div class="prompt-box" id="singlePromptBox" hidden>
+                                <div class="prompt-box-label">本张服饰/动作提示词</div>
+                                <pre id="singlePromptText"></pre>
                             </div>
                         </div>
                     </div>
@@ -112,6 +117,22 @@
                         <label>底模 basePrompt（角色特征，锁死）
                             <textarea id="cfgBasePrompt" placeholder="角色外貌、画师 tag 等，不给 AI 改"></textarea>
                         </label>
+
+                        <div class="config-ai-box">
+                            <div class="config-ai-title">AI 扩写提示词</div>
+                            <p class="config-hint">最终生图正向 ≈ <b>basePrompt</b> + 每张「服饰/动作」词。下面两段只影响 AI 扩写，不直接进 Comfy。</p>
+                            <label>System（扩写规则）
+                                <textarea id="cfgAiSystem" rows="8" placeholder="AI 扩写 system prompt"></textarea>
+                            </label>
+                            <label>User 模板（可用 {scene} {count}）
+                                <textarea id="cfgAiUserTemplate" rows="4" placeholder="发给扩写模型的用户模板"></textarea>
+                            </label>
+                            <div class="config-actions" style="margin-top:0;">
+                                <button type="button" class="btn btn-primary btn-sm" id="btnSaveAiPrompt">保存 AI 提示词</button>
+                                <button type="button" class="btn btn-ghost btn-sm" id="btnResetAiPrompt">恢复默认</button>
+                            </div>
+                        </div>
+
                         <label>Checkpoint
                             <select id="cfgCheckpoint"></select>
                         </label>
@@ -167,6 +188,10 @@
                 <button type="button" class="btn btn-ghost" id="btnLightboxPrev">◀</button>
                 <span id="lightboxIndexLabel">0 / 0</span>
                 <button type="button" class="btn btn-ghost" id="btnLightboxNext">▶</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnCopyLightboxPrompt">复制提示词</button>
+            </div>
+            <div class="prompt-box lightbox-prompt" id="lightboxPromptBox" hidden>
+                <pre id="lightboxPromptText"></pre>
             </div>
         </div>
     </div>
@@ -259,6 +284,9 @@
                 count: patch.count !== undefined ? patch.count : (Number(els.countInput.value) || 1),
                 viewMode: patch.viewMode !== undefined ? patch.viewMode : state.viewMode,
                 framePreset: patch.framePreset !== undefined ? patch.framePreset : state.framePreset,
+                exportFolderPath: patch.exportFolderPath !== undefined
+                    ? patch.exportFolderPath
+                    : (els.exportFolderPath.value || ''),
                 jobId: patch.jobId !== undefined ? patch.jobId : (state.jobId || ''),
                 status: patch.status !== undefined ? patch.status : prev.status || 'idle',
                 progressText: patch.progressText !== undefined ? patch.progressText : (els.progressText.textContent || ''),
@@ -385,6 +413,9 @@
                     els.framePresetSelect.value = session.framePreset;
                     state.framePreset = session.framePreset;
                 }
+                if (typeof session.exportFolderPath === 'string' && session.exportFolderPath) {
+                    els.exportFolderPath.value = session.exportFolderPath;
+                }
                 if (session.activePresetId && state.presets.some((p) => p.id === session.activePresetId)) {
                     await selectPreset(session.activePresetId);
                 }
@@ -424,6 +455,132 @@
                 els.progressText.textContent = '上次任务状态未知（可重新生成）';
                 saveSession({ status: 'idle' });
             }
+        }
+
+        async function copyText(text) {
+            const value = String(text || '').trim();
+            if (!value) {
+                alert('当前没有可复制的提示词');
+                return;
+            }
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = value;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.remove();
+                }
+                els.progressText.textContent = '提示词已复制';
+            } catch (e) {
+                alert('复制失败：' + e.message);
+            }
+        }
+
+        function syncSinglePromptBox() {
+            const box = $('singlePromptBox');
+            const pre = $('singlePromptText');
+            if (!box || !pre) return;
+            const item = state.images[state.singleIndex];
+            if (!item || !item.prompt) {
+                box.hidden = true;
+                pre.textContent = '';
+                return;
+            }
+            box.hidden = false;
+            pre.textContent = item.prompt;
+        }
+
+        function syncLightboxPromptBox() {
+            const box = $('lightboxPromptBox');
+            const pre = $('lightboxPromptText');
+            if (!box || !pre) return;
+            const item = state.images[state.lightboxIndex];
+            if (!item || !item.prompt) {
+                box.hidden = true;
+                pre.textContent = '';
+                return;
+            }
+            box.hidden = false;
+            pre.textContent = item.prompt;
+        }
+
+        function buildPromptMeta(item, index) {
+            const wrap = document.createElement('div');
+            wrap.className = 'prompt-meta';
+            const toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'btn btn-ghost btn-sm';
+            toggle.textContent = '提示词';
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'btn btn-ghost btn-sm';
+            copyBtn.textContent = '复制';
+            const pre = document.createElement('pre');
+            pre.className = 'prompt-snippet';
+            pre.hidden = true;
+            pre.textContent = item.prompt || '（无提示词）';
+            toggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                pre.hidden = !pre.hidden;
+                toggle.textContent = pre.hidden ? '提示词' : '收起';
+            });
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                copyText(item.prompt || '');
+            });
+            const row = document.createElement('div');
+            row.className = 'prompt-meta-actions';
+            row.appendChild(toggle);
+            row.appendChild(copyBtn);
+            wrap.appendChild(row);
+            wrap.appendChild(pre);
+            return wrap;
+        }
+
+        let aiSettingsDefaults = null;
+
+        async function loadAiSettings() {
+            const res = await fetch('/api/comfy/generate-settings');
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || '加载 AI 提示词失败');
+            aiSettingsDefaults = data.defaults || null;
+            const s = data.settings || {};
+            $('cfgAiSystem').value = s.clothingExpandSystem || '';
+            $('cfgAiUserTemplate').value = s.clothingExpandUserTemplate || '';
+        }
+
+        async function saveAiSettings() {
+            const res = await fetch('/api/comfy/generate-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clothingExpandSystem: $('cfgAiSystem').value,
+                    clothingExpandUserTemplate: $('cfgAiUserTemplate').value
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                alert(data.error || '保存失败');
+                return;
+            }
+            const s = data.settings || {};
+            $('cfgAiSystem').value = s.clothingExpandSystem || '';
+            $('cfgAiUserTemplate').value = s.clothingExpandUserTemplate || '';
+            alert('AI 提示词已保存');
+        }
+
+        async function resetAiSettings() {
+            if (!aiSettingsDefaults) {
+                await loadAiSettings();
+            }
+            if (!aiSettingsDefaults) return;
+            $('cfgAiSystem').value = aiSettingsDefaults.clothingExpandSystem || '';
+            $('cfgAiUserTemplate').value = aiSettingsDefaults.clothingExpandUserTemplate || '';
+            await saveAiSettings();
         }
 
         function syncModeUi() {
@@ -673,6 +830,7 @@
                     });
                     card.appendChild(thumb);
                     card.appendChild(meta);
+                    if (item.prompt) card.appendChild(buildPromptMeta(item, i));
                     els.resultsGrid.appendChild(card);
                     // 让出一帧，减轻连续玻璃模糊对 GPU 的压力
                     await new Promise((r) => requestAnimationFrame(r));
@@ -683,7 +841,10 @@
                 state.singleIndex = Math.max(0, Math.min(state.singleIndex, Math.max(0, n - 1)));
                 els.singleIndexLabel.textContent = n ? `${state.singleIndex + 1} / ${n}` : '0 / 0';
                 els.singleStage.innerHTML = '';
-                if (!n) return;
+                if (!n) {
+                    syncSinglePromptBox();
+                    return;
+                }
                 const item = state.images[state.singleIndex];
                 try {
                     const canvas = await renderFramedCanvas(item.url, '');
@@ -693,6 +854,7 @@
                     img.src = item.url;
                     els.singleStage.appendChild(img);
                 }
+                syncSinglePromptBox();
             }
         }
 
@@ -700,7 +862,10 @@
             const n = state.images.length;
             els.lightboxIndexLabel.textContent = n ? `${state.lightboxIndex + 1} / ${n}` : '0 / 0';
             els.lightboxStage.innerHTML = '';
-            if (!n) return;
+            if (!n) {
+                syncLightboxPromptBox();
+                return;
+            }
             const item = state.images[state.lightboxIndex];
             try {
                 const canvas = await renderFramedCanvas(item.url, '', 900);
@@ -710,6 +875,7 @@
                 img.src = item.url;
                 els.lightboxStage.appendChild(img);
             }
+            syncLightboxPromptBox();
         }
 
         function openLightbox(index) {
@@ -970,6 +1136,7 @@
                 try {
                     state.exportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
                     els.exportFolderPath.value = state.exportDirHandle.name;
+                    saveSession({ exportFolderPath: els.exportFolderPath.value });
                     return;
                 } catch (e) {
                     if (e.name !== 'AbortError') alert('选择文件夹失败: ' + e.message);
@@ -1135,7 +1302,26 @@
                 refreshResults();
             });
             $('btnPickFolder').addEventListener('click', pickFolder);
-            els.exportFolderPath.addEventListener('input', () => { state.exportDirHandle = null; });
+            $('btnSaveAiPrompt').addEventListener('click', saveAiSettings);
+            $('btnResetAiPrompt').addEventListener('click', resetAiSettings);
+            const copySingle = $('btnCopySinglePrompt');
+            if (copySingle) {
+                copySingle.addEventListener('click', () => {
+                    const item = state.images[state.singleIndex];
+                    copyText(item && item.prompt);
+                });
+            }
+            const copyLb = $('btnCopyLightboxPrompt');
+            if (copyLb) {
+                copyLb.addEventListener('click', () => {
+                    const item = state.images[state.lightboxIndex];
+                    copyText(item && item.prompt);
+                });
+            }
+            els.exportFolderPath.addEventListener('input', () => {
+                state.exportDirHandle = null;
+                saveSession({ exportFolderPath: els.exportFolderPath.value.trim() });
+            });
             $('btnExport').addEventListener('click', exportSelected);
 
             let draftTimer = null;
@@ -1169,6 +1355,7 @@
             try {
                 await loadOptions();
                 await loadPresets();
+                await loadAiSettings();
                 await restoreSession();
             } catch (e) {
                 console.error(e);

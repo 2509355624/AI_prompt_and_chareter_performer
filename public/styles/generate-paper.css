@@ -553,6 +553,93 @@ html.gen-page body {
   padding-top: 8px;
 }
 
+.config-ai-box {
+  border: 2px dashed var(--text);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fffaf2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-ai-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.config-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.config-ai-box textarea {
+  min-height: 72px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.prompt-meta {
+  padding: 0 8px 8px;
+  border-top: 1px dashed rgba(38, 34, 28, 0.25);
+}
+
+.prompt-meta-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.prompt-snippet {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 120px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f7f1e6;
+  border: 1px solid rgba(38, 34, 28, 0.2);
+  border-radius: 8px;
+}
+
+.prompt-box {
+  width: 100%;
+  max-width: 920px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: #fffaf2;
+  border: 2px solid var(--text);
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.prompt-box-label {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+
+.prompt-box pre {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lightbox-prompt {
+  max-width: min(96vw, 900px);
+  background: rgba(255, 250, 242, 0.95);
+  color: var(--text);
+}
+
 .progress-text {
   font-size: 12px;
   color: var(--text-2);

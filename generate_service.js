@@ -13,6 +13,7 @@ const jobStore = require('./generate_job_store');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const PRESETS_FILE = path.join(DATA_DIR, 'comfy_generate_presets.json');
+const SETTINGS_FILE = path.join(DATA_DIR, 'comfy_generate_settings.json');
 const OUTPUT_DIR = path.join(__dirname, 'public', 'uploads', 'generate');
 
 const CLOTHING_EXPAND_SYSTEM = `#角色
@@ -34,6 +35,42 @@ function ensureDirs() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
     jobStore.ensureJobsDir();
+}
+
+function defaultSettings() {
+    return {
+        clothingExpandSystem: CLOTHING_EXPAND_SYSTEM,
+        clothingExpandUserTemplate:
+            '用户的需求为：{scene}\n\n请生成 {count} 个图片变体，每个变体只写服饰、动作、构图、光影与氛围（英文 tag），用 --- 分隔。不要输出角色外貌特征，不要编号标题。'
+    };
+}
+
+function readSettings() {
+    ensureDirs();
+    const defaults = defaultSettings();
+    try {
+        const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8') || '{}');
+        return {
+            clothingExpandSystem: String(parsed.clothingExpandSystem || defaults.clothingExpandSystem),
+            clothingExpandUserTemplate: String(
+                parsed.clothingExpandUserTemplate || defaults.clothingExpandUserTemplate
+            )
+        };
+    } catch (_) {
+        return defaults;
+    }
+}
+
+function writeSettings(input = {}) {
+    ensureDirs();
+    const defaults = defaultSettings();
+    const next = {
+        clothingExpandSystem: String(input.clothingExpandSystem || '').trim() || defaults.clothingExpandSystem,
+        clothingExpandUserTemplate:
+            String(input.clothingExpandUserTemplate || '').trim() || defaults.clothingExpandUserTemplate
+    };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8');
+    return next;
 }
 
 function defaultPresetShape() {
@@ -156,9 +193,12 @@ function splitManualPrompts(text) {
 
 async function expandClothingPrompts({ scene, count }) {
     const n = Math.max(1, Math.min(30, Math.round(Number(count) || 1)));
-    const userContent = `用户的需求为：${String(scene || '').trim()}\n\n请生成 ${n} 个图片变体，每个变体只写服饰、动作、构图、光影与氛围（英文 tag），用 --- 分隔。不要输出角色外貌特征，不要编号标题。`;
+    const settings = readSettings();
+    const userContent = String(settings.clothingExpandUserTemplate || '')
+        .replace(/\{scene\}/g, String(scene || '').trim())
+        .replace(/\{count\}/g, String(n));
     const messages = [
-        { role: 'system', content: CLOTHING_EXPAND_SYSTEM },
+        { role: 'system', content: settings.clothingExpandSystem || CLOTHING_EXPAND_SYSTEM },
         { role: 'user', content: userContent }
     ];
     const provider = process.env.GENERATE_LLM_PROVIDER || 'deepseek';
@@ -378,6 +418,9 @@ module.exports = {
     CLOTHING_EXPAND_SYSTEM,
     ensureDirs,
     defaultPresetShape,
+    defaultSettings,
+    readSettings,
+    writeSettings,
     readPresets,
     writePresets,
     upsertPreset,
@@ -387,6 +430,7 @@ module.exports = {
     expandClothingPrompts,
     runGenerateJob,
     PRESETS_FILE,
+    SETTINGS_FILE,
     OUTPUT_DIR,
     jobStore
 };

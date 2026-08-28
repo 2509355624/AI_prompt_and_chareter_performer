@@ -41,6 +41,7 @@ data/comfy_workflow_settings.json
 data/characters.local.json
 data/comfy_generate_presets.json
 data/comfy_generate_jobs/
+data/comfy_generate_settings.json
 public/uploads/
 !public/uploads/.gitkeep
 !public/uploads/chat_images/
