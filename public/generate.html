@@ -176,6 +176,7 @@
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
         const PLACEHOLDER_MANUAL = '粘贴多条服饰动作 prompt，用 --- 分隔，例如：\\nwhite lace dress, sitting on bench...\\n---\\nnavy swimsuit, pool edge...';
+        const SESSION_KEY = 'comfy_generate_session_v1';
 
         const state = {
             presets: [],
@@ -188,7 +189,10 @@
             lightboxIndex: 0,
             exportDirHandle: null,
             generating: false,
-            framePreset: 'paper-collage'
+            framePreset: 'paper-collage',
+            jobId: '',
+            pollTimer: null,
+            resultsRenderToken: 0
         };
 
         const $ = (id) => document.getElementById(id);
@@ -228,6 +232,198 @@
         function currentMode() {
             const checked = document.querySelector('input[name="promptMode"]:checked');
             return checked ? checked.value : 'ai';
+        }
+
+        function loadSession() {
+            try {
+                return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function saveSession(patch = {}) {
+            const prev = loadSession() || {};
+            const images = (patch.images !== undefined ? patch.images : (state.images || []))
+                .map((img) => ({
+                    url: img.url,
+                    prompt: img.prompt || '',
+                    selected: img.selected !== false
+                }));
+            const next = {
+                ...prev,
+                ...patch,
+                activePresetId: patch.activePresetId !== undefined ? patch.activePresetId : state.activePresetId,
+                mode: patch.mode !== undefined ? patch.mode : currentMode(),
+                scene: patch.scene !== undefined ? patch.scene : (els.sceneInput.value || ''),
+                count: patch.count !== undefined ? patch.count : (Number(els.countInput.value) || 1),
+                viewMode: patch.viewMode !== undefined ? patch.viewMode : state.viewMode,
+                framePreset: patch.framePreset !== undefined ? patch.framePreset : state.framePreset,
+                jobId: patch.jobId !== undefined ? patch.jobId : (state.jobId || ''),
+                status: patch.status !== undefined ? patch.status : prev.status || 'idle',
+                progressText: patch.progressText !== undefined ? patch.progressText : (els.progressText.textContent || ''),
+                images,
+                savedAt: Date.now()
+            };
+            try {
+                localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+            } catch (e) {
+                console.warn('session save failed', e);
+            }
+            return next;
+        }
+
+        function stopJobPoll() {
+            if (state.pollTimer) {
+                clearInterval(state.pollTimer);
+                state.pollTimer = null;
+            }
+        }
+
+        function applyImagesFromJob(images, opts = {}) {
+            state.images = (images || []).map((img) => ({
+                url: img.url,
+                prompt: img.prompt || '',
+                selected: img.selected !== false
+            }));
+            if (opts.resetIndex !== false) state.singleIndex = 0;
+            return refreshResults();
+        }
+
+        async function applyJobSnapshot(job, opts = {}) {
+            if (!job) return;
+            if (job.id) state.jobId = job.id;
+            if (job.message) els.progressText.textContent = job.message;
+            if (job.status === 'running') {
+                state.generating = true;
+                els.btnGenerate.disabled = true;
+                if (Array.isArray(job.images) && job.images.length && !state.images.length) {
+                    await applyImagesFromJob(job.images, { resetIndex: false });
+                }
+                saveSession({
+                    status: 'running',
+                    jobId: job.id,
+                    progressText: job.message || '任务进行中…',
+                    scene: job.scene || els.sceneInput.value,
+                    mode: job.mode || currentMode(),
+                    count: job.count || Number(els.countInput.value) || 1
+                });
+                return;
+            }
+            if (job.status === 'done') {
+                stopJobPoll();
+                state.generating = false;
+                els.btnGenerate.disabled = false;
+                await applyImagesFromJob(job.images || []);
+                const sec = Math.round((job.elapsedMs || 0) / 1000);
+                const msg = `完成 ${(job.images || []).length} 张` +
+                    (sec ? ` · ${sec}s` : '') +
+                    (job.source ? ` · ${job.source}` : '');
+                els.progressText.textContent = msg;
+                saveSession({
+                    status: 'done',
+                    jobId: job.id,
+                    progressText: msg,
+                    images: state.images,
+                    batchId: job.batchId || ''
+                });
+                if (opts.alertDone) {
+                    // silent restore
+                }
+                return;
+            }
+            if (job.status === 'error') {
+                stopJobPoll();
+                state.generating = false;
+                els.btnGenerate.disabled = false;
+                els.progressText.textContent = '';
+                saveSession({
+                    status: 'error',
+                    jobId: job.id,
+                    progressText: '',
+                    error: job.error || '生成失败'
+                });
+                if (opts.alertError) alert('生成失败：' + (job.error || '未知错误'));
+            }
+        }
+
+        function startJobPoll(jobId) {
+            stopJobPoll();
+            if (!jobId) return;
+            const tick = async () => {
+                try {
+                    const res = await fetch(`/api/comfy/generate-jobs/${encodeURIComponent(jobId)}`);
+                    const data = await res.json();
+                    if (!res.ok || !data.ok || !data.job) return;
+                    await applyJobSnapshot(data.job, { alertError: true });
+                    if (data.job.status !== 'running') stopJobPoll();
+                } catch (e) {
+                    console.warn('job poll failed', e);
+                }
+            };
+            tick();
+            state.pollTimer = setInterval(tick, 2000);
+        }
+
+        async function restoreSession() {
+            const session = loadSession();
+            let jobId = session?.jobId || '';
+
+            if (session) {
+                if (session.mode === 'manual' || session.mode === 'ai') {
+                    const radio = document.querySelector(`input[name="promptMode"][value="${session.mode}"]`);
+                    if (radio) radio.checked = true;
+                    syncModeUi();
+                }
+                if (typeof session.scene === 'string') els.sceneInput.value = session.scene;
+                if (session.count) els.countInput.value = session.count;
+                if (session.viewMode === 'grid' || session.viewMode === 'single') {
+                    state.viewMode = session.viewMode;
+                    syncViewToggle();
+                }
+                if (session.framePreset && els.framePresetSelect.querySelector(`option[value="${session.framePreset}"]`)) {
+                    els.framePresetSelect.value = session.framePreset;
+                    state.framePreset = session.framePreset;
+                }
+                if (session.activePresetId && state.presets.some((p) => p.id === session.activePresetId)) {
+                    await selectPreset(session.activePresetId);
+                }
+                if (Array.isArray(session.images) && session.images.length) {
+                    await applyImagesFromJob(session.images);
+                }
+                if (session.progressText && session.status === 'done') {
+                    els.progressText.textContent = session.progressText;
+                }
+            }
+
+            // Prefer live server job over stale local "running"
+            try {
+                const activeRes = await fetch('/api/comfy/generate-jobs/active');
+                const activeData = await activeRes.json();
+                if (activeData.ok && activeData.job) {
+                    jobId = activeData.job.id;
+                    await applyJobSnapshot(activeData.job);
+                    startJobPoll(jobId);
+                    return;
+                }
+            } catch (_) {}
+
+            if (jobId) {
+                try {
+                    const res = await fetch(`/api/comfy/generate-jobs/${encodeURIComponent(jobId)}`);
+                    const data = await res.json();
+                    if (res.ok && data.ok && data.job) {
+                        await applyJobSnapshot(data.job, { alertError: false });
+                        if (data.job.status === 'running') startJobPoll(jobId);
+                        return;
+                    }
+                } catch (_) {}
+            }
+
+            if (session?.status === 'running' && !jobId) {
+                els.progressText.textContent = '上次任务状态未知（可重新生成）';
+                saveSession({ status: 'idle' });
+            }
         }
 
         function syncModeUi() {
@@ -336,6 +532,7 @@
             } catch (_) {}
             renderPresetList();
             applyPresetToForm(activePreset());
+            saveSession({ activePresetId: id });
         }
 
         async function loadPresets() {
@@ -571,22 +768,43 @@
                     } catch (_) {
                         continue;
                     }
+                    if (payload.jobId) {
+                        state.jobId = payload.jobId;
+                        saveSession({
+                            status: 'running',
+                            jobId: payload.jobId,
+                            progressText: payload.message || els.progressText.textContent
+                        });
+                    }
                     if (payload.message) {
                         els.progressText.textContent = payload.message;
                     } else if (payload.phase === 'expanding') {
                         els.progressText.textContent = 'AI 扩写中…';
-                    } else if (payload.phase === 'generating' || payload.phase === 'queued') {
+                    } else if (payload.phase === 'generating' || payload.phase === 'queued' || payload.phase === 'job') {
                         els.progressText.textContent = payload.message || 'Comfy 生成中…';
+                    }
+                    if (payload.message || payload.phase) {
+                        saveSession({
+                            status: 'running',
+                            jobId: state.jobId,
+                            progressText: els.progressText.textContent
+                        });
                     }
                     if (payload.phase === 'done' && payload.ok !== false && payload.images) {
                         finalPayload = payload;
                     }
                     if (payload.phase === 'error') {
-                        throw new Error(payload.error || '生成失败');
+                        const err = new Error(payload.error || '生成失败');
+                        err.jobId = payload.jobId || state.jobId;
+                        throw err;
                     }
                 }
             }
-            if (!finalPayload) throw new Error('生成结束但未收到结果');
+            if (!finalPayload) {
+                const err = new Error(state.jobId ? '__RESUME__' : '生成结束但未收到结果');
+                err.resume = Boolean(state.jobId);
+                throw err;
+            }
             return finalPayload;
         }
 
@@ -606,10 +824,21 @@
                 return;
             }
 
+            stopJobPoll();
             state.generating = true;
+            state.jobId = '';
             els.btnGenerate.disabled = true;
             setComposerOpen(false);
             els.progressText.textContent = mode === 'ai' ? 'AI 扩写中…' : '提交 Comfy…';
+            saveSession({
+                status: 'running',
+                jobId: '',
+                scene,
+                mode,
+                count: Number(els.countInput.value) || 1,
+                activePresetId: preset.id,
+                progressText: els.progressText.textContent
+            });
 
             try {
                 const res = await fetch('/api/comfy/generate?stream=1', {
@@ -632,6 +861,7 @@
                     try {
                         const errData = await res.json();
                         errMsg = errData.error || errMsg;
+                        if (errData.jobId) state.jobId = errData.jobId;
                     } catch (_) {}
                     throw new Error(errMsg);
                 }
@@ -645,6 +875,7 @@
                     if (!data.ok) throw new Error(data.error || '生成失败');
                 }
 
+                if (data.jobId) state.jobId = data.jobId;
                 state.images = (data.images || []).map((img) => ({
                     url: img.url,
                     prompt: img.prompt || '',
@@ -654,13 +885,36 @@
                 const sec = Math.round((data.elapsedMs || 0) / 1000);
                 els.progressText.textContent = `完成 ${state.images.length} 张 · ${sec}s` +
                     (data.source ? ` · ${data.source}` : '');
+                saveSession({
+                    status: 'done',
+                    jobId: state.jobId,
+                    images: state.images,
+                    batchId: data.batchId || '',
+                    progressText: els.progressText.textContent
+                });
                 await refreshResults();
             } catch (e) {
+                if (e.resume || e.message === '__RESUME__' || (state.jobId && /network|fetch|abort/i.test(String(e.message || e.name || '')))) {
+                    els.progressText.textContent = '连接中断，正在跟踪后台任务…';
+                    saveSession({ status: 'running', jobId: state.jobId, progressText: els.progressText.textContent });
+                    startJobPoll(state.jobId);
+                    return;
+                }
                 els.progressText.textContent = '';
+                saveSession({
+                    status: 'error',
+                    jobId: state.jobId || e.jobId || '',
+                    progressText: '',
+                    error: e.message
+                });
                 alert('生成失败：' + e.message);
-            } finally {
                 state.generating = false;
                 els.btnGenerate.disabled = false;
+            } finally {
+                if (!state.pollTimer) {
+                    state.generating = false;
+                    els.btnGenerate.disabled = false;
+                }
             }
         }
 
@@ -790,13 +1044,18 @@
 
         function bind() {
             document.querySelectorAll('input[name="promptMode"]').forEach((el) => {
-                el.addEventListener('change', syncModeUi);
+                el.addEventListener('change', () => {
+                    syncModeUi();
+                    saveSession({ mode: currentMode() });
+                });
             });
             $('btnCountMinus').addEventListener('click', () => {
                 els.countInput.value = Math.max(1, Number(els.countInput.value) - 1);
+                saveSession({ count: Number(els.countInput.value) || 1 });
             });
             $('btnCountPlus').addEventListener('click', () => {
                 els.countInput.value = Math.min(30, Number(els.countInput.value) + 1);
+                saveSession({ count: Number(els.countInput.value) || 1 });
             });
             els.btnGenerate.addEventListener('click', onGenerate);
             $('btnNewPreset').addEventListener('click', newPreset);
@@ -819,11 +1078,13 @@
             els.btnViewGrid.addEventListener('click', () => {
                 state.viewMode = 'grid';
                 syncViewToggle();
+                saveSession({ viewMode: 'grid' });
                 refreshResults();
             });
             els.btnViewSingle.addEventListener('click', () => {
                 state.viewMode = 'single';
                 syncViewToggle();
+                saveSession({ viewMode: 'single' });
                 refreshResults();
             });
             $('btnPrev').addEventListener('click', () => {
@@ -870,11 +1131,26 @@
             });
             els.framePresetSelect.addEventListener('change', () => {
                 state.framePreset = els.framePresetSelect.value;
+                saveSession({ framePreset: state.framePreset });
                 refreshResults();
             });
             $('btnPickFolder').addEventListener('click', pickFolder);
             els.exportFolderPath.addEventListener('input', () => { state.exportDirHandle = null; });
             $('btnExport').addEventListener('click', exportSelected);
+
+            let draftTimer = null;
+            const persistDraft = () => {
+                clearTimeout(draftTimer);
+                draftTimer = setTimeout(() => {
+                    saveSession({
+                        scene: els.sceneInput.value,
+                        mode: currentMode(),
+                        count: Number(els.countInput.value) || 1
+                    });
+                }, 400);
+            };
+            els.sceneInput.addEventListener('input', persistDraft);
+            els.countInput.addEventListener('change', persistDraft);
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
@@ -893,6 +1169,7 @@
             try {
                 await loadOptions();
                 await loadPresets();
+                await restoreSession();
             } catch (e) {
                 console.error(e);
                 alert('初始化失败：' + e.message);

@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const aiService = require('./ai_service');
 const comfyClient = require('./comfy_client');
 const chatImageConfig = require('./chat_image_config');
+const jobStore = require('./generate_job_store');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const PRESETS_FILE = path.join(DATA_DIR, 'comfy_generate_presets.json');
@@ -32,6 +33,7 @@ floral summer sundress, thin spaghetti straps, sitting, park bench, front view, 
 function ensureDirs() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+    jobStore.ensureJobsDir();
 }
 
 function defaultPresetShape() {
@@ -202,14 +204,12 @@ async function runGenerateJob({
     scene = '',
     count = 1,
     overrides = {},
-    onProgress = null
+    onProgress = null,
+    jobId = null
 }) {
-    const progress = (payload) => {
-        if (typeof onProgress === 'function') onProgress(payload);
-    };
-
+    const startedAt = Date.now();
     ensureDirs();
-    progress({ phase: 'validating', message: '检查预设…' });
+
     const state = readPresets();
     const preset = state.presets.find((p) => p.id === (presetId || state.activePresetId));
     if (!preset) {
@@ -219,67 +219,159 @@ async function runGenerateJob({
         throw new Error('当前预设缺少底模 basePrompt，请在右侧配置中填写');
     }
 
-    let clothingPrompts;
-    let expandRaw = '';
-    if (mode === 'manual') {
-        clothingPrompts = splitManualPrompts(scene);
-        if (!clothingPrompts.length) {
-            throw new Error('手动 Prompt 为空，请用 --- 分隔多条服饰动作提示词');
-        }
-        progress({ phase: 'manual', message: `手动 Prompt：${clothingPrompts.length} 条` });
-    } else {
-        if (!String(scene || '').trim()) {
-            throw new Error('请先填写场景描述');
-        }
-        progress({ phase: 'expanding', message: 'AI 扩写服饰动作中…' });
-        const expanded = await expandClothingPrompts({ scene, count });
-        clothingPrompts = expanded.prompts;
-        expandRaw = expanded.raw;
-        progress({
-            phase: 'expanded',
-            message: `AI 扩写完成：${clothingPrompts.length} 条，准备提交 Comfy…`,
-            clothingCount: clothingPrompts.length
+    let job = jobId ? jobStore.readJob(jobId) : null;
+    if (!job) {
+        job = jobStore.createJob({
+            presetId: preset.id,
+            presetName: preset.name,
+            mode: mode === 'manual' ? 'manual' : 'ai',
+            scene,
+            count
         });
+    } else {
+        job = jobStore.updateJob(job.id, {
+            status: 'running',
+            phase: 'starting',
+            message: '任务继续…',
+            presetId: preset.id,
+            presetName: preset.name,
+            mode: mode === 'manual' ? 'manual' : 'ai',
+            scene,
+            count,
+            error: null,
+            finishedAt: null
+        }) || job;
     }
 
-    const batchId = `gen_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-    const destDir = path.join(OUTPUT_DIR, batchId);
-    fs.mkdirSync(destDir, { recursive: true });
-
-    const comfyOptions = presetToComfyOptions(preset, overrides);
-    const result = await comfyClient.generateBatchToDir({
-        ...comfyOptions,
-        multiPrompts: clothingPrompts,
-        turnPrompt: clothingPrompts,
-        onProgress: progress
-    }, destDir);
-
-    const images = (result.files || []).map((f, i) => ({
-        index: i + 1,
-        name: f.name,
-        url: `/uploads/generate/${batchId}/${f.name}`,
-        prompt: clothingPrompts[i] || ''
-    }));
-
-    progress({
-        phase: 'done',
-        message: `完成 ${images.length} 张`,
-        imageCount: images.length
-    });
-
-    return {
-        ok: true,
-        batchId,
-        presetId: preset.id,
-        presetName: preset.name,
-        mode,
-        promptId: result.promptId,
-        seed: result.seed,
-        source: result.source,
-        clothingPrompts,
-        expandRaw,
-        images
+    const progress = (payload) => {
+        const patch = {
+            phase: payload.phase || job.phase,
+            message: payload.message || '',
+            elapsedMs: Date.now() - startedAt
+        };
+        if (payload.batchId) patch.batchId = payload.batchId;
+        if (payload.promptId) patch.promptId = payload.promptId;
+        if (Array.isArray(payload.images)) patch.images = payload.images;
+        if (Array.isArray(payload.clothingPrompts)) patch.clothingPrompts = payload.clothingPrompts;
+        if (payload.source) patch.source = payload.source;
+        jobStore.updateJob(job.id, patch);
+        if (typeof onProgress === 'function') {
+            onProgress({ ...payload, jobId: job.id, elapsedMs: patch.elapsedMs });
+        }
     };
+
+    progress({ phase: 'job', jobId: job.id, message: '任务已登记，可离开页面稍后回来查看' });
+
+    try {
+        let clothingPrompts;
+        let expandRaw = '';
+        if (mode === 'manual') {
+            clothingPrompts = splitManualPrompts(scene);
+            if (!clothingPrompts.length) {
+                throw new Error('手动 Prompt 为空，请用 --- 分隔多条服饰动作提示词');
+            }
+            progress({ phase: 'manual', message: `手动 Prompt：${clothingPrompts.length} 条`, clothingPrompts });
+        } else {
+            if (!String(scene || '').trim()) {
+                throw new Error('请先填写场景描述');
+            }
+            progress({ phase: 'expanding', message: 'AI 扩写服饰动作中…' });
+            const expanded = await expandClothingPrompts({ scene, count });
+            clothingPrompts = expanded.prompts;
+            expandRaw = expanded.raw;
+            progress({
+                phase: 'expanded',
+                message: `AI 扩写完成：${clothingPrompts.length} 条，准备提交 Comfy…`,
+                clothingCount: clothingPrompts.length,
+                clothingPrompts
+            });
+        }
+
+        const batchId = `gen_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+        const destDir = path.join(OUTPUT_DIR, batchId);
+        fs.mkdirSync(destDir, { recursive: true });
+        jobStore.updateJob(job.id, { batchId });
+        progress({ phase: 'queued', message: '提交 Comfy 生成…', batchId });
+
+        const comfyOptions = presetToComfyOptions(preset, overrides);
+        const result = await comfyClient.generateBatchToDir({
+            ...comfyOptions,
+            multiPrompts: clothingPrompts,
+            turnPrompt: clothingPrompts,
+            onProgress: progress
+        }, destDir);
+
+        const images = (result.files || []).map((f, i) => ({
+            index: i + 1,
+            name: f.name,
+            url: `/uploads/generate/${batchId}/${f.name}`,
+            prompt: clothingPrompts[i] || ''
+        }));
+
+        const elapsedMs = Date.now() - startedAt;
+        jobStore.updateJob(job.id, {
+            status: 'done',
+            phase: 'done',
+            message: `完成 ${images.length} 张`,
+            batchId,
+            promptId: result.promptId || null,
+            images,
+            clothingPrompts,
+            source: result.source || null,
+            elapsedMs,
+            finishedAt: Date.now(),
+            error: null
+        });
+
+        progress({
+            phase: 'done',
+            message: `完成 ${images.length} 张`,
+            imageCount: images.length,
+            images,
+            clothingPrompts,
+            batchId,
+            promptId: result.promptId,
+            source: result.source
+        });
+
+        return {
+            ok: true,
+            jobId: job.id,
+            batchId,
+            presetId: preset.id,
+            presetName: preset.name,
+            mode,
+            promptId: result.promptId,
+            seed: result.seed,
+            source: result.source,
+            clothingPrompts,
+            expandRaw,
+            images,
+            elapsedMs
+        };
+    } catch (e) {
+        const elapsedMs = Date.now() - startedAt;
+        jobStore.updateJob(job.id, {
+            status: 'error',
+            phase: 'error',
+            message: e.message || '生成失败',
+            error: e.message || '生成失败',
+            elapsedMs,
+            finishedAt: Date.now()
+        });
+        if (typeof onProgress === 'function') {
+            onProgress({
+                phase: 'error',
+                ok: false,
+                jobId: job.id,
+                error: e.message || '生成失败',
+                elapsedMs
+            });
+        }
+        const err = e instanceof Error ? e : new Error(String(e));
+        err.jobId = job.id;
+        throw err;
+    }
 }
 
 module.exports = {
@@ -295,5 +387,6 @@ module.exports = {
     expandClothingPrompts,
     runGenerateJob,
     PRESETS_FILE,
-    OUTPUT_DIR
+    OUTPUT_DIR,
+    jobStore
 };

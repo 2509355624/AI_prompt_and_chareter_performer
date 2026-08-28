@@ -40,6 +40,7 @@ data/emotion_history.json
 data/comfy_workflow_settings.json
 data/characters.local.json
 data/comfy_generate_presets.json
+data/comfy_generate_jobs/
 public/uploads/
 !public/uploads/.gitkeep
 !public/uploads/chat_images/

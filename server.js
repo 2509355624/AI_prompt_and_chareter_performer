@@ -841,6 +841,38 @@ app.get('/api/comfy/upscale-models', async (req, res) => {
     }
 });
 
+app.get('/api/comfy/generate-jobs', (req, res) => {
+    try {
+        const limit = Number(req.query.limit) || 10;
+        const jobs = generateService.jobStore.listRecentJobs(limit);
+        const active = generateService.jobStore.findActiveJob();
+        res.json({ ok: true, jobs, active });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.get('/api/comfy/generate-jobs/active', (req, res) => {
+    try {
+        const active = generateService.jobStore.findActiveJob();
+        res.json({ ok: true, job: active });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.get('/api/comfy/generate-jobs/:id', (req, res) => {
+    try {
+        const job = generateService.jobStore.publicJob(
+            generateService.jobStore.readJob(req.params.id)
+        );
+        if (!job) return res.status(404).json({ ok: false, error: '任务不存在' });
+        res.json({ ok: true, job });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 app.post('/api/comfy/generate', async (req, res) => {
     const started = Date.now();
     const body = req.body || {};
@@ -856,8 +888,13 @@ app.post('/api/comfy/generate', async (req, res) => {
         if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
         const send = (obj) => {
-            if (res.writableEnded) return;
-            res.write(`data: ${JSON.stringify({ ...obj, elapsedMs: Date.now() - started })}\n\n`);
+            if (res.writableEnded || res.destroyed) return;
+            try {
+                res.write(`data: ${JSON.stringify({
+                    ...obj,
+                    elapsedMs: obj.elapsedMs ?? (Date.now() - started)
+                })}\n\n`);
+            } catch (_) {}
         };
 
         try {
@@ -867,14 +904,17 @@ app.post('/api/comfy/generate', async (req, res) => {
                 scene: body.scene || body.prompt || '',
                 count: body.count,
                 overrides: body.overrides || {},
+                jobId: body.jobId || null,
                 onProgress: send
             });
             send({ phase: 'done', ok: true, ...result });
         } catch (e) {
             console.error('[ComfyGenerate]', e.message);
-            send({ phase: 'error', ok: false, error: e.message });
+            send({ phase: 'error', ok: false, error: e.message, jobId: e.jobId || null });
         }
-        if (!res.writableEnded) res.end();
+        if (!res.writableEnded) {
+            try { res.end(); } catch (_) {}
+        }
         return;
     }
 
@@ -884,12 +924,18 @@ app.post('/api/comfy/generate', async (req, res) => {
             mode: body.mode === 'manual' ? 'manual' : 'ai',
             scene: body.scene || body.prompt || '',
             count: body.count,
-            overrides: body.overrides || {}
+            overrides: body.overrides || {},
+            jobId: body.jobId || null
         });
         res.json({ ...result, elapsedMs: Date.now() - started });
     } catch (e) {
         console.error('[ComfyGenerate]', e.message);
-        res.status(502).json({ ok: false, error: e.message, elapsedMs: Date.now() - started });
+        res.status(502).json({
+            ok: false,
+            error: e.message,
+            jobId: e.jobId || null,
+            elapsedMs: Date.now() - started
+        });
     }
 });
 
