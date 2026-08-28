@@ -198,7 +198,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=7"></script>
+    <script src="js/sticker-frame.js?v=8"></script>
     <script>
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
@@ -855,6 +855,17 @@
             return enqueueFrameRender(async () => {
                 const img = await loadImage(url);
                 if (options.fullRes) {
+                    if (typeof StickerFrame.renderStickerFrameSafe === 'function') {
+                        const safe = StickerFrame.renderStickerFrameSafe(img, {
+                            preset: state.framePreset,
+                            caption: caption || '',
+                            previewMaxWidth: 0
+                        });
+                        if (safe.reason === 'still_corrupt') {
+                            throw new Error('边框渲染异常（下半发黑）');
+                        }
+                        return safe.canvas;
+                    }
                     return StickerFrame.renderStickerFrame(img, {
                         preset: state.framePreset,
                         caption: caption || '',

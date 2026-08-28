@@ -28,6 +28,18 @@ class ChatTurnStore {
         return this.turns.get(id) || null;
     }
 
+    /** Newest queued/running turn for a character (in-memory; lost on process restart). */
+    findActiveByCharacter(characterId) {
+        if (!characterId) return null;
+        let best = null;
+        for (const turn of this.turns.values()) {
+            if (turn.payload?.characterId !== characterId) continue;
+            if (turn.status !== 'queued' && turn.status !== 'running') continue;
+            if (!best || turn.createdAt > best.createdAt) best = turn;
+        }
+        return best;
+    }
+
     updateTurn(id, patch) {
         const turn = this.turns.get(id);
         if (!turn) return null;

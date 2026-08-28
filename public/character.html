@@ -536,7 +536,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=21">
+    <link rel="stylesheet" href="styles/character-paper.css?v=22">
 </head>
 <body>
 
@@ -889,7 +889,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="js/sticker-frame.js?v=7"></script>
+<script src="js/sticker-frame.js?v=8"></script>
 <script>
     // --- Global State ---
     let characters = [];
@@ -907,7 +907,42 @@
     const STICKER_FRAME_PRESET_KEY = 'chatStickerFramePreset';
     const SETTINGS_COLLAPSED_KEY = 'characterSettingsCollapsed';
     const TURN_MEMORY_STORE_MAX = 20;
+    const ROLEPLAY_SESSION_KEY_PREFIX = 'roleplay_active_session_';
     let stickerExportDirHandle = null;
+
+    function roleplaySessionKey(characterId) {
+        return `${ROLEPLAY_SESSION_KEY_PREFIX}${characterId || ''}`;
+    }
+
+    function loadRoleplaySession(characterId) {
+        if (!characterId) return null;
+        try {
+            const raw = localStorage.getItem(roleplaySessionKey(characterId));
+            if (!raw) return null;
+            const data = JSON.parse(raw);
+            return data && typeof data === 'object' ? data : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function saveRoleplaySession(characterId, patch) {
+        if (!characterId) return;
+        try {
+            const prev = loadRoleplaySession(characterId) || {};
+            const next = { ...prev, ...patch, characterId, updatedAt: Date.now() };
+            localStorage.setItem(roleplaySessionKey(characterId), JSON.stringify(next));
+        } catch (e) {
+            console.warn('roleplay session save failed', e);
+        }
+    }
+
+    function clearRoleplaySession(characterId) {
+        if (!characterId) return;
+        try {
+            localStorage.removeItem(roleplaySessionKey(characterId));
+        } catch (_) {}
+    }
 
     function normalizeTurnMemory(raw) {
         if (!Array.isArray(raw)) return [];
@@ -1395,13 +1430,29 @@
 
         try {
             const img = await loadImageForExport(msg.imageUrl);
-            const canvas = StickerFrame.renderStickerFrame(img, {
-                preset,
-                caption: '',
-                glassBg: (preset === 'paper-collage' || preset === 'apple-glass') ? true : undefined,
-                previewMaxWidth: 0,
-                outputWidth: 0
-            });
+            const rendered = StickerFrame.renderStickerFrameSafe
+                ? StickerFrame.renderStickerFrameSafe(img, {
+                    preset,
+                    caption: '',
+                    glassBg: (preset === 'paper-collage' || preset === 'apple-glass') ? true : undefined,
+                    previewMaxWidth: 0,
+                    outputWidth: 0
+                })
+                : {
+                    canvas: StickerFrame.renderStickerFrame(img, {
+                        preset,
+                        caption: '',
+                        glassBg: (preset === 'paper-collage' || preset === 'apple-glass') ? true : undefined,
+                        previewMaxWidth: 0,
+                        outputWidth: 0
+                    }),
+                    degraded: false,
+                    reason: ''
+                };
+            const canvas = rendered.canvas;
+            if (rendered.reason === 'still_corrupt') {
+                throw new Error('边框渲染异常（下半发黑）。请换较小边框预设，或到「加框」页用原图重新导出。');
+            }
             const blob = await canvasToPngBlob(canvas);
 
             if (stickerExportDirHandle) {
@@ -2008,6 +2059,13 @@
     }
     
     async function selectCharacter(characterId) {
+        // Leaving a character: keep server jobs running, only drop local SSE handles
+        closeChatTurnStream();
+        for (const jobId of [...imageJobStreams.keys()]) {
+            closeImageJobStream(jobId);
+        }
+        activeChatTurn = null;
+
         currentCharacter = characters.find(c => c.id === characterId);
         if (!currentCharacter) return;
         
@@ -2050,12 +2108,158 @@
         renderCharactersList(); // Update selection highlight
         updateMobileCharChip(currentCharacter);
         if (isMobileShellActive()) closeMobileDrawers();
+
+        await restoreRoleplayInFlight(characterId);
         
         // Scroll to bottom
         setTimeout(() => {
             const history = document.getElementById('charChatHistory');
             history.scrollTop = history.scrollHeight;
         }, 100);
+    }
+
+    /**
+     * After refresh / leave-and-return: reconnect to in-flight chat turn + image jobs.
+     * Backend jobs keep running; the UI just lost the SSE subscription and ephemeral state.
+     */
+    async function restoreRoleplayInFlight(characterId) {
+        if (!characterId || !currentCharacter || currentCharacter.id !== characterId) return;
+
+        const session = loadRoleplaySession(characterId);
+        let turnId = session?.turnId || '';
+        let userText = session?.userText || '';
+        let previousVisual = session?.previousVisual || null;
+
+        // Prefer live server turn over stale localStorage
+        try {
+            const activeRes = await fetch(`/api/chat-turn/active?characterId=${encodeURIComponent(characterId)}`);
+            const activeData = await activeRes.json();
+            if (activeData.ok && activeData.turn?.id) {
+                turnId = activeData.turn.id;
+                if (!userText) {
+                    const msgs = characterChatMessages.filter((m) => m.role === 'user');
+                    userText = msgs.length ? msgs[msgs.length - 1].content : '';
+                }
+                if (!previousVisual) previousVisual = getLastVisualContext();
+            }
+        } catch (_) {}
+
+        if (turnId) {
+            try {
+                const res = await fetch(`/api/chat-turn/${encodeURIComponent(turnId)}`);
+                const data = await res.json();
+                if (res.ok && data.ok && data.turn) {
+                    const turn = data.turn;
+                    if (turn.status === 'queued' || turn.status === 'running') {
+                        if (!userText) {
+                            const msgs = characterChatMessages.filter((m) => m.role === 'user');
+                            userText = msgs.length ? msgs[msgs.length - 1].content : '';
+                        }
+                        activeChatTurn = {
+                            turnId,
+                            phase: turn.phase || 'starting',
+                            thinkingText: turn.thinkingText || '',
+                            replyText: turn.replyText || '',
+                            thinkingOpen: false
+                        };
+                        renderCharacterChat();
+                        subscribeChatTurnStream(turnId, userText, previousVisual || getLastVisualContext());
+                    } else if (turn.status === 'completed' && turn.result) {
+                        // Turn finished while UI was away — finalize into history + kick image if needed
+                        const last = characterChatMessages[characterChatMessages.length - 1];
+                        const alreadyFinalized = last?.role === 'assistant'
+                            && String(last.content || '') === String(turn.result.reply || '');
+                        if (!alreadyFinalized) {
+                            finalizeChatTurnResult(
+                                turn.result,
+                                userText,
+                                turn.thinkingText || '',
+                                previousVisual || getLastVisualContext()
+                            );
+                        }
+                        clearRoleplaySession(characterId);
+                    } else if (turn.status === 'failed') {
+                        clearRoleplaySession(characterId);
+                    }
+                } else if (res.status === 404) {
+                    clearRoleplaySession(characterId);
+                }
+            } catch (e) {
+                console.warn('[restore] chat turn reconnect failed', e);
+            }
+        }
+
+        // Reattach image jobs for messages still pending / missing result
+        for (const msg of characterChatMessages) {
+            if (msg.role !== 'assistant') continue;
+            if (msg.imageUrl && msg.imageStatus === 'ready') continue;
+
+            const looksPending = ['queued', 'pending', 'running', 'waiting_vram', ''].includes(msg.imageStatus || '')
+                || Boolean(msg.imageJobId);
+            if (!looksPending && msg.imageStatus !== 'failed') continue;
+
+            let jobId = msg.imageJobId || '';
+            if (!jobId && msg.id) {
+                try {
+                    const byMsg = await fetch(`/api/image-jobs/by-message/${encodeURIComponent(msg.id)}`);
+                    const byData = await byMsg.json();
+                    if (byData.ok && byData.job?.id) {
+                        jobId = byData.job.id;
+                        msg.imageJobId = jobId;
+                    }
+                } catch (_) {}
+            }
+
+            if (!jobId) continue;
+
+            try {
+                const jobRes = await fetch(`/api/image-jobs/${encodeURIComponent(jobId)}`);
+                const jobData = await jobRes.json();
+                if (!jobRes.ok || !jobData.ok || !jobData.job) {
+                    if (jobRes.status === 404) msg.imageJobId = '';
+                    continue;
+                }
+                const job = jobData.job;
+                msg.imageJobId = job.id;
+                if (job.status === 'completed' && job.result) {
+                    applyImageJobResult(msg, job.result);
+                    renderCharacterChat();
+                    await saveChatHistory();
+                } else if (job.status === 'failed') {
+                    msg.imageStatus = 'failed';
+                    msg.imageError = job.error || '出图失败';
+                    renderCharacterChat();
+                    await saveChatHistory();
+                } else {
+                    msg.imageStatus = job.status === 'queued' ? 'queued' : 'running';
+                    renderCharacterChat();
+                    subscribeImageJobStream(job.id, msg.id);
+                }
+            } catch (e) {
+                console.warn('[restore] image job reconnect failed', e);
+            }
+        }
+
+        // Also pick up active jobs not yet linked in saved history (race: left before imageJobId saved)
+        try {
+            const activeImg = await fetch(`/api/image-jobs/active?characterId=${encodeURIComponent(characterId)}`);
+            const activeImgData = await activeImg.json();
+            if (activeImgData.ok && Array.isArray(activeImgData.jobs)) {
+                for (const job of activeImgData.jobs) {
+                    if (!job.messageId || !job.id) continue;
+                    const msg = characterChatMessages.find((m) => m.id === job.messageId);
+                    if (!msg) continue;
+                    if (msg.imageUrl && msg.imageStatus === 'ready') continue;
+                    msg.imageJobId = job.id;
+                    msg.imageStatus = job.status === 'queued' ? 'queued' : 'running';
+                    renderCharacterChat();
+                    if (!imageJobStreams.has(job.id)) {
+                        subscribeImageJobStream(job.id, msg.id);
+                    }
+                    await saveChatHistory();
+                }
+            }
+        } catch (_) {}
     }
     
     function chatTurnPhaseLabel(phase) {
@@ -2141,6 +2345,7 @@
 
         activeChatTurn = null;
         closeChatTurnStream();
+        if (currentCharacter) clearRoleplaySession(currentCharacter.id);
         renderCharacterChat();
         saveChatHistory();
         requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual, userText);
@@ -2164,6 +2369,7 @@
                 replyText: `Error: ${message}`,
                 thinkingOpen: activeChatTurn?.thinkingOpen
             };
+            if (currentCharacter) clearRoleplaySession(currentCharacter.id);
             closeChatTurnStream();
             renderCharacterChat();
         };
@@ -2274,6 +2480,7 @@
         });
         closeChatTurnStream();
         activeChatTurn = null;
+        if (currentCharacter) clearRoleplaySession(currentCharacter.id);
         characterChatMessages = characterChatMessages.slice(0, index);
         syncTurnMemoryToMessages();
         rebuildVisualCacheFromHistory();
@@ -2410,8 +2617,8 @@
                     imageBlock = `<div class="image-pending">${escapeHtml(imageStatusLabel(msg))}</div>`;
                 }
                 const hasReadyImage = Boolean(msg.imageUrl && msg.imageStatus === 'ready');
-                const canRerender = Boolean(msg.id) && (hasReadyImage || msg.imageStatus === 'failed');
-                const showImageTools = hasReadyImage || canShowLog || canRerender;
+                const canRegenImage = Boolean(msg.id) && (hasReadyImage || msg.imageStatus === 'failed');
+                const showImageTools = hasReadyImage || canShowLog || canRegenImage;
                 const thinkingPast = msg.debugInfo?.thinkingText
                     ? `<details class="thinking-fold thinking-fold--past"><summary>思考过程</summary><pre class="thinking-text">${escapeHtml(msg.debugInfo.thinkingText)}</pre></details>`
                     : '';
@@ -2423,7 +2630,8 @@
                         ${escapeHtml(msg.content).replace(/\n/g, '<br>')}
                         ${imageBlock}
                         ${showImageTools ? `<div class="msg-image-tools">
-                            ${canRerender ? `<button type="button" class="debug-btn debug-btn-rerender" onclick="retryCharacterImage('${escapeHtml(msg.id)}')">重新渲染</button>` : ''}
+                            ${hasReadyImage ? `<button type="button" class="debug-btn debug-btn-reload" onclick="reloadCharacterChatImage('${escapeHtml(msg.id)}')" title="从服务器重新拉取原图刷新显示（不重新生图）">重新加载图片</button>` : ''}
+                            ${canRegenImage ? `<button type="button" class="debug-btn debug-btn-regen" onclick="retryCharacterImage('${escapeHtml(msg.id)}')">重新生图</button>` : ''}
                             ${hasReadyImage ? `<button type="button" class="debug-btn debug-btn-export" data-sticker-export="${index}" onclick="exportChatImageSticker(${index})">导出小红书边框</button>` : ''}
                             ${canShowLog ? `<button type="button" class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
                         </div>` : ''}
@@ -2815,6 +3023,8 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             characterChatMessages.push({ role: 'user', content: text, id: makeMessageId() });
             renderCharacterChat();
             document.getElementById('charChatInput').value = '';
+            // Persist user message immediately so refresh won't lose the turn start
+            saveChatHistory();
         }
 
         const forcePrompt = document.getElementById('forcePrompt').value.trim();
@@ -2833,6 +3043,7 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
         }));
         const previousVisual = getLastVisualContext();
         const payload = {
+            characterId: currentCharacter.id,
             messages: messagesForAI,
             systemPrompt: systemPrompt,
             provider,
@@ -2866,6 +3077,12 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             if (!res.ok || data.error) throw new Error(data.error || '无法创建对话任务');
 
             activeChatTurn.turnId = data.turnId;
+            saveRoleplaySession(currentCharacter.id, {
+                turnId: data.turnId,
+                userText: text,
+                previousVisual,
+                phase: 'queued'
+            });
             subscribeChatTurnStream(data.turnId, text, previousVisual);
 
         } catch (e) {
@@ -2876,6 +3093,7 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
                 replyText: 'Error: ' + e.message,
                 thinkingOpen: false
             };
+            clearRoleplaySession(currentCharacter.id);
             closeChatTurnStream();
             renderCharacterChat();
         }
@@ -3061,6 +3279,50 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
         };
     }
 
+    async function reloadCharacterChatImage(messageId) {
+        const msg = characterChatMessages.find((m) => m.id === messageId);
+        if (!msg || (!msg.imageUrl && !msg._persistedImagePath) || msg.imageStatus !== 'ready') {
+            alert('没有可加载的配图');
+            return;
+        }
+        // 设计：只从服务器重新拉取已有输出 PNG 刷新聊天里的 <img>。
+        // 不会重新跑 Comfy，也不会重绘小红书边框 canvas。
+        // 「上半有图、下半黑」多半是边框 canvas/GPU 问题，不是原图没加载到。
+        let diskPath = msg._persistedImagePath || String(msg.imageUrl || '');
+        if (diskPath.startsWith('blob:')) {
+            diskPath = msg._persistedImagePath || '';
+        }
+        diskPath = String(diskPath).split('?')[0];
+        if (!diskPath || !diskPath.startsWith('/')) {
+            alert('找不到磁盘上的配图路径，请用「重新生图」');
+            return;
+        }
+
+        const url = `${diskPath}?reload=${Date.now()}`;
+        try {
+            const res = await fetch(url, { cache: 'reload' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            if (!blob || !blob.size) throw new Error('文件为空');
+            if (msg._reloadObjectUrl) {
+                try { URL.revokeObjectURL(msg._reloadObjectUrl); } catch (_) {}
+            }
+            msg._persistedImagePath = diskPath;
+            msg._reloadObjectUrl = URL.createObjectURL(blob);
+            msg.imageUrl = msg._reloadObjectUrl;
+            renderCharacterChat();
+
+            const displayUrl = msg.imageUrl;
+            msg.imageUrl = diskPath;
+            await saveChatHistory();
+            msg.imageUrl = displayUrl;
+        } catch (e) {
+            msg.imageUrl = url;
+            renderCharacterChat();
+            alert('重新加载失败: ' + (e.message || e));
+        }
+    }
+
     async function retryCharacterImage(messageId) {
         const msg = characterChatMessages.find((m) => m.id === messageId);
         if (!msg) {
@@ -3124,10 +3386,10 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             );
         } catch (e) {
             msg.imageStatus = 'failed';
-            msg.imageError = e.message || '重新渲染失败';
+            msg.imageError = e.message || '重新生图失败';
             renderCharacterChat();
             saveChatHistory();
-            alert('重新渲染失败: ' + e.message);
+            alert('重新生图失败: ' + e.message);
         }
     }
 
@@ -3165,11 +3427,14 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             msg.imageStatus = 'queued';
             msg.imageError = '';
             renderCharacterChat();
+            // Persist job id immediately so refresh can reconnect before image finishes
+            await saveChatHistory();
             subscribeImageJobStream(data.imageJobId, messageId);
         } catch (e) {
             msg.imageStatus = 'failed';
             msg.imageError = e.message;
             renderCharacterChat();
+            await saveChatHistory();
         }
     }
     
@@ -3179,6 +3444,12 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
         
         try {
             await fetch(`/api/chat-history/${currentCharacter.id}`, { method: 'DELETE' });
+            closeChatTurnStream();
+            for (const jobId of [...imageJobStreams.keys()]) {
+                closeImageJobStream(jobId);
+            }
+            activeChatTurn = null;
+            clearRoleplaySession(currentCharacter.id);
             characterChatMessages = [];
             turnMemory = [];
             conversationSummary = '';

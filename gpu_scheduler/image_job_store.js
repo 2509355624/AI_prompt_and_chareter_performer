@@ -25,6 +25,28 @@ class ImageJobStore {
         return this.jobs.get(id) || null;
     }
 
+    /** Active (queued/running) image jobs for a character, newest first. */
+    findActiveByCharacter(characterId) {
+        if (!characterId) return [];
+        return [...this.jobs.values()]
+            .filter((job) =>
+                job.payload?.characterId === characterId
+                && (job.status === 'queued' || job.status === 'running')
+            )
+            .sort((a, b) => b.createdAt - a.createdAt);
+    }
+
+    /** Match an in-flight or finished job by chat message id. */
+    findByMessageId(messageId) {
+        if (!messageId) return null;
+        let best = null;
+        for (const job of this.jobs.values()) {
+            if (job.payload?.messageId !== messageId) continue;
+            if (!best || job.createdAt > best.createdAt) best = job;
+        }
+        return best;
+    }
+
     updateJob(id, patch) {
         const job = this.jobs.get(id);
         if (!job) return null;

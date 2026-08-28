@@ -622,8 +622,28 @@ app.post('/api/chat-turn', (req, res) => {
     }).catch((err) => {
         console.error('[ChatTurn] unhandled:', err.message);
     });
-    console.log('[ChatTurn] enqueued', turn.id);
+    console.log('[ChatTurn] enqueued', turn.id, 'character:', payload.characterId || '-');
     res.json({ ok: true, turnId: turn.id });
+});
+
+app.get('/api/chat-turn/active', (req, res) => {
+    const characterId = String(req.query.characterId || '').trim();
+    if (!characterId) {
+        return res.status(400).json({ error: 'characterId is required' });
+    }
+    const turn = chatTurnStore.findActiveByCharacter(characterId);
+    if (!turn) {
+        return res.json({ ok: true, turn: null });
+    }
+    res.json({ ok: true, turn: chatTurnStore.publicView(turn) });
+});
+
+app.get('/api/chat-turn/:id', (req, res) => {
+    const turn = chatTurnStore.getTurn(req.params.id);
+    if (!turn) {
+        return res.status(404).json({ error: 'Turn not found' });
+    }
+    res.json({ ok: true, turn: chatTurnStore.publicView(turn) });
 });
 
 app.get('/api/chat-turn/:id/stream', (req, res) => {
@@ -650,6 +670,49 @@ app.post('/api/image-jobs', (req, res) => {
     imageQueue.push({ jobId: job.id });
     console.log('[ImageQueue] enqueued', job.id, 'queue size:', imageQueue.size);
     res.json({ ok: true, imageJobId: job.id, status: 'queued' });
+});
+
+app.get('/api/image-jobs/active', (req, res) => {
+    const characterId = String(req.query.characterId || '').trim();
+    if (!characterId) {
+        return res.status(400).json({ error: 'characterId is required' });
+    }
+    const jobs = imageJobStore.findActiveByCharacter(characterId).map((j) => ({
+        ...imageJobStore.publicView(j),
+        messageId: j.payload?.messageId || '',
+        characterId: j.payload?.characterId || ''
+    }));
+    res.json({ ok: true, jobs });
+});
+
+app.get('/api/image-jobs/by-message/:messageId', (req, res) => {
+    const job = imageJobStore.findByMessageId(req.params.messageId);
+    if (!job) {
+        return res.json({ ok: true, job: null });
+    }
+    res.json({
+        ok: true,
+        job: {
+            ...imageJobStore.publicView(job),
+            messageId: job.payload?.messageId || '',
+            characterId: job.payload?.characterId || ''
+        }
+    });
+});
+
+app.get('/api/image-jobs/:id', (req, res) => {
+    const job = imageJobStore.getJob(req.params.id);
+    if (!job) {
+        return res.status(404).json({ error: 'Job not found' });
+    }
+    res.json({
+        ok: true,
+        job: {
+            ...imageJobStore.publicView(job),
+            messageId: job.payload?.messageId || '',
+            characterId: job.payload?.characterId || ''
+        }
+    });
 });
 
 app.get('/api/image-jobs/:id/stream', (req, res) => {

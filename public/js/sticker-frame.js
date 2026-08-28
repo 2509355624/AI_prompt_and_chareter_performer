@@ -671,11 +671,102 @@
         });
     }
 
+    /** 上半正常、下半发黑：GPU/canvas 在大图 + blur 时的典型故障 */
+    function isCanvasCorrupt(canvas) {
+        if (!canvas || !canvas.width || !canvas.height) return true;
+        try {
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+            const samples = [
+                [0.2, 0.12, 0.6, 0.35],
+                [0.2, 0.55, 0.6, 0.35]
+            ];
+            for (const [rx, ry, rw, rh] of samples) {
+                const x0 = Math.floor(w * rx);
+                const y0 = Math.floor(h * ry);
+                const sw = Math.max(1, Math.floor(w * rw));
+                const sh = Math.max(1, Math.floor(h * rh));
+                const data = ctx.getImageData(x0, y0, sw, sh).data;
+                let dark = 0;
+                let total = 0;
+                for (let i = 0; i < data.length; i += 16) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    const a = data[i + 3];
+                    if (a < 12) continue;
+                    total += 1;
+                    if (r + g + b < 48) dark += 1;
+                }
+                if (total > 24 && dark / total > 0.82) return true;
+            }
+            return false;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function downscaleImage(image, maxW) {
+        const imgW = image.naturalWidth || image.width || 0;
+        const imgH = image.naturalHeight || image.height || 0;
+        if (!maxW || !imgW || imgW <= maxW) return image;
+        const scale = maxW / imgW;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(imgW * scale));
+        canvas.height = Math.max(1, Math.round(imgH * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return canvas;
+    }
+
+    /**
+     * 安全渲染：全分辨率失败（下半发黑）时降采样 / 关玻璃模糊重试。
+     * @returns {{ canvas: HTMLCanvasElement, degraded: boolean, reason: string }}
+     */
+    function renderStickerFrameSafe(image, options = {}) {
+        const baseOpts = { ...(options || {}) };
+        let canvas = renderStickerFrame(image, baseOpts);
+        if (!isCanvasCorrupt(canvas)) {
+            return { canvas, degraded: false, reason: '' };
+        }
+
+        const caps = [1600, 1280, 960, 720];
+        for (const cap of caps) {
+            const source = downscaleImage(image, cap);
+            canvas = renderStickerFrame(source, {
+                ...baseOpts,
+                previewMaxWidth: Math.min(Number(baseOpts.previewMaxWidth) || cap, cap),
+                outputWidth: 0
+            });
+            if (!isCanvasCorrupt(canvas)) {
+                return { canvas, degraded: true, reason: `downscale_${cap}` };
+            }
+        }
+
+        canvas = renderStickerFrame(downscaleImage(image, 1280), {
+            ...baseOpts,
+            glassBg: false,
+            previewMaxWidth: 1280,
+            outputWidth: 0
+        });
+        if (!isCanvasCorrupt(canvas)) {
+            return { canvas, degraded: true, reason: 'no_glass' };
+        }
+
+        return { canvas, degraded: true, reason: 'still_corrupt' };
+    }
+
     global.StickerFrame = {
         PRESETS,
         mergeOptions,
         measureFrame,
         renderStickerFrame,
+        renderStickerFrameSafe,
+        isCanvasCorrupt,
+        downscaleImage,
         canvasToBlob,
         blobToBase64
     };
