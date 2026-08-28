@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComfyUI 图片生成</title>
+    <link rel="stylesheet" href="styles/generate-paper.css?v=1">
+</head>
+<body>
+    <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
+
+    <div class="gen-app">
+        <div class="gen-topbar">
+            <h1>✨ ComfyUI 图片生成</h1>
+            <div class="gen-topbar-actions">
+                <span class="gen-status" id="comfyStatus">Comfy 检测中…</span>
+                <div class="view-toggle" title="展示模式">
+                    <button type="button" id="btnViewSingle">单图</button>
+                    <button type="button" class="active" id="btnViewGrid">网格</button>
+                </div>
+                <button type="button" class="btn btn-ghost" id="btnToggleConfig">展开配置</button>
+            </div>
+        </div>
+
+        <div class="gen-layout" id="layout">
+            <!-- 左：角色预设 -->
+            <aside class="gen-panel">
+                <div class="gen-panel-head">
+                    <span>角色预设</span>
+                    <button type="button" class="btn btn-ghost" id="btnNewPreset" style="padding:4px 8px;font-size:12px;">＋新建</button>
+                </div>
+                <div class="gen-panel-body">
+                    <div class="preset-list" id="presetList"></div>
+                    <p class="progress-text" style="margin-top:10px;">预设仅保存在本机 data/，不会进 Git。</p>
+                </div>
+            </aside>
+
+            <!-- 中：结果 + 输入 -->
+            <div class="center-col">
+                <section class="gen-panel results-panel">
+                    <div class="gen-panel-head">
+                        <span>生成结果</span>
+                        <span class="progress-text" id="resultMeta">0 张</span>
+                    </div>
+                    <div class="gen-panel-body results-body">
+                        <div class="results-empty" id="resultsEmpty">选好预设后，在下方描述场景并生成。<br>默认以带边框样式展示。</div>
+                        <div class="results-grid" id="resultsGrid"></div>
+                        <div class="single-view" id="singleView">
+                            <div class="single-stage" id="singleStage"></div>
+                            <div class="single-nav">
+                                <button type="button" class="btn btn-ghost" id="btnPrev">◀ 上一张</button>
+                                <span id="singleIndexLabel">0 / 0</span>
+                                <button type="button" class="btn btn-ghost" id="btnNext">下一张 ▶</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="gen-panel composer">
+                    <div class="gen-panel-body" style="overflow:visible;">
+                        <div class="composer-card">
+                            <div class="mode-pills">
+                                <label><input type="radio" name="promptMode" value="ai" checked><span>AI 扩写</span></label>
+                                <label><input type="radio" name="promptMode" value="manual"><span>手动 Prompt</span></label>
+                            </div>
+                            <div class="count-wrap" id="countWrap">
+                                <span>数量</span>
+                                <button type="button" id="btnCountMinus">−</button>
+                                <input type="number" id="countInput" min="1" max="30" value="4">
+                                <button type="button" id="btnCountPlus">＋</button>
+                            </div>
+                            <span class="progress-text" id="progressText"></span>
+                        </div>
+
+                        <textarea class="composer-input" id="sceneInput" placeholder="描述服饰、动作、氛围，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚"></textarea>
+
+                        <div class="composer-row">
+                            <div class="progress-text" id="activePresetLabel">未选择预设</div>
+                            <button type="button" class="btn btn-primary" id="btnGenerate">开始生成</button>
+                        </div>
+
+                        <div class="export-bar">
+                            <label><input type="checkbox" id="exportWithFrame" checked> 带边框导出</label>
+                            <select id="framePresetSelect"></select>
+                            <input type="text" id="exportFolderPath" placeholder="导出文件夹">
+                            <button type="button" class="btn btn-ghost" id="btnPickFolder">选择</button>
+                            <button type="button" class="btn btn-accent2" id="btnExport" disabled>导出选中</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 右：配置（可收起） -->
+            <aside class="gen-panel config-panel" id="configPanel">
+                <div class="gen-panel-head">
+                    <span>预设配置</span>
+                    <button type="button" class="btn btn-ghost" id="btnCloseConfig" style="padding:4px 8px;font-size:12px;">收起</button>
+                </div>
+                <div class="gen-panel-body">
+                    <div class="config-form" id="configForm">
+                        <label>预设名称
+                            <input type="text" id="cfgName" placeholder="例如：兔子">
+                        </label>
+                        <label>底模 basePrompt（角色特征，锁死）
+                            <textarea id="cfgBasePrompt" placeholder="角色外貌、画师 tag 等，不给 AI 改"></textarea>
+                        </label>
+                        <label>Checkpoint
+                            <select id="cfgCheckpoint"></select>
+                        </label>
+                        <div class="config-row">
+                            <label>宽<input type="number" id="cfgWidth" min="64" step="8"></label>
+                            <label>高<input type="number" id="cfgHeight" min="64" step="8"></label>
+                        </div>
+                        <div class="config-row">
+                            <label>Steps<input type="number" id="cfgSteps" min="1" max="150"></label>
+                            <label>CFG<input type="number" id="cfgCfg" min="0" max="30" step="0.1"></label>
+                        </div>
+                        <div class="config-row">
+                            <label>Sampler<select id="cfgSampler"></select></label>
+                            <label>Scheduler<select id="cfgScheduler"></select></label>
+                        </div>
+                        <label>Negative
+                            <textarea id="cfgNegative" rows="3"></textarea>
+                        </label>
+
+                        <label class="config-check"><input type="checkbox" id="cfgEnableHires"> 高清修复（默认关）</label>
+                        <div class="config-row" id="hiresRow" hidden>
+                            <label>Hires 宽<input type="number" id="cfgHiresW" min="64" step="8"></label>
+                            <label>Hires 高<input type="number" id="cfgHiresH" min="64" step="8"></label>
+                        </div>
+
+                        <label class="config-check"><input type="checkbox" id="cfgEnableUpscale" checked> 2× 放大（默认开）</label>
+                        <label>放大模型
+                            <select id="cfgUpscaleModel"></select>
+                        </label>
+
+                        <div class="config-row">
+                            <label>LoRA1
+                                <select id="cfgLora1"></select>
+                                <input type="number" id="cfgLora1Str" min="-2" max="2" step="0.05" placeholder="强度">
+                            </label>
+                            <label>LoRA2
+                                <select id="cfgLora2"></select>
+                                <input type="number" id="cfgLora2Str" min="-2" max="2" step="0.05" placeholder="强度">
+                            </label>
+                        </div>
+                        <label>LoRA3
+                            <select id="cfgLora3"></select>
+                            <input type="number" id="cfgLora3Str" min="-2" max="2" step="0.05" placeholder="强度">
+                        </label>
+
+                        <div class="config-actions">
+                            <button type="button" class="btn btn-primary" id="btnSavePreset">保存预设</button>
+                            <button type="button" class="btn btn-ghost" id="btnDeletePreset">删除</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="js/sticker-frame.js?v=5"></script>
+    <script>
+    (function () {
+        const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
+        const PLACEHOLDER_MANUAL = '粘贴多条服饰动作 prompt，用 --- 分隔，例如：\\nwhite lace dress, sitting on bench...\\n---\\nnavy swimsuit, pool edge...';
+
+        const state = {
+            presets: [],
+            activePresetId: '',
+            defaults: null,
+            options: null,
+            images: [], // {url, prompt, selected, framedUrl?}
+            viewMode: 'grid', // grid | single
+            singleIndex: 0,
+            exportDirHandle: null,
+            generating: false,
+            framePreset: 'paper-collage'
+        };
+
+        const $ = (id) => document.getElementById(id);
+        const els = {
+            layout: $('layout'),
+            comfyStatus: $('comfyStatus'),
+            presetList: $('presetList'),
+            resultsEmpty: $('resultsEmpty'),
+            resultsGrid: $('resultsGrid'),
+            singleView: $('singleView'),
+            singleStage: $('singleStage'),
+            singleIndexLabel: $('singleIndexLabel'),
+            resultMeta: $('resultMeta'),
+            sceneInput: $('sceneInput'),
+            countWrap: $('countWrap'),
+            countInput: $('countInput'),
+            progressText: $('progressText'),
+            activePresetLabel: $('activePresetLabel'),
+            btnGenerate: $('btnGenerate'),
+            exportWithFrame: $('exportWithFrame'),
+            framePresetSelect: $('framePresetSelect'),
+            exportFolderPath: $('exportFolderPath'),
+            btnExport: $('btnExport'),
+            btnToggleConfig: $('btnToggleConfig'),
+            btnViewGrid: $('btnViewGrid'),
+            btnViewSingle: $('btnViewSingle')
+        };
+
+        function currentMode() {
+            const checked = document.querySelector('input[name="promptMode"]:checked');
+            return checked ? checked.value : 'ai';
+        }
+
+        function syncModeUi() {
+            const mode = currentMode();
+            els.countWrap.style.display = mode === 'ai' ? 'inline-flex' : 'none';
+            els.sceneInput.placeholder = mode === 'ai' ? PLACEHOLDER_AI.replace(/\\n/g, '\n') : PLACEHOLDER_MANUAL.replace(/\\n/g, '\n');
+        }
+
+        function activePreset() {
+            return state.presets.find((p) => p.id === state.activePresetId) || null;
+        }
+
+        function fillSelect(sel, values, current) {
+            const list = Array.isArray(values) ? values.slice() : [];
+            if (current && !list.includes(current)) list.unshift(current);
+            sel.innerHTML = list.map((v) => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('');
+            if (current) sel.value = current;
+        }
+
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function escapeAttr(s) { return escapeHtml(s).replace(/'/g, '&#39;'); }
+
+        function renderPresetList() {
+            if (!state.presets.length) {
+                els.presetList.innerHTML = '<div class="progress-text">还没有预设，点「＋新建」创建一份底模配置。</div>';
+                els.activePresetLabel.textContent = '未选择预设';
+                return;
+            }
+            els.presetList.innerHTML = state.presets.map((p) => `
+                <div class="preset-item${p.id === state.activePresetId ? ' active' : ''}" data-id="${escapeAttr(p.id)}">
+                    <div class="name">${escapeHtml(p.name || '未命名')}</div>
+                    <div class="meta">${escapeHtml((p.checkpointName || '').split(/[\\\\/]/).pop() || '未设 checkpoint')}</div>
+                </div>
+            `).join('');
+            els.presetList.querySelectorAll('.preset-item').forEach((el) => {
+                el.addEventListener('click', () => selectPreset(el.dataset.id));
+            });
+            const p = activePreset();
+            els.activePresetLabel.textContent = p ? `当前预设：${p.name}` : '未选择预设';
+        }
+
+        function readConfigForm() {
+            const lora = (i) => {
+                const name = $(`cfgLora${i}`).value;
+                const strength = Number($(`cfgLora${i}Str`).value);
+                return {
+                    name: name || '(none)',
+                    strengthModel: Number.isFinite(strength) ? strength : 0,
+                    strengthClip: 1
+                };
+            };
+            return {
+                id: state.activePresetId || undefined,
+                name: $('cfgName').value.trim() || '未命名预设',
+                basePrompt: $('cfgBasePrompt').value,
+                checkpointName: $('cfgCheckpoint').value,
+                width: Number($('cfgWidth').value) || 1024,
+                height: Number($('cfgHeight').value) || 1536,
+                steps: Number($('cfgSteps').value) || 30,
+                cfg: Number($('cfgCfg').value) || 3,
+                sampler: $('cfgSampler').value,
+                scheduler: $('cfgScheduler').value,
+                negativePrompt: $('cfgNegative').value,
+                enableHires: $('cfgEnableHires').checked,
+                hiresWidth: Number($('cfgHiresW').value) || 1080,
+                hiresHeight: Number($('cfgHiresH').value) || 1920,
+                enableUpscale: $('cfgEnableUpscale').checked,
+                upscaleModel: $('cfgUpscaleModel').value,
+                loras: [lora(1), lora(2), lora(3)]
+            };
+        }
+
+        function applyPresetToForm(preset) {
+            const p = preset || state.defaults || {};
+            $('cfgName').value = p.name || '';
+            $('cfgBasePrompt').value = p.basePrompt || '';
+            fillSelect($('cfgCheckpoint'), state.options?.checkpoints || [], p.checkpointName || '');
+            $('cfgWidth').value = p.width ?? 1024;
+            $('cfgHeight').value = p.height ?? 1536;
+            $('cfgSteps').value = p.steps ?? 30;
+            $('cfgCfg').value = p.cfg ?? 3;
+            fillSelect($('cfgSampler'), state.options?.defaults?.samplerOptions || state.defaults?.samplerOptions || [], p.sampler || '');
+            fillSelect($('cfgScheduler'), state.options?.defaults?.schedulerOptions || state.defaults?.schedulerOptions || [], p.scheduler || '');
+            $('cfgNegative').value = p.negativePrompt || '';
+            $('cfgEnableHires').checked = Boolean(p.enableHires);
+            $('cfgHiresW').value = p.hiresWidth ?? 1080;
+            $('cfgHiresH').value = p.hiresHeight ?? 1920;
+            $('hiresRow').hidden = !$('cfgEnableHires').checked;
+            $('cfgEnableUpscale').checked = p.enableUpscale !== false;
+            fillSelect($('cfgUpscaleModel'), state.options?.upscaleModels || [], p.upscaleModel || '');
+            const loras = Array.isArray(p.loras) ? p.loras : [];
+            const loraNames = state.options?.loras || [];
+            for (let i = 1; i <= 3; i++) {
+                const l = loras[i - 1] || {};
+                fillSelect($(`cfgLora${i}`), ['(none)', ...loraNames], l.name || '(none)');
+                $(`cfgLora${i}Str`).value = l.strengthModel ?? 0;
+            }
+        }
+
+        async function selectPreset(id) {
+            state.activePresetId = id;
+            try {
+                await fetch(`/api/comfy/generate-presets/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+            } catch (_) {}
+            renderPresetList();
+            applyPresetToForm(activePreset());
+        }
+
+        async function loadPresets() {
+            const res = await fetch('/api/comfy/generate-presets');
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || '加载预设失败');
+            state.presets = data.presets || [];
+            state.activePresetId = data.activePresetId || '';
+            state.defaults = data.defaults || null;
+            renderPresetList();
+            applyPresetToForm(activePreset() || state.defaults);
+        }
+
+        async function loadOptions() {
+            const [wf, up] = await Promise.all([
+                fetch('/api/comfy/workflow-options').then((r) => r.json()).catch(() => ({})),
+                fetch('/api/comfy/upscale-models').then((r) => r.json()).catch(() => ({ models: [] }))
+            ]);
+            state.options = {
+                checkpoints: wf.checkpoints || [],
+                loras: wf.loras || [],
+                defaults: wf.defaults || {},
+                upscaleModels: up.models || []
+            };
+            applyPresetToForm(activePreset() || state.defaults);
+        }
+
+        async function pingComfy() {
+            try {
+                const res = await fetch('/api/comfy/health');
+                const data = await res.json();
+                if (data.ok) {
+                    els.comfyStatus.textContent = 'Comfy ● 在线';
+                    els.comfyStatus.className = 'gen-status ok';
+                } else {
+                    els.comfyStatus.textContent = 'Comfy ○ 离线';
+                    els.comfyStatus.className = 'gen-status bad';
+                }
+            } catch (_) {
+                els.comfyStatus.textContent = 'Comfy ○ 离线';
+                els.comfyStatus.className = 'gen-status bad';
+            }
+        }
+
+        function initFramePresets() {
+            const keys = Object.keys(StickerFrame.PRESETS || {});
+            els.framePresetSelect.innerHTML = keys.map((k) => {
+                const label = StickerFrame.PRESETS[k].label || k;
+                return `<option value="${escapeAttr(k)}">${escapeHtml(label)}</option>`;
+            }).join('');
+            if (keys.includes('paper-collage')) els.framePresetSelect.value = 'paper-collage';
+            state.framePreset = els.framePresetSelect.value;
+        }
+
+        function loadImage(url) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error('图片加载失败'));
+                img.src = url;
+            });
+        }
+
+        async function renderFramedCanvas(url, caption) {
+            const img = await loadImage(url);
+            return StickerFrame.renderStickerFrame(img, {
+                preset: state.framePreset,
+                caption: caption || '',
+                previewMaxWidth: state.viewMode === 'grid' ? 420 : 0
+            });
+        }
+
+        async function refreshResults() {
+            const n = state.images.length;
+            els.resultMeta.textContent = `${n} 张`;
+            els.resultsEmpty.style.display = n ? 'none' : 'flex';
+            els.btnExport.disabled = !state.images.some((x) => x.selected);
+
+            if (state.viewMode === 'grid') {
+                els.resultsGrid.classList.remove('hidden');
+                els.singleView.classList.remove('active');
+                els.resultsGrid.innerHTML = '';
+                for (let i = 0; i < state.images.length; i++) {
+                    const item = state.images[i];
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    const thumb = document.createElement('div');
+                    thumb.className = 'thumb';
+                    try {
+                        const canvas = await renderFramedCanvas(item.url, '');
+                        canvas.style.maxWidth = '100%';
+                        canvas.style.height = 'auto';
+                        thumb.appendChild(canvas);
+                    } catch (_) {
+                        const img = document.createElement('img');
+                        img.src = item.url;
+                        thumb.appendChild(img);
+                    }
+                    thumb.addEventListener('click', () => {
+                        state.viewMode = 'single';
+                        state.singleIndex = i;
+                        syncViewToggle();
+                        refreshResults();
+                    });
+                    const meta = document.createElement('div');
+                    meta.className = 'meta';
+                    meta.innerHTML = `<label><input type="checkbox" ${item.selected ? 'checked' : ''} data-i="${i}"> ${String(i + 1).padStart(3, '0')}</label>`;
+                    meta.querySelector('input').addEventListener('change', (e) => {
+                        state.images[i].selected = e.target.checked;
+                        els.btnExport.disabled = !state.images.some((x) => x.selected);
+                    });
+                    card.appendChild(thumb);
+                    card.appendChild(meta);
+                    els.resultsGrid.appendChild(card);
+                }
+            } else {
+                els.resultsGrid.classList.add('hidden');
+                els.singleView.classList.add('active');
+                state.singleIndex = Math.max(0, Math.min(state.singleIndex, Math.max(0, n - 1)));
+                els.singleIndexLabel.textContent = n ? `${state.singleIndex + 1} / ${n}` : '0 / 0';
+                els.singleStage.innerHTML = '';
+                if (!n) return;
+                const item = state.images[state.singleIndex];
+                try {
+                    const canvas = await renderFramedCanvas(item.url, '');
+                    els.singleStage.appendChild(canvas);
+                } catch (_) {
+                    const img = document.createElement('img');
+                    img.src = item.url;
+                    els.singleStage.appendChild(img);
+                }
+            }
+        }
+
+        function syncViewToggle() {
+            els.btnViewGrid.classList.toggle('active', state.viewMode === 'grid');
+            els.btnViewSingle.classList.toggle('active', state.viewMode === 'single');
+        }
+
+        function setConfigOpen(open) {
+            els.layout.classList.toggle('config-open', open);
+            els.btnToggleConfig.textContent = open ? '收起配置' : '展开配置';
+        }
+
+        async function onGenerate() {
+            if (state.generating) return;
+            const preset = activePreset();
+            if (!preset) {
+                alert('请先新建并选择一个角色预设');
+                setConfigOpen(true);
+                return;
+            }
+            const scene = els.sceneInput.value.trim();
+            const mode = currentMode();
+            if (!scene) {
+                alert(mode === 'ai' ? '请填写场景描述' : '请粘贴手动 Prompt');
+                return;
+            }
+
+            state.generating = true;
+            els.btnGenerate.disabled = true;
+            els.progressText.textContent = mode === 'ai' ? 'AI 扩写中…' : '提交 Comfy…';
+
+            try {
+                const res = await fetch('/api/comfy/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        presetId: preset.id,
+                        mode,
+                        scene,
+                        count: Number(els.countInput.value) || 1
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) throw new Error(data.error || '生成失败');
+
+                state.images = (data.images || []).map((img) => ({
+                    url: img.url,
+                    prompt: img.prompt || '',
+                    selected: true
+                }));
+                state.singleIndex = 0;
+                els.progressText.textContent = `完成 ${state.images.length} 张 · ${Math.round((data.elapsedMs || 0) / 1000)}s`;
+                await refreshResults();
+            } catch (e) {
+                els.progressText.textContent = '';
+                alert('生成失败：' + e.message);
+            } finally {
+                state.generating = false;
+                els.btnGenerate.disabled = false;
+            }
+        }
+
+        async function savePreset() {
+            const body = readConfigForm();
+            const res = await fetch('/api/comfy/generate-presets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                alert(data.error || '保存失败');
+                return;
+            }
+            state.presets = data.presets || [];
+            state.activePresetId = data.preset?.id || data.activePresetId || state.activePresetId;
+            renderPresetList();
+            applyPresetToForm(activePreset());
+            alert('预设已保存');
+        }
+
+        async function deletePreset() {
+            if (!state.activePresetId) return;
+            if (!confirm('删除当前预设？')) return;
+            const res = await fetch(`/api/comfy/generate-presets/${encodeURIComponent(state.activePresetId)}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                alert(data.error || '删除失败');
+                return;
+            }
+            state.presets = data.presets || [];
+            state.activePresetId = data.activePresetId || '';
+            renderPresetList();
+            applyPresetToForm(activePreset() || state.defaults);
+        }
+
+        async function newPreset() {
+            setConfigOpen(true);
+            state.activePresetId = '';
+            applyPresetToForm({
+                ...(state.defaults || {}),
+                name: '新预设',
+                basePrompt: '',
+                enableUpscale: true,
+                enableHires: false
+            });
+            $('cfgName').focus();
+        }
+
+        async function pickFolder() {
+            if ('showDirectoryPicker' in window) {
+                try {
+                    state.exportDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    els.exportFolderPath.value = state.exportDirHandle.name;
+                    return;
+                } catch (e) {
+                    if (e.name !== 'AbortError') alert('选择文件夹失败: ' + e.message);
+                    return;
+                }
+            }
+            els.exportFolderPath.focus();
+            alert('当前浏览器不支持直接选文件夹，请粘贴完整路径');
+        }
+
+        async function saveBlob(dirHandle, name, blob) {
+            const fh = await dirHandle.getFileHandle(name, { create: true });
+            const w = await fh.createWritable();
+            await w.write(blob);
+            await w.close();
+        }
+
+        async function exportSelected() {
+            const selected = state.images
+                .map((img, i) => ({ ...img, i }))
+                .filter((x) => x.selected);
+            if (!selected.length) {
+                alert('请至少勾选一张图');
+                return;
+            }
+            const folderPath = els.exportFolderPath.value.trim();
+            if (!state.exportDirHandle && !folderPath) {
+                alert('请选择或填写导出文件夹');
+                return;
+            }
+
+            const withFrame = els.exportWithFrame.checked;
+            els.btnExport.disabled = true;
+            els.progressText.textContent = '导出中…';
+
+            try {
+                let seq = 0;
+                for (const item of selected) {
+                    seq += 1;
+                    els.progressText.textContent = `导出 ${seq}/${selected.length}…`;
+                    let blob;
+                    if (withFrame) {
+                        const canvas = await renderFramedCanvas(item.url, '');
+                        blob = await StickerFrame.canvasToBlob(canvas);
+                    } else {
+                        const imgRes = await fetch(item.url);
+                        blob = await imgRes.blob();
+                    }
+                    const name = `${String(seq).padStart(3, '0')}.png`;
+                    if (state.exportDirHandle) {
+                        await saveBlob(state.exportDirHandle, name, blob);
+                    } else {
+                        const data = await StickerFrame.blobToBase64(blob);
+                        const res = await fetch('/api/export-image', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ folderPath, name, data })
+                        });
+                        const out = await res.json();
+                        if (!res.ok || !out.ok) throw new Error(out.error || '导出失败');
+                    }
+                }
+                els.progressText.textContent = `已导出 ${selected.length} 张`;
+                alert(`已导出 ${selected.length} 张`);
+            } catch (e) {
+                alert('导出失败：' + e.message);
+                els.progressText.textContent = '';
+            } finally {
+                els.btnExport.disabled = !state.images.some((x) => x.selected);
+            }
+        }
+
+        function bind() {
+            document.querySelectorAll('input[name="promptMode"]').forEach((el) => {
+                el.addEventListener('change', syncModeUi);
+            });
+            $('btnCountMinus').addEventListener('click', () => {
+                els.countInput.value = Math.max(1, Number(els.countInput.value) - 1);
+            });
+            $('btnCountPlus').addEventListener('click', () => {
+                els.countInput.value = Math.min(30, Number(els.countInput.value) + 1);
+            });
+            els.btnGenerate.addEventListener('click', onGenerate);
+            $('btnNewPreset').addEventListener('click', newPreset);
+            $('btnSavePreset').addEventListener('click', savePreset);
+            $('btnDeletePreset').addEventListener('click', deletePreset);
+            $('btnToggleConfig').addEventListener('click', () => {
+                setConfigOpen(!els.layout.classList.contains('config-open'));
+            });
+            $('btnCloseConfig').addEventListener('click', () => setConfigOpen(false));
+            $('cfgEnableHires').addEventListener('change', () => {
+                $('hiresRow').hidden = !$('cfgEnableHires').checked;
+            });
+            els.btnViewGrid.addEventListener('click', () => {
+                state.viewMode = 'grid';
+                syncViewToggle();
+                refreshResults();
+            });
+            els.btnViewSingle.addEventListener('click', () => {
+                state.viewMode = 'single';
+                syncViewToggle();
+                refreshResults();
+            });
+            $('btnPrev').addEventListener('click', () => {
+                if (state.singleIndex > 0) {
+                    state.singleIndex -= 1;
+                    refreshResults();
+                }
+            });
+            $('btnNext').addEventListener('click', () => {
+                if (state.singleIndex < state.images.length - 1) {
+                    state.singleIndex += 1;
+                    refreshResults();
+                }
+            });
+            els.framePresetSelect.addEventListener('change', () => {
+                state.framePreset = els.framePresetSelect.value;
+                refreshResults();
+            });
+            $('btnPickFolder').addEventListener('click', pickFolder);
+            els.exportFolderPath.addEventListener('input', () => { state.exportDirHandle = null; });
+            $('btnExport').addEventListener('click', exportSelected);
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (typeof StickerFrame === 'undefined') {
+                alert('边框脚本加载失败，请强制刷新');
+                return;
+            }
+            bind();
+            syncModeUi();
+            syncViewToggle();
+            setConfigOpen(false);
+            initFramePresets();
+            await pingComfy();
+            try {
+                await loadOptions();
+                await loadPresets();
+            } catch (e) {
+                console.error(e);
+                alert('初始化失败：' + e.message);
+            }
+            setInterval(pingComfy, 15000);
+        });
+    })();
+    </script>
+</body>
+</html>

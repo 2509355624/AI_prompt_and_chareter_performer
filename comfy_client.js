@@ -104,6 +104,9 @@ function buildPromptGraph(options = {}) {
     gen.hires_height = Math.max(64, Math.round(num(options.hiresHeight, config.hiresHeight)));
     gen.hires_denoise = num(options.hiresDenoise, config.hiresDenoise);
     gen.hires_steps = Math.max(1, Math.round(num(options.hiresSteps, config.hiresSteps)));
+    if (options.randomSeedPerPrompt !== undefined) {
+        gen.random_seed_per_prompt = Boolean(options.randomSeedPerPrompt);
+    }
 
     const seedOpt = num(options.seed, config.seed);
     gen.seed = seedOpt >= 0 ? Math.floor(seedOpt) : crypto.randomInt(1, 2 ** 48);
@@ -112,9 +115,37 @@ function buildPromptGraph(options = {}) {
         graph['7'].inputs.text = options.negative || config.negativePrompt;
     }
     if (graph['9'] && graph['9'].inputs) {
-        graph['9'].inputs.filename_prefix = 'character_chat';
+        graph['9'].inputs.filename_prefix = options.filenamePrefix || 'character_chat';
     }
+
+    // Optional 2x model upscale (rabbit batch workflow style)
+    if (options.enableUpscale) {
+        const upscaleModel = String(options.upscaleModel || '2x_Ani4Kv2_G6i2_Compact_107500.pth').trim();
+        graph['60'] = {
+            class_type: 'UpscaleModelLoader',
+            inputs: { model_name: upscaleModel }
+        };
+        graph['61'] = {
+            class_type: 'ImageUpscaleWithModel',
+            inputs: {
+                upscale_model: ['60', 0],
+                image: ['53', 0]
+            }
+        };
+        if (graph['9'] && graph['9'].inputs) {
+            graph['9'].inputs.images = ['61', 0];
+        }
+    }
+
     return graph;
+}
+
+/** Join clothing/action prompts with --- for BatchPromptImageGenerator */
+function joinMultiPrompts(prompts) {
+    if (Array.isArray(prompts)) {
+        return prompts.map((p) => String(p || '').trim()).filter(Boolean).join('\n---\n');
+    }
+    return String(prompts || '').trim();
 }
 
 async function ping() {
@@ -175,7 +206,7 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function firstSavedImage(historyEntry) {
+function allSavedImages(historyEntry) {
     const outputs = historyEntry?.outputs || {};
     const found = [];
     for (const nodeId of Object.keys(outputs)) {
@@ -186,7 +217,13 @@ function firstSavedImage(historyEntry) {
             }
         }
     }
-    return found.find((img) => img.type === 'output') || found[0] || null;
+    const outputsOnly = found.filter((img) => img.type === 'output');
+    return outputsOnly.length ? outputsOnly : found;
+}
+
+function firstSavedImage(historyEntry) {
+    const all = allSavedImages(historyEntry);
+    return all[0] || null;
 }
 
 async function waitForHistory(promptId) {
@@ -266,13 +303,81 @@ async function generateToFile(options, destPath) {
     });
 }
 
+/**
+ * Run one Comfy job that may produce multiple images (--- split prompts).
+ * Downloads every saved output into destDir as 001.png, 002.png, ...
+ */
+async function generateBatchToDir(options, destDir) {
+    return enqueue(async () => {
+        const multiPrompts = joinMultiPrompts(options.multiPrompts || options.turnPrompt || '');
+        const graph = buildPromptGraph({
+            ...options,
+            turnPrompt: multiPrompts,
+            filenamePrefix: options.filenamePrefix || 'comfy_generate'
+        });
+        await ensureComfySocket();
+        let submit;
+        try {
+            submit = await axios.post(
+                `${config.comfyUrl}/prompt`,
+                { prompt: graph, client_id: COMFY_CLIENT_ID },
+                { timeout: 15000 }
+            );
+        } catch (err) {
+            if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+                throw new Error(`ComfyUI is not running at ${config.comfyUrl}`);
+            }
+            const detail = err.response?.data?.error || err.response?.data || err.message;
+            throw new Error(`ComfyUI reject: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
+        }
+
+        const promptId = submit.data?.prompt_id;
+        if (!promptId) {
+            throw new Error(`ComfyUI did not return prompt_id: ${JSON.stringify(submit.data)}`);
+        }
+
+        const history = await waitForHistory(promptId);
+        const savedList = allSavedImages(history);
+        if (!savedList.length) {
+            throw new Error('ComfyUI finished but produced no images');
+        }
+
+        fs.mkdirSync(destDir, { recursive: true });
+        const files = [];
+        for (let i = 0; i < savedList.length; i += 1) {
+            const name = `${String(i + 1).padStart(3, '0')}.png`;
+            const destPath = path.join(destDir, name);
+            await downloadView(savedList[i], destPath);
+            files.push({ name, path: destPath, meta: savedList[i] });
+        }
+
+        const seed = graph['53']?.inputs?.seed ?? null;
+        return { promptId, seed, files, multiPrompts };
+    });
+}
+
+async function listUpscaleModels() {
+    try {
+        const { data } = await axios.get(`${config.comfyUrl}/object_info/UpscaleModelLoader`, { timeout: 8000 });
+        const names = data?.UpscaleModelLoader?.input?.required?.model_name?.[0];
+        if (Array.isArray(names) && names.length) return names;
+    } catch (e) {
+        // ignore
+    }
+    return ['2x_Ani4Kv2_G6i2_Compact_107500.pth'];
+}
+
 module.exports = {
     ping,
     listCheckpoints,
     listLoras,
+    listUpscaleModels,
     workflowDefaults,
     enqueue,
     generateOnce,
     generateToFile,
+    generateBatchToDir,
     buildPromptGraph,
+    joinMultiPrompts,
+    allSavedImages,
 };

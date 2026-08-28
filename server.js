@@ -775,6 +775,90 @@ app.post('/api/export-image', (req, res) => {
     }
 });
 
+/* ---------- ComfyUI generate page (independent presets) ---------- */
+const generateService = require('./generate_service');
+generateService.ensureDirs();
+
+app.get('/api/comfy/generate-presets', (req, res) => {
+    try {
+        res.json({ ok: true, ...generateService.readPresets(), defaults: generateService.defaultPresetShape() });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.put('/api/comfy/generate-presets', (req, res) => {
+    try {
+        const body = req.body || {};
+        if (body.presets || body.activePresetId !== undefined) {
+            const current = generateService.readPresets();
+            const next = generateService.writePresets({
+                presets: body.presets !== undefined ? body.presets : current.presets,
+                activePresetId: body.activePresetId !== undefined ? body.activePresetId : current.activePresetId
+            });
+            return res.json({ ok: true, ...next });
+        }
+        const result = generateService.upsertPreset(body.preset || body);
+        res.json({ ok: true, ...result.state, preset: result.preset });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post('/api/comfy/generate-presets', (req, res) => {
+    try {
+        const result = generateService.upsertPreset(req.body || {});
+        res.json({ ok: true, ...result.state, preset: result.preset });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.delete('/api/comfy/generate-presets/:id', (req, res) => {
+    try {
+        const state = generateService.deletePreset(req.params.id);
+        res.json({ ok: true, ...state });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post('/api/comfy/generate-presets/:id/activate', (req, res) => {
+    try {
+        const state = generateService.setActivePreset(req.params.id);
+        res.json({ ok: true, ...state });
+    } catch (e) {
+        res.status(400).json({ ok: false, error: e.message });
+    }
+});
+
+app.get('/api/comfy/upscale-models', async (req, res) => {
+    try {
+        const models = await comfyClient.listUpscaleModels();
+        res.json({ ok: true, models });
+    } catch (e) {
+        res.status(503).json({ ok: false, models: [], error: e.message });
+    }
+});
+
+app.post('/api/comfy/generate', async (req, res) => {
+    const started = Date.now();
+    try {
+        const body = req.body || {};
+        const result = await generateService.runGenerateJob({
+            presetId: body.presetId,
+            mode: body.mode === 'manual' ? 'manual' : 'ai',
+            scene: body.scene || body.prompt || '',
+            count: body.count,
+            overrides: body.overrides || {}
+        });
+        res.json({ ...result, elapsedMs: Date.now() - started });
+    } catch (e) {
+        console.error('[ComfyGenerate]', e.message);
+        res.status(502).json({ ok: false, error: e.message, elapsedMs: Date.now() - started });
+    }
+});
+
 app.post('/api/generate', async (req, res) => {
     const { 
         provider,
