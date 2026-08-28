@@ -816,6 +816,7 @@
                     <div class="sticker-export-fields">
                         <label class="sticker-export-sublabel" for="stickerFramePreset">边框预设</label>
                         <select id="stickerFramePreset" onchange="saveStickerExportSettings()">
+                            <option value="none">无边框 · 原图</option>
                             <option value="paper-collage" selected>贴纸剪贴 · paper-collage（磨砂玻璃）</option>
                             <option value="sketch-note">手绘线稿 · sketch-note</option>
                             <option value="apple-glass">苹果浅蓝玻璃</option>
@@ -889,7 +890,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="js/sticker-frame.js?v=8"></script>
+<script src="js/sticker-frame.js?v=9"></script>
 <script>
     // --- Global State ---
     let characters = [];

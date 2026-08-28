@@ -31,6 +31,24 @@ navy blue school swimsuit, white trim, standing, pool edge, three-quarter front 
 ---
 floral summer sundress, thin spaghetti straps, sitting, park bench, front view, dappled sunlight, tree leaves, golden hour glow, gentle shadows, peaceful, nostalgic, romantic countryside, warm earthy tones, soft greens, soft pinks`;
 
+/** Krea2 / natural-language expand (not SDXL tag soup). */
+const KREA2_EXPAND_SYSTEM = `#角色
+你为 Krea2 文生图写提示词。Krea2 需要自然语言描述，不要 SD/anime tag 列表。
+
+#要求
+- 用完整英文句子描写本轮画面：服饰、姿势动作、场景、光影、氛围、构图
+- 不要逗号堆砌的 tag（禁止 masterpiece, 1girl, solo 这类词表）
+- 不要写角色外貌底模（发色脸型身材等由用户 basePrompt 负责）
+- 输出若干变体，只用 --- 分隔，不要编号或标题
+
+#示例
+A close-up of a girl in a white lace dress sitting sideways on a wooden park bench at dusk, cool cyan color grading, soft overexposed light on her face, shallow depth of field, quiet melancholic mood.
+---
+She stands at a rainy bus stop in a navy wool coat, looking down at her shoes, neon reflections on wet pavement, cinematic side lighting, muted teal and amber tones.`;
+
+const KREA2_EXPAND_USER =
+    '用户需求：{scene}\n\n请生成 {count} 段英文自然语言画面描述（服饰/动作/场景/光影），用 --- 分隔。不要 tag 列表，不要角色外貌底模，不要编号标题。';
+
 function ensureDirs() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -78,6 +96,7 @@ function defaultPresetShape() {
     return {
         id: '',
         name: '未命名预设',
+        workflowEngine: 'sdxl',
         basePrompt: '',
         negativePrompt: defaults.negativePrompt || chatImageConfig.negativePrompt || '',
         checkpointName: defaults.checkpointName || chatImageConfig.checkpointName || '',
@@ -104,6 +123,50 @@ function defaultPresetShape() {
     };
 }
 
+const KREA2_DEFAULTS = {
+    workflowEngine: 'krea2',
+    checkpointName: 'krea2_turbo-Q4_K_M.gguf',
+    unetName: 'krea2_turbo-Q4_K_M.gguf',
+    clipName: 'qwen3vl_4b_fp8_scaled.safetensors',
+    clipType: 'krea2',
+    vaeName: 'qwen_image_vae.safetensors',
+    steps: 8,
+    cfg: 1,
+    sampler: 'euler',
+    scheduler: 'simple',
+    enableHires: false,
+    enableUpscale: false
+};
+
+function looksLikeKrea2Preset(preset = {}) {
+    if (String(preset.workflowEngine || '').toLowerCase() === 'krea2') return true;
+    const ckpt = String(preset.checkpointName || preset.unetName || '');
+    if (/\.gguf$/i.test(ckpt)) return true;
+    if (/krea2/i.test(ckpt)) return true;
+    if (/krea2/i.test(String(preset.name || ''))) return true;
+    return false;
+}
+
+/** Ensure GGUF / krea2 presets keep the right engine metadata after UI saves. */
+function normalizePreset(preset) {
+    if (!preset || typeof preset !== 'object') return preset;
+    const next = { ...preset };
+    if (looksLikeKrea2Preset(next)) {
+        next.workflowEngine = 'krea2';
+        next.unetName = next.unetName || next.checkpointName || KREA2_DEFAULTS.unetName;
+        next.checkpointName = next.checkpointName || next.unetName || KREA2_DEFAULTS.checkpointName;
+        next.clipName = next.clipName || KREA2_DEFAULTS.clipName;
+        next.clipType = next.clipType || KREA2_DEFAULTS.clipType;
+        next.vaeName = next.vaeName || KREA2_DEFAULTS.vaeName;
+        // Krea2 graph has no hires-fix pass; 2× upscale is optional and real when enabled
+        next.enableHires = false;
+        if (next.enableUpscale === undefined) next.enableUpscale = false;
+    } else if (!next.workflowEngine) {
+        next.workflowEngine = 'sdxl';
+    }
+    return next;
+}
+
 function readPresets() {
     ensureDirs();
     try {
@@ -112,9 +175,10 @@ function readPresets() {
         const list = Array.isArray(parsed.presets)
             ? parsed.presets
             : (Array.isArray(parsed) ? parsed : []);
+        const presets = list.map((p) => normalizePreset(p));
         return {
-            presets: list,
-            activePresetId: parsed.activePresetId || (list[0] && list[0].id) || ''
+            presets,
+            activePresetId: parsed.activePresetId || (presets[0] && presets[0].id) || ''
         };
     } catch (e) {
         return { presets: [], activePresetId: '' };
@@ -140,24 +204,24 @@ function upsertPreset(input = {}) {
     if (input.id) {
         const idx = state.presets.findIndex((p) => p.id === input.id);
         if (idx >= 0) {
-            preset = {
+            preset = normalizePreset({
                 ...base,
                 ...state.presets[idx],
                 ...input,
                 id: state.presets[idx].id,
                 updatedAt: now
-            };
+            });
             state.presets[idx] = preset;
         }
     }
 
     if (!preset) {
-        preset = {
+        preset = normalizePreset({
             ...base,
             ...input,
             id: input.id || `gp_${crypto.randomBytes(6).toString('hex')}`,
             updatedAt: now
-        };
+        });
         state.presets.push(preset);
     }
 
@@ -191,14 +255,21 @@ function splitManualPrompts(text) {
         .filter(Boolean);
 }
 
-async function expandClothingPrompts({ scene, count }) {
+async function expandClothingPrompts({ scene, count, naturalLanguage = false }) {
     const n = Math.max(1, Math.min(30, Math.round(Number(count) || 1)));
     const settings = readSettings();
-    const userContent = String(settings.clothingExpandUserTemplate || '')
+    const useNl = Boolean(naturalLanguage);
+    const system = useNl
+        ? KREA2_EXPAND_SYSTEM
+        : (settings.clothingExpandSystem || CLOTHING_EXPAND_SYSTEM);
+    const userTemplate = useNl
+        ? KREA2_EXPAND_USER
+        : (settings.clothingExpandUserTemplate || defaultSettings().clothingExpandUserTemplate);
+    const userContent = String(userTemplate)
         .replace(/\{scene\}/g, String(scene || '').trim())
         .replace(/\{count\}/g, String(n));
     const messages = [
-        { role: 'system', content: settings.clothingExpandSystem || CLOTHING_EXPAND_SYSTEM },
+        { role: 'system', content: system },
         { role: 'user', content: userContent }
     ];
     const provider = process.env.GENERATE_LLM_PROVIDER || 'deepseek';
@@ -212,9 +283,15 @@ async function expandClothingPrompts({ scene, count }) {
 }
 
 function presetToComfyOptions(preset, overrides = {}) {
-    const p = { ...defaultPresetShape(), ...(preset || {}), ...overrides };
+    const p = normalizePreset({ ...defaultPresetShape(), ...(preset || {}), ...overrides });
+    const isKrea2 = looksLikeKrea2Preset(p);
     return {
+        workflowEngine: isKrea2 ? 'krea2' : (p.workflowEngine || 'sdxl'),
         checkpointName: p.checkpointName,
+        unetName: p.unetName || p.checkpointName,
+        clipName: p.clipName || (isKrea2 ? KREA2_DEFAULTS.clipName : ''),
+        clipType: p.clipType || (isKrea2 ? KREA2_DEFAULTS.clipType : ''),
+        vaeName: p.vaeName || (isKrea2 ? KREA2_DEFAULTS.vaeName : ''),
         basePrompt: p.basePrompt,
         negative: p.negativePrompt,
         loras: p.loras,
@@ -226,15 +303,16 @@ function presetToComfyOptions(preset, overrides = {}) {
         scheduler: p.scheduler,
         denoise: p.denoise,
         seed: p.seed,
-        enableHires: Boolean(p.enableHires),
+        enableHires: isKrea2 ? false : Boolean(p.enableHires),
         hiresWidth: p.hiresWidth,
         hiresHeight: p.hiresHeight,
         hiresDenoise: p.hiresDenoise,
         hiresSteps: p.hiresSteps,
-        enableUpscale: p.enableUpscale !== false,
+        // SDXL 默认开 2×；Krea2 默认关，勾选才接入 Upscale 节点
+        enableUpscale: isKrea2 ? Boolean(p.enableUpscale) : p.enableUpscale !== false,
         upscaleModel: p.upscaleModel,
         randomSeedPerPrompt: true,
-        filenamePrefix: 'comfy_generate'
+        filenamePrefix: isKrea2 ? 'Krea2_q4_retroanime' : 'comfy_generate'
     };
 }
 
@@ -255,7 +333,8 @@ async function runGenerateJob({
     if (!preset) {
         throw new Error('请先创建并选择一个角色预设（含底模）');
     }
-    if (!String(preset.basePrompt || '').trim()) {
+    const isKrea2 = looksLikeKrea2Preset(preset);
+    if (!String(preset.basePrompt || '').trim() && !isKrea2) {
         throw new Error('当前预设缺少底模 basePrompt，请在右侧配置中填写');
     }
 
@@ -316,7 +395,11 @@ async function runGenerateJob({
                 throw new Error('请先填写场景描述');
             }
             progress({ phase: 'expanding', message: 'AI 扩写服饰动作中…' });
-            const expanded = await expandClothingPrompts({ scene, count });
+            const expanded = await expandClothingPrompts({
+                scene,
+                count: isKrea2 ? Math.min(Number(count) || 1, 4) : count,
+                naturalLanguage: isKrea2
+            });
             clothingPrompts = expanded.prompts;
             expandRaw = expanded.raw;
             progress({
@@ -334,12 +417,19 @@ async function runGenerateJob({
         progress({ phase: 'queued', message: '提交 Comfy 生成…', batchId });
 
         const comfyOptions = presetToComfyOptions(preset, overrides);
-        const result = await comfyClient.generateBatchToDir({
-            ...comfyOptions,
-            multiPrompts: clothingPrompts,
-            turnPrompt: clothingPrompts,
-            onProgress: progress
-        }, destDir);
+        const result = isKrea2
+            ? await comfyClient.generateKrea2BatchToDir({
+                ...comfyOptions,
+                multiPrompts: clothingPrompts,
+                turnPrompt: clothingPrompts,
+                onProgress: progress
+            }, destDir)
+            : await comfyClient.generateBatchToDir({
+                ...comfyOptions,
+                multiPrompts: clothingPrompts,
+                turnPrompt: clothingPrompts,
+                onProgress: progress
+            }, destDir);
 
         const images = (result.files || []).map((f, i) => ({
             index: i + 1,
@@ -416,6 +506,7 @@ async function runGenerateJob({
 
 module.exports = {
     CLOTHING_EXPAND_SYSTEM,
+    KREA2_EXPAND_SYSTEM,
     ensureDirs,
     defaultPresetShape,
     defaultSettings,

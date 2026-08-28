@@ -253,9 +253,27 @@
         };
     }
 
-    const PRESET_ALIASES = { xhs: 'paper-collage' };
+    const PRESET_ALIASES = { xhs: 'paper-collage', plain: 'none', raw: 'none' };
 
     const PRESETS = {
+        none: {
+            label: '无边框 · 原图',
+            padding: 0,
+            bgColor: '#000000',
+            bgMode: 'solid',
+            glassBg: false,
+            borderWidth: 0,
+            borderColor: 'transparent',
+            borderRadius: 0,
+            shadowMode: 'hard',
+            shadowOffset: 0,
+            shadowAlpha: 0,
+            tiltDeg: 0,
+            tape: false,
+            captionFontSize: 14,
+            outputWidth: 0,
+            plain: true
+        },
         'paper-collage': {
             label: '贴纸剪贴 · paper-collage',
             padding: 32,
@@ -490,6 +508,25 @@
 
     function measureFrame(image, options) {
         const opts = mergeOptions(options);
+        if (opts.plain || opts.preset === 'none') {
+            const size = resolveDrawSize(image, opts);
+            const drawW = Math.max(1, size.drawW || 1);
+            const drawH = Math.max(1, size.drawH || 1);
+            return {
+                width: drawW,
+                height: drawH,
+                drawW,
+                drawH,
+                padding: 0,
+                borderWidth: 0,
+                borderRadius: 0,
+                shadowOffset: 0,
+                captionLines: [],
+                captionFontSize: 14,
+                uiScale: size.uiScale || 1,
+                opts
+            };
+        }
         const size = resolveDrawSize(image, opts);
         const { drawW, drawH, uiScale } = size;
 
@@ -554,9 +591,26 @@
         };
     }
 
+    function renderPlainImage(image, options) {
+        const measured = measureFrame(image, { ...(options || {}), preset: 'none' });
+        const canvas = document.createElement('canvas');
+        canvas.width = measured.drawW;
+        canvas.height = measured.drawH;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        const imgW = image.naturalWidth || image.width || measured.drawW;
+        const imgH = image.naturalHeight || image.height || measured.drawH;
+        ctx.drawImage(image, 0, 0, imgW, imgH, 0, 0, measured.drawW, measured.drawH);
+        return canvas;
+    }
+
     function renderStickerFrame(image, options) {
         const measured = measureFrame(image, options);
         const opts = measured.opts;
+        if (opts.plain || opts.preset === 'none') {
+            return renderPlainImage(image, options);
+        }
         const {
             bgColor,
             borderColor,

@@ -140,12 +140,116 @@ function buildPromptGraph(options = {}) {
     return graph;
 }
 
+const KREA2_WORKFLOW_PATH = path.join(__dirname, 'workflows', 'krea2_q4_retroanime.json');
+
+function loadKrea2Template() {
+    return JSON.parse(fs.readFileSync(KREA2_WORKFLOW_PATH, 'utf8'));
+}
+
+/**
+ * API graph for Krea2 Q4 GGUF + retroanime LoRA (from ComfyUI user workflow).
+ * checkpointName maps to UnetLoaderGGUF unet_name.
+ */
+function buildKrea2PromptGraph(options = {}) {
+    const graph = loadKrea2Template();
+    const unetName = String(options.unetName || options.checkpointName || 'krea2_turbo-Q4_K_M.gguf').trim();
+    graph['1'].inputs.unet_name = unetName;
+
+    if (options.clipName) {
+        graph['2'].inputs.clip_name = String(options.clipName).trim();
+    }
+    if (options.clipType) {
+        graph['2'].inputs.type = String(options.clipType).trim();
+    }
+    if (options.vaeName) {
+        graph['3'].inputs.vae_name = String(options.vaeName).trim();
+    }
+
+    const lora = Array.isArray(options.loras) && options.loras[0] ? options.loras[0] : null;
+    const loraName = String(lora?.name || '').trim();
+    const loraStrength = num(lora?.strengthModel, 1);
+    if (!loraName || loraName === '(none)' || loraStrength === 0) {
+        delete graph['14'];
+        graph['7'].inputs.model = ['1', 0];
+    } else {
+        graph['14'].inputs.lora_name = loraName;
+        graph['14'].inputs.strength_model = loraStrength;
+    }
+
+    graph['4'].inputs.text = String(options.positive || options.basePrompt || '').trim();
+    graph['5'].inputs.text = String(options.negative || '').trim();
+    graph['6'].inputs.width = Math.max(64, Math.round(num(options.width, 1024)));
+    graph['6'].inputs.height = Math.max(64, Math.round(num(options.height, 1536)));
+    graph['6'].inputs.batch_size = 1;
+
+    const seedOpt = num(options.seed, -1);
+    graph['7'].inputs.seed = seedOpt >= 0 ? Math.floor(seedOpt) : crypto.randomInt(1, 2 ** 48);
+    graph['7'].inputs.steps = Math.max(1, Math.round(num(options.steps, 8)));
+    graph['7'].inputs.cfg = num(options.cfg, 1);
+    graph['7'].inputs.sampler_name = options.sampler || 'euler';
+    graph['7'].inputs.scheduler = options.scheduler || 'simple';
+    graph['7'].inputs.denoise = num(options.denoise, 1);
+
+    if (graph['9'] && graph['9'].inputs) {
+        graph['9'].inputs.filename_prefix = options.filenamePrefix || 'Krea2_q4_retroanime';
+    }
+
+    // Optional 2× model upscale (same nodes as SDXL generate path)
+    if (options.enableUpscale) {
+        const upscaleModel = String(options.upscaleModel || '2x_Ani4Kv2_G6i2_Compact_107500.pth').trim();
+        graph['60'] = {
+            class_type: 'UpscaleModelLoader',
+            inputs: { model_name: upscaleModel }
+        };
+        graph['61'] = {
+            class_type: 'ImageUpscaleWithModel',
+            inputs: {
+                upscale_model: ['60', 0],
+                image: ['8', 0]
+            }
+        };
+        if (graph['9'] && graph['9'].inputs) {
+            graph['9'].inputs.images = ['61', 0];
+        }
+    }
+
+    return graph;
+}
+
+function combineKrea2Positive(basePrompt, clothingPrompt) {
+    const base = String(basePrompt || '').trim();
+    const clothing = String(clothingPrompt || '').trim();
+    if (base && clothing) return `${base}, ${clothing}`;
+    return base || clothing;
+}
+
 /** Join clothing/action prompts with --- for BatchPromptImageGenerator */
 function joinMultiPrompts(prompts) {
     if (Array.isArray(prompts)) {
         return prompts.map((p) => String(p || '').trim()).filter(Boolean).join('\n---\n');
     }
     return String(prompts || '').trim();
+}
+
+function formatComfyReject(err) {
+    const data = err?.response?.data;
+    if (!data) return err.message || String(err);
+    const parts = [];
+    const top = data.error;
+    if (top) {
+        parts.push(typeof top === 'string' ? top : (top.message || JSON.stringify(top)));
+        if (top.details) parts.push(String(top.details));
+    }
+    const nodeErrors = data.node_errors || {};
+    for (const [nodeId, info] of Object.entries(nodeErrors)) {
+        const errs = Array.isArray(info?.errors) ? info.errors : [];
+        for (const e of errs) {
+            const bit = [e.message, e.details].filter(Boolean).join(' — ');
+            parts.push(`node ${nodeId} (${info.class_type || '?'}): ${bit}`);
+        }
+    }
+    if (!parts.length) parts.push(typeof data === 'string' ? data : JSON.stringify(data));
+    return parts.join(' | ');
 }
 
 async function ping() {
@@ -414,8 +518,7 @@ async function generateOnce(options) {
         if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
             throw new Error(`ComfyUI is not running at ${config.comfyUrl}`);
         }
-        const detail = err.response?.data?.error || err.response?.data || err.message;
-        throw new Error(`ComfyUI reject: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
+        throw new Error(`ComfyUI reject: ${formatComfyReject(err)}`);
     }
 
     const promptId = submit.data?.prompt_id;
@@ -479,8 +582,8 @@ async function generateBatchToDir(options, destDir) {
             if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
                 throw new Error(`ComfyUI is not running at ${config.comfyUrl}`);
             }
-            const detail = err.response?.data?.error || err.response?.data || err.message;
-            throw new Error(`ComfyUI reject: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
+            const detail = formatComfyReject(err);
+            throw new Error(`ComfyUI reject: ${detail}`);
         }
 
         const promptId = submit.data?.prompt_id;
@@ -531,6 +634,111 @@ async function generateBatchToDir(options, destDir) {
     });
 }
 
+/**
+ * Krea2 has no BatchPromptImageGenerator — one Comfy job per clothing/action prompt.
+ */
+async function generateKrea2BatchToDir(options, destDir) {
+    return enqueue(async () => {
+        const clothingList = Array.isArray(options.multiPrompts)
+            ? options.multiPrompts.map((p) => String(p || '').trim()).filter(Boolean)
+            : String(options.turnPrompt || options.positive || '')
+                .split(/\n\s*---\s*\n|\n---\n|---/)
+                .map((p) => p.trim())
+                .filter(Boolean);
+        if (!clothingList.length && !String(options.basePrompt || '').trim()) {
+            throw new Error('Krea2 生图需要至少一条 Prompt');
+        }
+        const prompts = clothingList.length ? clothingList : [''];
+        const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+        const files = [];
+        let lastPromptId = null;
+        let lastSource = 'history';
+
+        fs.mkdirSync(destDir, { recursive: true });
+
+        for (let i = 0; i < prompts.length; i++) {
+            const positive = combineKrea2Positive(options.basePrompt, prompts[i]);
+            const filenamePrefix = `${options.filenamePrefix || 'Krea2_q4_retroanime'}_${String(i + 1).padStart(3, '0')}`;
+            const graph = buildKrea2PromptGraph({
+                ...options,
+                positive,
+                filenamePrefix,
+                seed: options.randomSeedPerPrompt === false && Number(options.seed) >= 0
+                    ? options.seed
+                    : -1
+            });
+
+            if (onProgress) {
+                onProgress({
+                    phase: 'submitting',
+                    message: `Krea2 提交 ${i + 1}/${prompts.length}…`,
+                    index: i + 1,
+                    total: prompts.length
+                });
+            }
+
+            const sinceMs = Date.now();
+            await ensureComfySocket();
+            let submit;
+            try {
+                submit = await axios.post(
+                    `${config.comfyUrl}/prompt`,
+                    { prompt: graph, client_id: COMFY_CLIENT_ID },
+                    { timeout: 15000 }
+                );
+            } catch (err) {
+                if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+                    throw new Error(`ComfyUI is not running at ${config.comfyUrl}`);
+                }
+                throw new Error(`ComfyUI reject: ${formatComfyReject(err)}`);
+            }
+
+            const promptId = submit.data?.prompt_id;
+            if (!promptId) {
+                throw new Error(`ComfyUI did not return prompt_id: ${JSON.stringify(submit.data)}`);
+            }
+            lastPromptId = promptId;
+
+            if (onProgress) {
+                onProgress({
+                    phase: 'queued',
+                    message: `Krea2 出图中 ${i + 1}/${prompts.length}…`,
+                    promptId,
+                    index: i + 1,
+                    total: prompts.length
+                });
+            }
+
+            const waited = await waitForHistory(promptId, {
+                timeoutMs: options.timeoutMs || batchTimeoutMs(),
+                onProgress,
+                filenamePrefix,
+                expectedCount: 1,
+                sinceMs,
+                outputDir: options.outputDir || resolveComfyOutputDir()
+            });
+            const saved = waited.images?.[0];
+            if (!saved) {
+                throw new Error(`Krea2 第 ${i + 1} 张未产出图片`);
+            }
+            lastSource = waited.source;
+
+            const name = `${String(i + 1).padStart(3, '0')}.png`;
+            const destPath = path.join(destDir, name);
+            await downloadView(saved, destPath);
+            files.push({ name, path: destPath, meta: saved });
+        }
+
+        return {
+            promptId: lastPromptId,
+            seed: null,
+            files,
+            multiPrompts: prompts,
+            source: lastSource
+        };
+    });
+}
+
 async function listUpscaleModels() {
     try {
         const { data } = await axios.get(`${config.comfyUrl}/object_info/UpscaleModelLoader`, { timeout: 8000 });
@@ -552,7 +760,9 @@ module.exports = {
     generateOnce,
     generateToFile,
     generateBatchToDir,
+    generateKrea2BatchToDir,
     buildPromptGraph,
+    buildKrea2PromptGraph,
     joinMultiPrompts,
     allSavedImages,
     resolveComfyOutputDir,

@@ -181,16 +181,27 @@ html.gen-page body {
   min-height: 0;
 }
 
+.results-panel > .results-body {
+  overflow: hidden;
+}
+
 .results-body {
+  --dock-h: clamp(118px, 18vh, 156px);
   position: relative;
   height: 100%;
   min-height: 0;
   padding: 8px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .results-empty {
   position: absolute;
-  inset: 0;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--dock-h) + 16px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -198,6 +209,8 @@ html.gen-page body {
   font-size: 14px;
   text-align: center;
   padding: 24px;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .results-grid {
@@ -206,6 +219,9 @@ html.gen-page body {
   gap: 10px;
   padding: 2px;
   align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .results-grid.hidden { display: none; }
@@ -272,15 +288,24 @@ html.gen-page body {
 
 .single-view {
   display: none;
-  height: 100%;
-  flex-direction: column;
-  align-items: center;
-  justify-content: stretch;
-  gap: 8px;
+  flex: 1;
   min-height: 0;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.single-view.active { display: flex; }
+.single-view.active {
+  display: flex;
+}
+
+/* 图占绝大部分 */
+.single-hero {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 .single-stage {
   flex: 1;
@@ -291,6 +316,13 @@ html.gen-page body {
   justify-content: center;
   overflow: hidden;
   cursor: zoom-in;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 10px;
+}
+
+.single-stage.rerendering {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .single-stage canvas,
@@ -307,13 +339,33 @@ html.gen-page body {
 .single-nav {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
-/* 底栏：默认矮条，展开为抽屉 */
+/* 底栏：左下输入 + 右下提示词，合计约 1/5～1/4 高度，图占其余 */
+.single-bottom {
+  flex: 0 0 var(--dock-h);
+  height: var(--dock-h);
+  min-height: 118px;
+  max-height: 156px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.15fr) minmax(160px, 0.85fr);
+  gap: 8px;
+}
+
+.single-bottom:has(.prompt-box[hidden]) {
+  grid-template-columns: 1fr;
+}
+
 .composer-dock {
-  flex-shrink: 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
   position: relative;
   z-index: 5;
 }
@@ -321,20 +373,21 @@ html.gen-page body {
 .composer-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  padding: 4px 8px;
   background: var(--card);
-  border: 2.5px solid var(--text);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  min-height: 48px;
+  border: 2px solid var(--text);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm, 2px 2px 0 var(--text));
+  min-height: 0;
+  flex-shrink: 0;
 }
 
 .composer-bar .bar-progress {
   flex: 1;
-  min-width: 120px;
-  font-size: 12px;
+  min-width: 0;
+  font-size: 11px;
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -342,112 +395,155 @@ html.gen-page body {
 }
 
 .composer-bar .bar-preset {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-2);
-  max-width: 160px;
+  max-width: 88px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .composer-drawer {
-  display: none;
-  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
   background: var(--card);
-  border: 2.5px solid var(--text);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  padding: 10px;
-  max-height: min(42vh, 360px);
-  overflow: auto;
+  border: 2px solid var(--text);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm, 2px 2px 0 var(--text));
+  padding: 6px;
+  max-height: none;
+  overflow: hidden;
 }
 
 .composer-dock.open .composer-drawer {
-  display: block;
+  display: flex;
 }
 
 .composer-card {
-  border: 2px solid var(--text);
-  border-radius: 12px;
-  background: #fff;
-  padding: 10px;
-  margin-bottom: 8px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
   align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  margin: 0;
 }
 
 .mode-pills {
   display: inline-flex;
   border: 2px solid var(--text);
-  border-radius: 999px;
+  border-radius: 8px;
   overflow: hidden;
 }
 
 .mode-pills label {
-  padding: 6px 12px;
-  font-size: 13px;
+  margin: 0;
   cursor: pointer;
-  user-select: none;
 }
 
-.mode-pills input { display: none; }
+.mode-pills input {
+  display: none;
+}
+
+.mode-pills span {
+  display: block;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: #fff;
+}
+
 .mode-pills input:checked + span {
   background: var(--text);
   color: #fff;
-  display: inline-block;
-  margin: -6px -12px;
-  padding: 6px 12px;
 }
 
 .count-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 11px;
 }
 
-.count-wrap input[type="number"] {
-  width: 64px;
-  padding: 6px 8px;
+.count-wrap input {
+  width: 40px;
+  height: 24px;
+  text-align: center;
   border: 2px solid var(--text);
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: 6px;
+  font-size: 12px;
 }
 
 .count-wrap button {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: 2px solid var(--text);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   cursor: pointer;
   font-weight: 700;
+  font-size: 12px;
+  padding: 0;
 }
 
 .composer-input {
   width: 100%;
-  min-height: 72px;
-  max-height: 160px;
-  resize: vertical;
-  border: 2.5px solid var(--text);
-  border-radius: 12px;
-  padding: 12px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  height: auto;
+  resize: none;
+  border: 2px solid var(--text);
+  border-radius: 8px;
+  padding: 6px 8px;
   font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
   background: #fff;
   box-sizing: border-box;
 }
 
-.composer-row {
+.prompt-box {
+  width: auto;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 8px;
+  background: #fffaf2;
+  border: 2px solid var(--text);
+  border-radius: 10px;
+  box-sizing: border-box;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  min-width: 0;
+  box-shadow: var(--shadow-sm, 2px 2px 0 var(--text));
+}
+
+.prompt-box-label {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.prompt-box pre {
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.composer-row {
+  display: none;
 }
 
 .btn {
@@ -630,33 +726,6 @@ html.gen-page body {
   border-radius: 8px;
 }
 
-.prompt-box {
-  width: 100%;
-  max-width: 920px;
-  margin-top: 4px;
-  padding: 8px 10px;
-  background: #fffaf2;
-  border: 2px solid var(--text);
-  border-radius: 10px;
-  box-sizing: border-box;
-}
-
-.prompt-box-label {
-  font-size: 12px;
-  color: var(--text-2);
-  margin-bottom: 4px;
-}
-
-.prompt-box pre {
-  margin: 0;
-  max-height: 140px;
-  overflow: auto;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .lightbox-prompt {
   max-width: min(96vw, 900px);
   background: rgba(255, 250, 242, 0.95);
@@ -755,5 +824,17 @@ html.gen-page body {
   }
   .results-panel {
     min-height: 55vh;
+  }
+  .results-body {
+    --dock-h: auto;
+  }
+  .single-bottom {
+    flex: 0 0 auto;
+    height: auto;
+    max-height: none;
+    grid-template-columns: 1fr;
+  }
+  .composer-input {
+    min-height: 64px;
   }
 }

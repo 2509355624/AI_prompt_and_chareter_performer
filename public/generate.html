@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=7">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=10">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -19,7 +19,6 @@
                     <button type="button" id="btnViewSingle">单图</button>
                     <button type="button" class="active" id="btnViewGrid">网格</button>
                 </div>
-                <button type="button" class="btn btn-ghost btn-sm" id="btnToggleComposer">展开输入</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnToggleConfig">展开配置</button>
             </div>
         </div>
@@ -37,7 +36,7 @@
                 </div>
             </aside>
 
-            <!-- 中：结果（主画幅）+ 底栏矮条/抽屉 -->
+            <!-- 中：图占主区；左下压缩输入；右下本张提示词 -->
             <div class="center-col">
                 <section class="gen-panel results-panel">
                     <div class="gen-panel-head">
@@ -45,63 +44,53 @@
                         <span class="progress-text" id="resultMeta">0 张 · 点击图片可放大</span>
                     </div>
                     <div class="gen-panel-body results-body">
-                        <div class="results-empty" id="resultsEmpty">选好预设后，点「展开输入」描述场景并生成。<br>默认以带边框样式展示，点击图片可全屏放大。</div>
+                        <div class="results-empty" id="resultsEmpty">选好预设后，在左下角输入场景并生成。<br>默认以带边框样式展示，点击图片可全屏放大。</div>
                         <div class="results-grid" id="resultsGrid"></div>
                         <div class="single-view" id="singleView">
-                            <div class="single-stage" id="singleStage" title="点击放大"></div>
-                            <div class="single-nav">
-                                <button type="button" class="btn btn-ghost" id="btnPrev">◀ 上一张</button>
-                                <span id="singleIndexLabel">0 / 0</span>
-                                <button type="button" class="btn btn-ghost" id="btnNext">下一张 ▶</button>
-                                <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大查看</button>
-                                <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderSingle">重新渲染</button>
-                                <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制提示词</button>
+                            <div class="single-hero">
+                                <div class="single-stage" id="singleStage" title="点击放大"></div>
+                                <div class="single-nav">
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnPrev">◀</button>
+                                    <span id="singleIndexLabel">0 / 0</span>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnNext">▶</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderSingle">重渲</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制词</button>
+                                    <button type="button" class="btn btn-accent2 btn-sm" id="btnExportCurrent" disabled>导出</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnExportSelected" disabled>导出选中</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="single-bottom" id="workspaceBottom">
+                            <div class="composer-dock open" id="composerDock">
+                                <div class="composer-bar">
+                                    <span class="bar-preset" id="activePresetLabel">未选择预设</span>
+                                    <span class="bar-progress" id="progressText"></span>
+                                    <button type="button" class="btn btn-primary btn-sm" id="btnGenerate">开始生成</button>
+                                </div>
+                                <div class="composer-drawer" id="composerDrawer">
+                                    <div class="composer-card">
+                                        <div class="mode-pills">
+                                            <label><input type="radio" name="promptMode" value="ai"><span>AI 扩写</span></label>
+                                            <label><input type="radio" name="promptMode" value="manual" checked><span>手动</span></label>
+                                        </div>
+                                        <div class="count-wrap" id="countWrap" hidden>
+                                            <span>数</span>
+                                            <button type="button" id="btnCountMinus">−</button>
+                                            <input type="number" id="countInput" min="1" max="30" value="1">
+                                            <button type="button" id="btnCountPlus">＋</button>
+                                        </div>
+                                    </div>
+                                    <textarea class="composer-input" id="sceneInput" rows="3" placeholder="场景 / Prompt…"></textarea>
+                                </div>
                             </div>
                             <div class="prompt-box" id="singlePromptBox" hidden>
-                                <div class="prompt-box-label">本张服饰/动作提示词</div>
+                                <div class="prompt-box-label">本张提示词</div>
                                 <pre id="singlePromptText"></pre>
                             </div>
                         </div>
                     </div>
                 </section>
-
-                <div class="composer-dock" id="composerDock">
-                    <div class="composer-bar">
-                        <button type="button" class="btn btn-ghost btn-sm" id="btnComposerToggleBar">展开输入 ▴</button>
-                        <span class="bar-preset" id="activePresetLabel">未选择预设</span>
-                        <span class="bar-progress" id="progressText"></span>
-                        <button type="button" class="btn btn-primary btn-sm" id="btnGenerate">开始生成</button>
-                    </div>
-                    <div class="composer-drawer" id="composerDrawer">
-                        <div class="composer-card">
-                            <div class="mode-pills">
-                                <label><input type="radio" name="promptMode" value="ai" checked><span>AI 扩写</span></label>
-                                <label><input type="radio" name="promptMode" value="manual"><span>手动 Prompt</span></label>
-                            </div>
-                            <div class="count-wrap" id="countWrap">
-                                <span>数量</span>
-                                <button type="button" id="btnCountMinus">−</button>
-                                <input type="number" id="countInput" min="1" max="30" value="4">
-                                <button type="button" id="btnCountPlus">＋</button>
-                            </div>
-                        </div>
-
-                        <textarea class="composer-input" id="sceneInput" placeholder="描述服饰、动作、氛围，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚"></textarea>
-
-                        <div class="composer-row">
-                            <span class="progress-text">写好场景后点「开始生成」；不需要时可收起输入栏</span>
-                            <button type="button" class="btn btn-ghost btn-sm" id="btnCollapseComposer">收起输入</button>
-                        </div>
-
-                        <div class="export-bar">
-                            <label><input type="checkbox" id="exportWithFrame" checked> 带边框导出</label>
-                            <select id="framePresetSelect"></select>
-                            <input type="text" id="exportFolderPath" placeholder="导出文件夹">
-                            <button type="button" class="btn btn-ghost btn-sm" id="btnPickFolder">选择</button>
-                            <button type="button" class="btn btn-accent2 btn-sm" id="btnExport" disabled>导出选中</button>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <!-- 右：配置（可收起） -->
@@ -119,9 +108,9 @@
                             <textarea id="cfgBasePrompt" placeholder="角色外貌、画师 tag 等，不给 AI 改"></textarea>
                         </label>
 
-                        <div class="config-ai-box">
-                            <div class="config-ai-title">AI 扩写提示词</div>
-                            <p class="config-hint">最终生图正向 ≈ <b>basePrompt</b> + 每张「服饰/动作」词。下面两段只影响 AI 扩写，不直接进 Comfy。</p>
+                        <div class="config-ai-box" id="cfgAiExpandBox">
+                            <div class="config-ai-title">AI 扩写提示词（网页侧，不是 Comfy 节点）</div>
+                            <p class="config-hint">只在中间选「AI 扩写」时用到：先让 LLM 写出服饰/动作，再和 basePrompt 拼进 Comfy。手动 Prompt 模式完全不走这里。</p>
                             <label>System（扩写规则）
                                 <textarea id="cfgAiSystem" rows="8" placeholder="AI 扩写 system prompt"></textarea>
                             </label>
@@ -134,9 +123,10 @@
                             </div>
                         </div>
 
-                        <label>Checkpoint
+                        <label><span id="cfgCheckpointTitle">Checkpoint</span>
                             <select id="cfgCheckpoint"></select>
                         </label>
+                        <p class="config-hint" id="cfgEngineHint" hidden></p>
                         <label>宽<input type="number" id="cfgWidth" min="64" step="8"></label>
                         <label>高<input type="number" id="cfgHeight" min="64" step="8"></label>
                         <label>Steps<input type="number" id="cfgSteps" min="1" max="150"></label>
@@ -147,29 +137,48 @@
                             <textarea id="cfgNegative" rows="3"></textarea>
                         </label>
 
-                        <label class="config-check"><input type="checkbox" id="cfgEnableHires"> 高清修复（默认关）</label>
-                        <div id="hiresRow" hidden>
-                            <label>Hires 宽<input type="number" id="cfgHiresW" min="64" step="8"></label>
-                            <label>Hires 高<input type="number" id="cfgHiresH" min="64" step="8"></label>
+                        <div id="cfgHiresBlock">
+                            <label class="config-check"><input type="checkbox" id="cfgEnableHires"> 高清修复（默认关）</label>
+                            <div id="hiresRow" hidden>
+                                <label>Hires 宽<input type="number" id="cfgHiresW" min="64" step="8"></label>
+                                <label>Hires 高<input type="number" id="cfgHiresH" min="64" step="8"></label>
+                            </div>
                         </div>
 
-                        <label class="config-check"><input type="checkbox" id="cfgEnableUpscale" checked> 2× 放大（默认开）</label>
-                        <label>放大模型
-                            <select id="cfgUpscaleModel"></select>
-                        </label>
+                        <div id="cfgUpscaleBlock">
+                            <label class="config-check"><input type="checkbox" id="cfgEnableUpscale"> 2× 放大</label>
+                            <label id="cfgUpscaleModelLabel">放大模型
+                                <select id="cfgUpscaleModel"></select>
+                            </label>
+                        </div>
 
-                        <label>LoRA1
+                        <label id="cfgLora1Label">LoRA1
                             <select id="cfgLora1"></select>
                             <input type="number" id="cfgLora1Str" min="-2" max="2" step="0.05" placeholder="强度">
                         </label>
-                        <label>LoRA2
+                        <label id="cfgLora2Label">LoRA2
                             <select id="cfgLora2"></select>
                             <input type="number" id="cfgLora2Str" min="-2" max="2" step="0.05" placeholder="强度">
                         </label>
-                        <label>LoRA3
+                        <label id="cfgLora3Label">LoRA3
                             <select id="cfgLora3"></select>
                             <input type="number" id="cfgLora3Str" min="-2" max="2" step="0.05" placeholder="强度">
                         </label>
+
+                        <div class="config-ai-box" id="cfgExportBox">
+                            <div class="config-ai-title">壁纸 / 边框导出</div>
+                            <p class="config-hint">中间图下方「导出当前 / 导出选中」会用这里的设置。</p>
+                            <label class="config-check"><input type="checkbox" id="exportWithFrame" checked> 导出时加小红书边框</label>
+                            <label>边框预设
+                                <select id="framePresetSelect"></select>
+                            </label>
+                            <label>导出文件夹
+                                <div class="sticker-export-folder-row" style="display:flex;gap:6px;">
+                                    <input type="text" id="exportFolderPath" placeholder="选择或粘贴完整路径" style="flex:1;">
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnPickFolder">选择</button>
+                                </div>
+                            </label>
+                        </div>
 
                         <div class="config-actions">
                             <button type="button" class="btn btn-primary" id="btnSavePreset">保存预设</button>
@@ -191,6 +200,7 @@
                 <button type="button" class="btn btn-ghost" id="btnLightboxNext">▶</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnCopyLightboxPrompt">复制提示词</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderLightbox">重新渲染</button>
+                <button type="button" class="btn btn-accent2 btn-sm" id="btnExportLightbox">导出当前</button>
             </div>
             <div class="prompt-box lightbox-prompt" id="lightboxPromptBox" hidden>
                 <pre id="lightboxPromptText"></pre>
@@ -198,11 +208,26 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=8"></script>
+    <script src="js/sticker-frame.js?v=9"></script>
     <script>
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
         const PLACEHOLDER_MANUAL = '粘贴多条服饰动作 prompt，用 --- 分隔，例如：\\nwhite lace dress, sitting on bench...\\n---\\nnavy swimsuit, pool edge...';
+        const PLACEHOLDER_AI_KREA2 = '用自然语言简述想要的画面变化（服饰/姿势/场景/光影）。Krea2 会扩写成英文句子，不是 tag。\\n建议数量保持 1（单张较慢）';
+        const PLACEHOLDER_MANUAL_KREA2 = '直接写英文自然语言画面描述（推荐）。多张用 --- 分隔。\\n例：\\nA close-up of a girl in a white lace dress on a park bench at dusk, cool cyan grading, soft overexposed light.\\n---\\nShe stands at a rainy bus stop in a navy coat, neon reflections on wet pavement.';
+
+        function isKrea2Preset(p) {
+            const preset = p || activePreset() || {};
+            return preset.workflowEngine === 'krea2'
+                || /\.gguf$/i.test(String(preset.checkpointName || preset.unetName || ''))
+                || /krea2/i.test(String(preset.name || ''));
+        }
+
+        function setPromptMode(mode) {
+            const radio = document.querySelector(`input[name="promptMode"][value="${mode}"]`);
+            if (radio) radio.checked = true;
+            syncModeUi();
+        }
         const SESSION_KEY = 'comfy_generate_session_v1';
 
         const state = {
@@ -245,13 +270,12 @@
             exportWithFrame: $('exportWithFrame'),
             framePresetSelect: $('framePresetSelect'),
             exportFolderPath: $('exportFolderPath'),
-            btnExport: $('btnExport'),
+            btnExportCurrent: $('btnExportCurrent'),
+            btnExportSelected: $('btnExportSelected'),
+            btnExportLightbox: $('btnExportLightbox'),
             btnToggleConfig: $('btnToggleConfig'),
             btnTogglePresets: $('btnTogglePresets'),
-            btnToggleComposer: $('btnToggleComposer'),
             composerDock: $('composerDock'),
-            btnComposerToggleBar: $('btnComposerToggleBar'),
-            btnCollapseComposer: $('btnCollapseComposer'),
             lightbox: $('lightbox'),
             lightboxStage: $('lightboxStage'),
             lightboxIndexLabel: $('lightboxIndexLabel'),
@@ -404,11 +428,6 @@
             let jobId = session?.jobId || '';
 
             if (session) {
-                if (session.mode === 'manual' || session.mode === 'ai') {
-                    const radio = document.querySelector(`input[name="promptMode"][value="${session.mode}"]`);
-                    if (radio) radio.checked = true;
-                    syncModeUi();
-                }
                 if (typeof session.scene === 'string') els.sceneInput.value = session.scene;
                 if (session.count) els.countInput.value = session.count;
                 if (session.viewMode === 'grid' || session.viewMode === 'single') {
@@ -424,6 +443,12 @@
                 }
                 if (session.activePresetId && state.presets.some((p) => p.id === session.activePresetId)) {
                     await selectPreset(session.activePresetId);
+                }
+                // Krea2 始终默认手动；非 Krea2 才恢复上次模式
+                if (!isKrea2Preset(activePreset()) && (session.mode === 'manual' || session.mode === 'ai')) {
+                    const radio = document.querySelector(`input[name="promptMode"][value="${session.mode}"]`);
+                    if (radio) radio.checked = true;
+                    syncModeUi();
                 }
                 if (Array.isArray(session.images) && session.images.length) {
                     await applyImagesFromJob(session.images);
@@ -591,8 +616,24 @@
 
         function syncModeUi() {
             const mode = currentMode();
-            els.countWrap.style.display = mode === 'ai' ? 'inline-flex' : 'none';
-            els.sceneInput.placeholder = mode === 'ai' ? PLACEHOLDER_AI.replace(/\\n/g, '\n') : PLACEHOLDER_MANUAL.replace(/\\n/g, '\n');
+            const krea2 = isKrea2Preset();
+            if (els.countWrap) {
+                els.countWrap.hidden = mode !== 'ai';
+                els.countWrap.style.display = mode === 'ai' ? 'inline-flex' : 'none';
+            }
+            if (mode === 'ai') {
+                els.sceneInput.placeholder = (krea2 ? PLACEHOLDER_AI_KREA2 : PLACEHOLDER_AI).replace(/\\n/g, '\n');
+            } else {
+                els.sceneInput.placeholder = (krea2 ? PLACEHOLDER_MANUAL_KREA2 : PLACEHOLDER_MANUAL).replace(/\\n/g, '\n');
+            }
+        }
+
+        function syncExportButtons() {
+            const hasImages = state.images.length > 0;
+            const hasSelected = state.images.some((x) => x.selected);
+            if (els.btnExportCurrent) els.btnExportCurrent.disabled = !hasImages;
+            if (els.btnExportSelected) els.btnExportSelected.disabled = !hasSelected;
+            if (els.btnExportLightbox) els.btnExportLightbox.disabled = !hasImages;
         }
 
         function activePreset() {
@@ -620,7 +661,11 @@
             els.presetList.innerHTML = state.presets.map((p) => `
                 <div class="preset-item${p.id === state.activePresetId ? ' active' : ''}" data-id="${escapeAttr(p.id)}">
                     <div class="name">${escapeHtml(p.name || '未命名')}</div>
-                    <div class="meta">${escapeHtml((p.checkpointName || '').split(/[\\\\/]/).pop() || '未设 checkpoint')}</div>
+                    <div class="meta">${escapeHtml(
+                        p.workflowEngine === 'krea2'
+                            ? `Krea2 · ${(p.checkpointName || p.unetName || '').split(/[\\\\/]/).pop() || 'GGUF'}`
+                            : ((p.checkpointName || '').split(/[\\\\/]/).pop() || '未设 checkpoint')
+                    )}</div>
                 </div>
             `).join('');
             els.presetList.querySelectorAll('.preset-item').forEach((el) => {
@@ -640,11 +685,22 @@
                     strengthClip: 1
                 };
             };
+            const prev = activePreset() || {};
+            const checkpointName = $('cfgCheckpoint').value;
+            const isKrea2 = prev.workflowEngine === 'krea2'
+                || /\.gguf$/i.test(checkpointName)
+                || /krea2/i.test(checkpointName)
+                || /krea2/i.test(($('cfgName').value || ''));
             return {
                 id: state.activePresetId || undefined,
                 name: $('cfgName').value.trim() || '未命名预设',
+                workflowEngine: isKrea2 ? 'krea2' : (prev.workflowEngine || 'sdxl'),
+                clipName: isKrea2 ? (prev.clipName || 'qwen3vl_4b_fp8_scaled.safetensors') : (prev.clipName || ''),
+                clipType: isKrea2 ? (prev.clipType || 'krea2') : (prev.clipType || ''),
+                vaeName: isKrea2 ? (prev.vaeName || 'qwen_image_vae.safetensors') : (prev.vaeName || ''),
+                unetName: isKrea2 ? (checkpointName || prev.unetName || '') : (prev.unetName || ''),
                 basePrompt: $('cfgBasePrompt').value,
-                checkpointName: $('cfgCheckpoint').value,
+                checkpointName,
                 width: Number($('cfgWidth').value) || 1024,
                 height: Number($('cfgHeight').value) || 1536,
                 steps: Number($('cfgSteps').value) || 30,
@@ -652,12 +708,14 @@
                 sampler: $('cfgSampler').value,
                 scheduler: $('cfgScheduler').value,
                 negativePrompt: $('cfgNegative').value,
-                enableHires: $('cfgEnableHires').checked,
+                enableHires: isKrea2 ? false : $('cfgEnableHires').checked,
                 hiresWidth: Number($('cfgHiresW').value) || 1080,
                 hiresHeight: Number($('cfgHiresH').value) || 1920,
                 enableUpscale: $('cfgEnableUpscale').checked,
                 upscaleModel: $('cfgUpscaleModel').value,
-                loras: [lora(1), lora(2), lora(3)]
+                loras: isKrea2
+                    ? [lora(1), { name: '(none)', strengthModel: 0, strengthClip: 0 }, { name: '(none)', strengthModel: 0, strengthClip: 0 }]
+                    : [lora(1), lora(2), lora(3)]
             };
         }
 
@@ -665,7 +723,7 @@
             const p = preset || state.defaults || {};
             $('cfgName').value = p.name || '';
             $('cfgBasePrompt').value = p.basePrompt || '';
-            fillSelect($('cfgCheckpoint'), state.options?.checkpoints || [], p.checkpointName || '');
+            fillSelect($('cfgCheckpoint'), state.options?.checkpoints || [], p.checkpointName || p.unetName || '');
             $('cfgWidth').value = p.width ?? 1024;
             $('cfgHeight').value = p.height ?? 1536;
             $('cfgSteps').value = p.steps ?? 30;
@@ -676,8 +734,7 @@
             $('cfgEnableHires').checked = Boolean(p.enableHires);
             $('cfgHiresW').value = p.hiresWidth ?? 1080;
             $('cfgHiresH').value = p.hiresHeight ?? 1920;
-            $('hiresRow').hidden = !$('cfgEnableHires').checked;
-            $('cfgEnableUpscale').checked = p.enableUpscale !== false;
+            $('cfgEnableUpscale').checked = Boolean(p.enableUpscale);
             fillSelect($('cfgUpscaleModel'), state.options?.upscaleModels || [], p.upscaleModel || '');
             const loras = Array.isArray(p.loras) ? p.loras : [];
             const loraNames = state.options?.loras || [];
@@ -686,6 +743,41 @@
                 fillSelect($(`cfgLora${i}`), ['(none)', ...loraNames], l.name || '(none)');
                 $(`cfgLora${i}Str`).value = l.strengthModel ?? 0;
             }
+            syncConfigFormForEngine(p);
+        }
+
+        /** Show only controls that map to real workflow nodes for this preset. */
+        function syncConfigFormForEngine(preset) {
+            const p = preset || {};
+            const isKrea2 = p.workflowEngine === 'krea2'
+                || /\.gguf$/i.test(String(p.checkpointName || p.unetName || ''));
+            const title = $('cfgCheckpointTitle');
+            if (title) title.textContent = isKrea2 ? 'Unet (GGUF)' : 'Checkpoint';
+            const hint = $('cfgEngineHint');
+            if (hint) {
+                hint.hidden = !isKrea2;
+                if (isKrea2) {
+                    hint.textContent = 'Krea2：默认「手动 Prompt」+ 自然语言。工作流对照 Unet / 底模 / 负向 / 尺寸 / KSampler / LoRA1；可勾选 2× 放大。无高清修复、无 LoRA2/3。若用 AI 扩写会走自然语言模板（不是旧版 tag）。';
+                }
+            }
+            const hiresBlock = $('cfgHiresBlock');
+            if (hiresBlock) hiresBlock.hidden = isKrea2;
+            if (isKrea2) {
+                $('cfgEnableHires').checked = false;
+                $('hiresRow').hidden = true;
+            } else {
+                $('hiresRow').hidden = !$('cfgEnableHires').checked;
+            }
+            const lora2 = $('cfgLora2Label');
+            const lora3 = $('cfgLora3Label');
+            if (lora2) lora2.hidden = isKrea2;
+            if (lora3) lora3.hidden = isKrea2;
+            const upModelLabel = $('cfgUpscaleModelLabel');
+            if (upModelLabel) upModelLabel.hidden = !$('cfgEnableUpscale').checked;
+            const hiresCb = $('cfgEnableHires');
+            const upCb = $('cfgEnableUpscale');
+            if (hiresCb) hiresCb.disabled = false;
+            if (upCb) upCb.disabled = false;
         }
 
         async function selectPreset(id) {
@@ -695,7 +787,15 @@
             } catch (_) {}
             renderPresetList();
             applyPresetToForm(activePreset());
-            saveSession({ activePresetId: id });
+            // Krea2：默认手动自然语言 Prompt（旧版 tag 扩写不适合）
+            if (isKrea2Preset(activePreset())) {
+                setPromptMode('manual');
+                if (Number(els.countInput.value) > 1) els.countInput.value = 1;
+                saveSession({ activePresetId: id, mode: 'manual', count: Number(els.countInput.value) || 1 });
+            } else {
+                syncModeUi();
+                saveSession({ activePresetId: id });
+            }
         }
 
         async function loadPresets() {
@@ -707,6 +807,11 @@
             state.defaults = data.defaults || null;
             renderPresetList();
             applyPresetToForm(activePreset() || state.defaults);
+            if (isKrea2Preset(activePreset())) {
+                setPromptMode('manual');
+            } else {
+                syncModeUi();
+            }
         }
 
         async function loadOptions() {
@@ -918,29 +1023,54 @@
             const item = state.images[index];
             if (!item) return;
             invalidateFrameCache(item.url);
-            if (state.viewMode === 'grid') {
-                const cards = els.resultsGrid.querySelectorAll('.result-card');
-                const card = cards[index];
-                if (!card) {
-                    await refreshResults();
-                    return;
-                }
-                const thumb = card.querySelector('.thumb');
-                if (!thumb) return;
-                thumb.classList.add('rerendering');
-                try {
-                    const node = await renderFramedCanvas(item.url, '', undefined, { skipCache: true });
-                    thumb.replaceChildren(node);
-                } catch (_) {
-                    thumb.replaceChildren(plainPreviewNode(item.url));
-                } finally {
-                    thumb.classList.remove('rerendering');
-                }
-            } else if (state.singleIndex === index) {
-                await refreshResults();
+            const btn = $('btnRerenderSingle');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '渲染中…';
             }
-            if (openLightboxAfter || (els.lightbox.classList.contains('open') && state.lightboxIndex === index)) {
-                await paintLightbox();
+            try {
+                if (state.viewMode === 'grid') {
+                    const cards = els.resultsGrid.querySelectorAll('.result-card');
+                    const card = cards[index];
+                    if (!card) {
+                        await refreshResults();
+                        return;
+                    }
+                    const thumb = card.querySelector('.thumb');
+                    if (!thumb) return;
+                    thumb.classList.add('rerendering');
+                    try {
+                        const node = await renderFramedCanvas(item.url, '', undefined, { skipCache: true });
+                        thumb.replaceChildren(node);
+                    } catch (_) {
+                        thumb.replaceChildren(plainPreviewNode(item.url));
+                    } finally {
+                        thumb.classList.remove('rerendering');
+                    }
+                } else {
+                    // 单图：强制跳过缓存重画，并给用户可见反馈
+                    els.singleStage.classList.add('rerendering');
+                    try {
+                        const node = await renderFramedCanvas(item.url, '', undefined, { skipCache: true });
+                        if (state.singleIndex === index) {
+                            els.singleStage.replaceChildren(node);
+                        }
+                        els.progressText.textContent = `已重新渲染第 ${index + 1} 张边框预览`;
+                    } catch (e) {
+                        els.singleStage.replaceChildren(plainPreviewNode(item.url));
+                        els.progressText.textContent = '重新渲染失败，已回退原图';
+                    } finally {
+                        els.singleStage.classList.remove('rerendering');
+                    }
+                }
+                if (openLightboxAfter || (els.lightbox.classList.contains('open') && state.lightboxIndex === index)) {
+                    await paintLightbox();
+                }
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '重新渲染';
+                }
             }
         }
 
@@ -958,11 +1088,13 @@
             const n = state.images.length;
             els.resultMeta.textContent = n ? `${n} 张 · 点击图片可放大` : '0 张 · 点击图片可放大';
             els.resultsEmpty.style.display = n ? 'none' : 'flex';
-            els.btnExport.disabled = !state.images.some((x) => x.selected);
+            syncExportButtons();
 
             if (state.viewMode === 'grid') {
                 els.resultsGrid.classList.remove('hidden');
                 els.singleView.classList.remove('active');
+                const promptBox = $('singlePromptBox');
+                if (promptBox) promptBox.hidden = true;
                 els.resultsGrid.innerHTML = '';
                 const renderToken = (state.resultsRenderToken = (state.resultsRenderToken || 0) + 1);
                 for (let i = 0; i < state.images.length; i++) {
@@ -990,7 +1122,7 @@
                     `;
                     meta.querySelector('input').addEventListener('change', (e) => {
                         state.images[i].selected = e.target.checked;
-                        els.btnExport.disabled = !state.images.some((x) => x.selected);
+                        syncExportButtons();
                     });
                     meta.querySelector('[data-rerender]').addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -1079,10 +1211,8 @@
             els.btnTogglePresets.textContent = collapsed ? '展开预设' : '收起预设';
         }
 
-        function setComposerOpen(open) {
-            els.composerDock.classList.toggle('open', open);
-            els.btnToggleComposer.textContent = open ? '收起输入' : '展开输入';
-            els.btnComposerToggleBar.textContent = open ? '收起输入 ▾' : '展开输入 ▴';
+        function setComposerOpen(_open) {
+            if (els.composerDock) els.composerDock.classList.add('open');
         }
 
         async function readSseGenerate(res) {
@@ -1166,7 +1296,6 @@
             state.generating = true;
             state.jobId = '';
             els.btnGenerate.disabled = true;
-            setComposerOpen(false);
             els.progressText.textContent = mode === 'ai' ? 'AI 扩写中…' : '提交 Comfy…';
             saveSession({
                 status: 'running',
@@ -1358,12 +1487,14 @@
             }
             const folderPath = els.exportFolderPath.value.trim();
             if (!state.exportDirHandle && !folderPath) {
-                alert('请选择或填写导出文件夹');
+                alert('请先在右侧「壁纸 / 边框导出」里设置导出文件夹');
+                setConfigOpen(true);
                 return;
             }
 
             const withFrame = els.exportWithFrame.checked;
-            els.btnExport.disabled = true;
+            if (els.btnExportSelected) els.btnExportSelected.disabled = true;
+            if (els.btnExportCurrent) els.btnExportCurrent.disabled = true;
             els.progressText.textContent = '导出中…';
 
             try {
@@ -1403,8 +1534,33 @@
                 alert('导出失败：' + e.message);
                 els.progressText.textContent = '';
             } finally {
-                els.btnExport.disabled = !state.images.some((x) => x.selected);
+                syncExportButtons();
             }
+        }
+
+        async function exportImages(items) {
+            if (!items.length) {
+                alert('没有可导出的图');
+                return;
+            }
+            const prev = state.images.map((img) => img.selected);
+            state.images.forEach((img, i) => {
+                img.selected = items.some((it) => it.i === i || it.url === img.url);
+            });
+            try {
+                await exportSelected();
+            } finally {
+                state.images.forEach((img, i) => { img.selected = prev[i]; });
+                syncExportButtons();
+            }
+        }
+
+        async function exportCurrentImage() {
+            if (!state.images.length) return;
+            const idx = els.lightbox.classList.contains('open') ? state.lightboxIndex : state.singleIndex;
+            const item = state.images[idx];
+            if (!item) return;
+            await exportImages([{ ...item, i: idx }]);
         }
 
         function bind() {
@@ -1433,12 +1589,12 @@
             els.btnTogglePresets.addEventListener('click', () => {
                 setPresetsCollapsed(!els.layout.classList.contains('presets-collapsed'));
             });
-            const toggleComposer = () => setComposerOpen(!els.composerDock.classList.contains('open'));
-            els.btnToggleComposer.addEventListener('click', toggleComposer);
-            els.btnComposerToggleBar.addEventListener('click', toggleComposer);
-            els.btnCollapseComposer.addEventListener('click', () => setComposerOpen(false));
             $('cfgEnableHires').addEventListener('change', () => {
                 $('hiresRow').hidden = !$('cfgEnableHires').checked;
+            });
+            $('cfgEnableUpscale').addEventListener('change', () => {
+                const label = $('cfgUpscaleModelLabel');
+                if (label) label.hidden = !$('cfgEnableUpscale').checked;
             });
             els.btnViewGrid.addEventListener('click', () => {
                 state.viewMode = 'grid';
@@ -1470,6 +1626,15 @@
                 if (!state.images.length) return;
                 rerenderImageAt(state.singleIndex);
             });
+            if (els.btnExportCurrent) {
+                els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
+            }
+            if (els.btnExportSelected) {
+                els.btnExportSelected.addEventListener('click', () => exportSelected());
+            }
+            if (els.btnExportLightbox) {
+                els.btnExportLightbox.addEventListener('click', () => exportCurrentImage());
+            }
             $('btnLightboxClose').addEventListener('click', closeLightbox);
             els.lightbox.addEventListener('click', (e) => {
                 if (e.target === els.lightbox) closeLightbox();
@@ -1529,7 +1694,6 @@
                 state.exportDirHandle = null;
                 saveSession({ exportFolderPath: els.exportFolderPath.value.trim() });
             });
-            $('btnExport').addEventListener('click', exportSelected);
 
             let draftTimer = null;
             const persistDraft = () => {
@@ -1556,7 +1720,7 @@
             syncViewToggle();
             setConfigOpen(false);
             setPresetsCollapsed(false);
-            setComposerOpen(false);
+            setComposerOpen(true);
             initFramePresets();
             await pingComfy();
             try {
