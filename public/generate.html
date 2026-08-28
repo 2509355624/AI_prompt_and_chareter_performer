@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=2">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=4">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -14,20 +14,22 @@
             <h1>✨ ComfyUI 图片生成</h1>
             <div class="gen-topbar-actions">
                 <span class="gen-status" id="comfyStatus">Comfy 检测中…</span>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnTogglePresets">收起预设</button>
                 <div class="view-toggle" title="展示模式">
                     <button type="button" id="btnViewSingle">单图</button>
                     <button type="button" class="active" id="btnViewGrid">网格</button>
                 </div>
-                <button type="button" class="btn btn-ghost" id="btnToggleConfig">展开配置</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnToggleComposer">展开输入</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnToggleConfig">展开配置</button>
             </div>
         </div>
 
         <div class="gen-layout" id="layout">
-            <!-- 左：角色预设 -->
-            <aside class="gen-panel">
+            <!-- 左：角色预设（可收） -->
+            <aside class="gen-panel preset-panel" id="presetPanel">
                 <div class="gen-panel-head">
                     <span>角色预设</span>
-                    <button type="button" class="btn btn-ghost" id="btnNewPreset" style="padding:4px 8px;font-size:12px;">＋新建</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btnNewPreset">＋新建</button>
                 </div>
                 <div class="gen-panel-body">
                     <div class="preset-list" id="presetList"></div>
@@ -35,29 +37,36 @@
                 </div>
             </aside>
 
-            <!-- 中：结果 + 输入 -->
+            <!-- 中：结果（主画幅）+ 底栏矮条/抽屉 -->
             <div class="center-col">
                 <section class="gen-panel results-panel">
                     <div class="gen-panel-head">
                         <span>生成结果</span>
-                        <span class="progress-text" id="resultMeta">0 张</span>
+                        <span class="progress-text" id="resultMeta">0 张 · 点击图片可放大</span>
                     </div>
                     <div class="gen-panel-body results-body">
-                        <div class="results-empty" id="resultsEmpty">选好预设后，在下方描述场景并生成。<br>默认以带边框样式展示。</div>
+                        <div class="results-empty" id="resultsEmpty">选好预设后，点「展开输入」描述场景并生成。<br>默认以带边框样式展示，点击图片可全屏放大。</div>
                         <div class="results-grid" id="resultsGrid"></div>
                         <div class="single-view" id="singleView">
-                            <div class="single-stage" id="singleStage"></div>
+                            <div class="single-stage" id="singleStage" title="点击放大"></div>
                             <div class="single-nav">
                                 <button type="button" class="btn btn-ghost" id="btnPrev">◀ 上一张</button>
                                 <span id="singleIndexLabel">0 / 0</span>
                                 <button type="button" class="btn btn-ghost" id="btnNext">下一张 ▶</button>
+                                <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大查看</button>
                             </div>
                         </div>
                     </div>
                 </section>
 
-                <section class="gen-panel composer">
-                    <div class="gen-panel-body" style="overflow:visible;">
+                <div class="composer-dock" id="composerDock">
+                    <div class="composer-bar">
+                        <button type="button" class="btn btn-ghost btn-sm" id="btnComposerToggleBar">展开输入 ▴</button>
+                        <span class="bar-preset" id="activePresetLabel">未选择预设</span>
+                        <span class="bar-progress" id="progressText"></span>
+                        <button type="button" class="btn btn-primary btn-sm" id="btnGenerate">开始生成</button>
+                    </div>
+                    <div class="composer-drawer" id="composerDrawer">
                         <div class="composer-card">
                             <div class="mode-pills">
                                 <label><input type="radio" name="promptMode" value="ai" checked><span>AI 扩写</span></label>
@@ -69,32 +78,31 @@
                                 <input type="number" id="countInput" min="1" max="30" value="4">
                                 <button type="button" id="btnCountPlus">＋</button>
                             </div>
-                            <span class="progress-text" id="progressText"></span>
                         </div>
 
                         <textarea class="composer-input" id="sceneInput" placeholder="描述服饰、动作、氛围，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚"></textarea>
 
                         <div class="composer-row">
-                            <div class="progress-text" id="activePresetLabel">未选择预设</div>
-                            <button type="button" class="btn btn-primary" id="btnGenerate">开始生成</button>
+                            <span class="progress-text">写好场景后点「开始生成」；不需要时可收起输入栏</span>
+                            <button type="button" class="btn btn-ghost btn-sm" id="btnCollapseComposer">收起输入</button>
                         </div>
 
                         <div class="export-bar">
                             <label><input type="checkbox" id="exportWithFrame" checked> 带边框导出</label>
                             <select id="framePresetSelect"></select>
                             <input type="text" id="exportFolderPath" placeholder="导出文件夹">
-                            <button type="button" class="btn btn-ghost" id="btnPickFolder">选择</button>
-                            <button type="button" class="btn btn-accent2" id="btnExport" disabled>导出选中</button>
+                            <button type="button" class="btn btn-ghost btn-sm" id="btnPickFolder">选择</button>
+                            <button type="button" class="btn btn-accent2 btn-sm" id="btnExport" disabled>导出选中</button>
                         </div>
                     </div>
-                </section>
+                </div>
             </div>
 
             <!-- 右：配置（可收起） -->
             <aside class="gen-panel config-panel" id="configPanel">
                 <div class="gen-panel-head">
                     <span>预设配置</span>
-                    <button type="button" class="btn btn-ghost" id="btnCloseConfig" style="padding:4px 8px;font-size:12px;">收起</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btnCloseConfig">收起</button>
                 </div>
                 <div class="gen-panel-body">
                     <div class="config-form" id="configForm">
@@ -151,6 +159,18 @@
         </div>
     </div>
 
+    <div class="lightbox" id="lightbox" aria-hidden="true">
+        <button type="button" class="btn btn-ghost lightbox-close" id="btnLightboxClose">关闭 ✕</button>
+        <div class="lightbox-inner">
+            <div class="lightbox-stage" id="lightboxStage"></div>
+            <div class="lightbox-nav">
+                <button type="button" class="btn btn-ghost" id="btnLightboxPrev">◀</button>
+                <span id="lightboxIndexLabel">0 / 0</span>
+                <button type="button" class="btn btn-ghost" id="btnLightboxNext">▶</button>
+            </div>
+        </div>
+    </div>
+
     <script src="js/sticker-frame.js?v=5"></script>
     <script>
     (function () {
@@ -165,6 +185,7 @@
             images: [], // {url, prompt, selected, framedUrl?}
             viewMode: 'grid', // grid | single
             singleIndex: 0,
+            lightboxIndex: 0,
             exportDirHandle: null,
             generating: false,
             framePreset: 'paper-collage'
@@ -192,6 +213,14 @@
             exportFolderPath: $('exportFolderPath'),
             btnExport: $('btnExport'),
             btnToggleConfig: $('btnToggleConfig'),
+            btnTogglePresets: $('btnTogglePresets'),
+            btnToggleComposer: $('btnToggleComposer'),
+            composerDock: $('composerDock'),
+            btnComposerToggleBar: $('btnComposerToggleBar'),
+            btnCollapseComposer: $('btnCollapseComposer'),
+            lightbox: $('lightbox'),
+            lightboxStage: $('lightboxStage'),
+            lightboxIndexLabel: $('lightboxIndexLabel'),
             btnViewGrid: $('btnViewGrid'),
             btnViewSingle: $('btnViewSingle')
         };
@@ -239,7 +268,7 @@
                 el.addEventListener('click', () => selectPreset(el.dataset.id));
             });
             const p = activePreset();
-            els.activePresetLabel.textContent = p ? `当前预设：${p.name}` : '未选择预设';
+            els.activePresetLabel.textContent = p ? `当前：${p.name}` : '未选择预设';
         }
 
         function readConfigForm() {
@@ -371,18 +400,48 @@
             });
         }
 
-        async function renderFramedCanvas(url, caption) {
+        /** 预览先降采样，避免连画多张 2K/3K 图时 canvas 玻璃模糊把后面的图画黑 */
+        function downscaleForPreview(image, maxW) {
+            const imgW = image.naturalWidth || image.width || 0;
+            const imgH = image.naturalHeight || image.height || 0;
+            if (!maxW || !imgW || imgW <= maxW) return image;
+            const scale = maxW / imgW;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(imgW * scale));
+            canvas.height = Math.max(1, Math.round(imgH * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+            return canvas;
+        }
+
+        async function renderFramedCanvas(url, caption, previewMaxWidth, options = {}) {
             const img = await loadImage(url);
-            return StickerFrame.renderStickerFrame(img, {
+            // 导出要原图像素；预览必须降采样，否则连画多张 2K 玻璃模糊易把末张画黑
+            if (options.fullRes) {
+                return StickerFrame.renderStickerFrame(img, {
+                    preset: state.framePreset,
+                    caption: caption || '',
+                    previewMaxWidth: 0
+                });
+            }
+            let maxW = previewMaxWidth;
+            if (maxW === undefined) {
+                maxW = state.viewMode === 'grid' ? 420 : 900;
+            }
+            const previewCap = maxW > 0 ? maxW : 900;
+            const source = downscaleForPreview(img, previewCap);
+            return StickerFrame.renderStickerFrame(source, {
                 preset: state.framePreset,
                 caption: caption || '',
-                previewMaxWidth: state.viewMode === 'grid' ? 420 : 0
+                previewMaxWidth: previewCap
             });
         }
 
         async function refreshResults() {
             const n = state.images.length;
-            els.resultMeta.textContent = `${n} 张`;
+            els.resultMeta.textContent = n ? `${n} 张 · 点击图片可放大` : '0 张 · 点击图片可放大';
             els.resultsEmpty.style.display = n ? 'none' : 'flex';
             els.btnExport.disabled = !state.images.some((x) => x.selected);
 
@@ -390,7 +449,9 @@
                 els.resultsGrid.classList.remove('hidden');
                 els.singleView.classList.remove('active');
                 els.resultsGrid.innerHTML = '';
+                const renderToken = (state.resultsRenderToken = (state.resultsRenderToken || 0) + 1);
                 for (let i = 0; i < state.images.length; i++) {
+                    if (renderToken !== state.resultsRenderToken) return;
                     const item = state.images[i];
                     const card = document.createElement('div');
                     card.className = 'result-card';
@@ -398,20 +459,14 @@
                     thumb.className = 'thumb';
                     try {
                         const canvas = await renderFramedCanvas(item.url, '');
-                        canvas.style.maxWidth = '100%';
-                        canvas.style.height = 'auto';
+                        if (renderToken !== state.resultsRenderToken) return;
                         thumb.appendChild(canvas);
                     } catch (_) {
                         const img = document.createElement('img');
                         img.src = item.url;
                         thumb.appendChild(img);
                     }
-                    thumb.addEventListener('click', () => {
-                        state.viewMode = 'single';
-                        state.singleIndex = i;
-                        syncViewToggle();
-                        refreshResults();
-                    });
+                    thumb.addEventListener('click', () => openLightbox(i));
                     const meta = document.createElement('div');
                     meta.className = 'meta';
                     meta.innerHTML = `<label><input type="checkbox" ${item.selected ? 'checked' : ''} data-i="${i}"> ${String(i + 1).padStart(3, '0')}</label>`;
@@ -422,6 +477,8 @@
                     card.appendChild(thumb);
                     card.appendChild(meta);
                     els.resultsGrid.appendChild(card);
+                    // 让出一帧，减轻连续玻璃模糊对 GPU 的压力
+                    await new Promise((r) => requestAnimationFrame(r));
                 }
             } else {
                 els.resultsGrid.classList.add('hidden');
@@ -442,6 +499,36 @@
             }
         }
 
+        async function paintLightbox() {
+            const n = state.images.length;
+            els.lightboxIndexLabel.textContent = n ? `${state.lightboxIndex + 1} / ${n}` : '0 / 0';
+            els.lightboxStage.innerHTML = '';
+            if (!n) return;
+            const item = state.images[state.lightboxIndex];
+            try {
+                const canvas = await renderFramedCanvas(item.url, '', 900);
+                els.lightboxStage.appendChild(canvas);
+            } catch (_) {
+                const img = document.createElement('img');
+                img.src = item.url;
+                els.lightboxStage.appendChild(img);
+            }
+        }
+
+        function openLightbox(index) {
+            if (!state.images.length) return;
+            state.lightboxIndex = Math.max(0, Math.min(index, state.images.length - 1));
+            els.lightbox.classList.add('open');
+            els.lightbox.setAttribute('aria-hidden', 'false');
+            paintLightbox();
+        }
+
+        function closeLightbox() {
+            els.lightbox.classList.remove('open');
+            els.lightbox.setAttribute('aria-hidden', 'true');
+            els.lightboxStage.innerHTML = '';
+        }
+
         function syncViewToggle() {
             els.btnViewGrid.classList.toggle('active', state.viewMode === 'grid');
             els.btnViewSingle.classList.toggle('active', state.viewMode === 'single');
@@ -450,6 +537,17 @@
         function setConfigOpen(open) {
             els.layout.classList.toggle('config-open', open);
             els.btnToggleConfig.textContent = open ? '收起配置' : '展开配置';
+        }
+
+        function setPresetsCollapsed(collapsed) {
+            els.layout.classList.toggle('presets-collapsed', collapsed);
+            els.btnTogglePresets.textContent = collapsed ? '展开预设' : '收起预设';
+        }
+
+        function setComposerOpen(open) {
+            els.composerDock.classList.toggle('open', open);
+            els.btnToggleComposer.textContent = open ? '收起输入' : '展开输入';
+            els.btnComposerToggleBar.textContent = open ? '收起输入 ▾' : '展开输入 ▴';
         }
 
         async function readSseGenerate(res) {
@@ -503,12 +601,14 @@
             const scene = els.sceneInput.value.trim();
             const mode = currentMode();
             if (!scene) {
+                setComposerOpen(true);
                 alert(mode === 'ai' ? '请填写场景描述' : '请粘贴手动 Prompt');
                 return;
             }
 
             state.generating = true;
             els.btnGenerate.disabled = true;
+            setComposerOpen(false);
             els.progressText.textContent = mode === 'ai' ? 'AI 扩写中…' : '提交 Comfy…';
 
             try {
@@ -658,7 +758,7 @@
                     els.progressText.textContent = `导出 ${seq}/${selected.length}…`;
                     let blob;
                     if (withFrame) {
-                        const canvas = await renderFramedCanvas(item.url, '');
+                        const canvas = await renderFramedCanvas(item.url, '', undefined, { fullRes: true });
                         blob = await StickerFrame.canvasToBlob(canvas);
                     } else {
                         const imgRes = await fetch(item.url);
@@ -702,10 +802,17 @@
             $('btnNewPreset').addEventListener('click', newPreset);
             $('btnSavePreset').addEventListener('click', savePreset);
             $('btnDeletePreset').addEventListener('click', deletePreset);
-            $('btnToggleConfig').addEventListener('click', () => {
+            els.btnToggleConfig.addEventListener('click', () => {
                 setConfigOpen(!els.layout.classList.contains('config-open'));
             });
             $('btnCloseConfig').addEventListener('click', () => setConfigOpen(false));
+            els.btnTogglePresets.addEventListener('click', () => {
+                setPresetsCollapsed(!els.layout.classList.contains('presets-collapsed'));
+            });
+            const toggleComposer = () => setComposerOpen(!els.composerDock.classList.contains('open'));
+            els.btnToggleComposer.addEventListener('click', toggleComposer);
+            els.btnComposerToggleBar.addEventListener('click', toggleComposer);
+            els.btnCollapseComposer.addEventListener('click', () => setComposerOpen(false));
             $('cfgEnableHires').addEventListener('change', () => {
                 $('hiresRow').hidden = !$('cfgEnableHires').checked;
             });
@@ -731,6 +838,36 @@
                     refreshResults();
                 }
             });
+            els.singleStage.addEventListener('click', () => openLightbox(state.singleIndex));
+            $('btnOpenLightbox').addEventListener('click', () => openLightbox(state.singleIndex));
+            $('btnLightboxClose').addEventListener('click', closeLightbox);
+            els.lightbox.addEventListener('click', (e) => {
+                if (e.target === els.lightbox) closeLightbox();
+            });
+            $('btnLightboxPrev').addEventListener('click', () => {
+                if (state.lightboxIndex > 0) {
+                    state.lightboxIndex -= 1;
+                    paintLightbox();
+                }
+            });
+            $('btnLightboxNext').addEventListener('click', () => {
+                if (state.lightboxIndex < state.images.length - 1) {
+                    state.lightboxIndex += 1;
+                    paintLightbox();
+                }
+            });
+            document.addEventListener('keydown', (e) => {
+                if (!els.lightbox.classList.contains('open')) return;
+                if (e.key === 'Escape') closeLightbox();
+                if (e.key === 'ArrowLeft' && state.lightboxIndex > 0) {
+                    state.lightboxIndex -= 1;
+                    paintLightbox();
+                }
+                if (e.key === 'ArrowRight' && state.lightboxIndex < state.images.length - 1) {
+                    state.lightboxIndex += 1;
+                    paintLightbox();
+                }
+            });
             els.framePresetSelect.addEventListener('change', () => {
                 state.framePreset = els.framePresetSelect.value;
                 refreshResults();
@@ -749,6 +886,8 @@
             syncModeUi();
             syncViewToggle();
             setConfigOpen(false);
+            setPresetsCollapsed(false);
+            setComposerOpen(false);
             initFramePresets();
             await pingComfy();
             try {

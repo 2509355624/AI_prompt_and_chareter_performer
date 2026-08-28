@@ -1,17 +1,5 @@
-/* generate-paper.css — ComfyUI 生图页 · 贴纸风（复用边框工具视觉） */
+/* generate-paper.css — ComfyUI 生图页 · 结果优先布局 */
 @import url('frame-paper.css');
-
-.gen-app {
-  max-width: min(1920px, 100%);
-  margin: 0 auto;
-  padding: 52px 10px 12px;
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 
 html.gen-page,
 html.gen-page body {
@@ -19,24 +7,38 @@ html.gen-page body {
   overflow: hidden;
 }
 
+.gen-app {
+  max-width: min(1920px, 100%);
+  margin: 0 auto;
+  padding: 52px 10px 10px;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .gen-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
 .gen-topbar h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(22px, 3vw, 30px);
+  font-size: clamp(20px, 2.6vw, 28px);
 }
 
 .gen-topbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .gen-status {
@@ -51,17 +53,45 @@ html.gen-page body {
 .gen-status.ok { color: #1a7a3a; }
 .gen-status.bad { color: var(--accent); }
 
+.view-toggle {
+  display: inline-flex;
+  border: 2px solid var(--text);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.view-toggle button {
+  border: 0;
+  background: #fff;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.view-toggle button.active {
+  background: var(--text);
+  color: #fff;
+}
+
 .gen-layout {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 200px minmax(0, 1fr);
   gap: 10px;
   transition: grid-template-columns 0.2s ease;
 }
 
+.gen-layout.presets-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .gen-layout.config-open {
-  grid-template-columns: 220px minmax(0, 1fr) 300px;
+  grid-template-columns: 200px minmax(0, 1fr) 300px;
+}
+
+.gen-layout.presets-collapsed.config-open {
+  grid-template-columns: minmax(0, 1fr) 300px;
 }
 
 .gen-panel {
@@ -80,7 +110,7 @@ html.gen-page body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-bottom: 2px solid var(--text);
   font-family: var(--font-display);
   font-size: 15px;
@@ -94,6 +124,14 @@ html.gen-page body {
   overflow: auto;
   overflow-x: hidden;
   padding: 10px;
+}
+
+.preset-panel {
+  min-width: 0;
+}
+
+.gen-layout.presets-collapsed .preset-panel {
+  display: none;
 }
 
 .preset-list {
@@ -133,45 +171,21 @@ html.gen-page body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  gap: 10px;
+  min-width: 0;
+  gap: 8px;
+  position: relative;
 }
 
 .results-panel {
   flex: 1;
-  min-height: 280px;
-}
-
-.results-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.view-toggle {
-  display: inline-flex;
-  border: 2px solid var(--text);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.view-toggle button {
-  border: 0;
-  background: #fff;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.view-toggle button.active {
-  background: var(--text);
-  color: #fff;
+  min-height: 0;
 }
 
 .results-body {
   position: relative;
   height: 100%;
-  min-height: 320px;
+  min-height: 0;
+  padding: 8px !important;
 }
 
 .results-empty {
@@ -188,10 +202,13 @@ html.gen-page body {
 
 .results-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-  padding: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  padding: 2px;
+  align-content: start;
 }
+
+.results-grid.hidden { display: none; }
 
 .results-grid .result-card {
   border: 2px solid var(--text);
@@ -209,13 +226,14 @@ html.gen-page body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  cursor: pointer;
+  cursor: zoom-in;
 }
 
-.results-grid .result-card canvas,
-.results-grid .result-card img {
-  max-width: 100%;
-  max-height: 100%;
+.results-grid .result-card .thumb canvas,
+.results-grid .result-card .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   display: block;
 }
 
@@ -234,13 +252,12 @@ html.gen-page body {
   height: 100%;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 8px;
+  justify-content: stretch;
+  gap: 8px;
+  min-height: 0;
 }
 
 .single-view.active { display: flex; }
-.results-grid.hidden { display: none; }
 
 .single-stage {
   flex: 1;
@@ -249,13 +266,17 @@ html.gen-page body {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
+  overflow: hidden;
+  cursor: zoom-in;
 }
 
 .single-stage canvas,
 .single-stage img {
   max-width: 100%;
-  max-height: calc(100vh - 340px);
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   display: block;
   border-radius: 8px;
 }
@@ -264,10 +285,62 @@ html.gen-page body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
-.composer {
+/* 底栏：默认矮条，展开为抽屉 */
+.composer-dock {
   flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 2.5px solid var(--text);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-height: 48px;
+}
+
+.composer-bar .bar-progress {
+  flex: 1;
+  min-width: 120px;
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-bar .bar-preset {
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-drawer {
+  display: none;
+  margin-top: 8px;
+  background: var(--card);
+  border: 2.5px solid var(--text);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 10px;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+}
+
+.composer-dock.open .composer-drawer {
+  display: block;
 }
 
 .composer-card {
@@ -333,6 +406,7 @@ html.gen-page body {
 .composer-input {
   width: 100%;
   min-height: 72px;
+  max-height: 160px;
   resize: vertical;
   border: 2.5px solid var(--text);
   border-radius: 12px;
@@ -341,6 +415,7 @@ html.gen-page body {
   font-size: 14px;
   line-height: 1.5;
   background: #fff;
+  box-sizing: border-box;
 }
 
 .composer-row {
@@ -385,6 +460,11 @@ html.gen-page body {
   box-shadow: none;
 }
 
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
 .export-bar {
   display: flex;
   align-items: center;
@@ -405,7 +485,7 @@ html.gen-page body {
   background: #fff;
 }
 
-.export-bar input[type="text"] { min-width: 140px; }
+.export-bar input[type="text"] { min-width: 120px; max-width: 180px; }
 
 .config-panel {
   display: none;
@@ -449,20 +529,11 @@ html.gen-page body {
   min-width: 0;
 }
 
-.config-form select {
-  text-overflow: ellipsis;
-}
+.config-form select { text-overflow: ellipsis; }
 
 .config-form textarea {
   min-height: 90px;
   resize: vertical;
-}
-
-.config-row {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
 }
 
 .config-check {
@@ -487,6 +558,66 @@ html.gen-page body {
   color: var(--text-2);
 }
 
+/* 全屏灯箱 */
+.lightbox {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(20, 16, 12, 0.88);
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.lightbox.open { display: flex; }
+
+.lightbox-inner {
+  max-width: min(96vw, 1200px);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.lightbox-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: calc(92vh - 56px);
+}
+
+.lightbox-stage canvas,
+.lightbox-stage img {
+  max-width: 96vw;
+  max-height: calc(92vh - 56px);
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.lightbox-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.lightbox-nav .btn {
+  background: #fff;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: #fff;
+}
+
 @media (max-width: 1100px) {
   html.gen-page,
   html.gen-page body {
@@ -496,14 +627,23 @@ html.gen-page body {
     height: auto;
     max-height: none;
     overflow: visible;
+    min-height: 100vh;
   }
   .gen-layout,
-  .gen-layout.config-open {
+  .gen-layout.config-open,
+  .gen-layout.presets-collapsed,
+  .gen-layout.presets-collapsed.config-open {
     grid-template-columns: 1fr;
+  }
+  .gen-layout.presets-collapsed .preset-panel {
+    display: none;
   }
   .config-panel { display: none; }
   .gen-layout.config-open .config-panel {
     display: flex;
     max-height: 50vh;
+  }
+  .results-panel {
+    min-height: 55vh;
   }
 }
