@@ -4,203 +4,70 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 工具中心</title>
-    
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <style>
-        :root {
-            --bg-dark: #0f172a;
-            --bg-card: rgba(30, 41, 59, 0.6);
-            --bg-input: rgba(15, 23, 42, 0.6);
-            --bg-hover: rgba(255, 255, 255, 0.05);
-            
-            --primary: #8b5cf6;
-            --primary-hover: #7c3aed;
-            --secondary: #3b82f6;
-            --accent: #f472b6;
-            
-            --text-main: #f1f5f9;
-            --text-muted: #94a3b8;
-            --border: rgba(148, 163, 184, 0.1);
-            
-            --glass-border: 1px solid rgba(255, 255, 255, 0.08);
-            --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-            
-            --radius-lg: 16px;
-            --radius-md: 8px;
-            --radius-sm: 4px;
-        }
-
-        * { box-sizing: border-box; outline: none; }
-        
-        body {
-            margin: 0;
-            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-dark);
-            background-image: 
-                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(244, 114, 182, 0.1) 0px, transparent 50%);
-            background-attachment: fixed;
-            color: var(--text-main);
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .container {
-            max-width: 800px;
-            text-align: center;
-            padding: 40px;
-        }
-
-        .brand {
-            font-size: 48px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 20px;
-        }
-
-        .subtitle {
-            font-size: 18px;
-            color: var(--text-muted);
-            margin-bottom: 60px;
-            line-height: 1.6;
-        }
-
-        .cards-container {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 24px 40px;
-            margin-bottom: 60px;
-            max-width: 900px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .card {
-            background: var(--bg-card);
-            backdrop-filter: blur(12px);
-            border: var(--glass-border);
-            border-radius: var(--radius-lg);
-            padding: 40px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            color: var(--text-main);
-        }
-
-        .card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 20px 40px rgba(139, 92, 246, 0.3);
-            border-color: var(--primary);
-        }
-
-        .card-icon {
-            font-size: 64px;
-            margin-bottom: 24px;
-        }
-
-        .card-title {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-
-        .card-description {
-            font-size: 14px;
-            color: var(--text-muted);
-            line-height: 1.5;
-        }
-
-        .footer {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        @media (max-width: 768px) {
-            .cards-container {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
-            
-            .container {
-                padding: 20px;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="styles/home-paper.css?v=2">
 </head>
 <body>
-    <div class="container">
-        <div class="brand">
-            <span>🧠</span>
-            <span>AI 工具中心</span>
-        </div>
-        
-        <div class="subtitle">
-            选择你需要的 AI 工具，开启智能创作之旅
-        </div>
+    <main class="home">
+        <header class="brand-sheet">
+            <span class="tape" aria-hidden="true"></span>
+            <span class="stamp" aria-hidden="true">手帐</span>
+            <h1 class="brand-title">AI 工具中心</h1>
+            <p class="brand-sub">贴纸手帐风入口 · 选一个工具开始创作</p>
+        </header>
 
-        <div class="cards-container">
-            <a href="prompt.html" class="card">
-                <div class="card-icon">🎨</div>
-                <div class="card-title">提示词生成</div>
-                <div class="card-description">
-                    智能生成绘画提示词，结合风格预设和场景描述，
-                    帮助你创作出精美的 AI 艺术作品
+        <nav class="tool-grid" aria-label="工具列表">
+            <a href="prompt.html" class="tool-card">
+                <span class="tape" aria-hidden="true"></span>
+                <div class="tool-head">
+                    <span class="tool-icon" aria-hidden="true">🎨</span>
+                    <h2 class="tool-title">提示词生成</h2>
                 </div>
-            </a>
-            
-            <a href="character.html" class="card">
-                <div class="card-icon">🎭</div>
-                <div class="card-title">AI 角色扮演</div>
-                <div class="card-description">
-                    与喜爱的角色进行对话，支持自定义角色设定，
-                    享受沉浸式的 AI 互动体验
-                </div>
-            </a>
-            
-            <a href="split.html" class="card">
-                <div class="card-icon">✂️</div>
-                <div class="card-title">图片切分</div>
-                <div class="card-description">
-                    将图片按宽度分成左右两半，制作抖音热门分屏视频素材，
-                    上传即火的秘诀就在这里
-                </div>
+                <p class="tool-desc">风格预设 + 场景描述，快速写出可用的绘画提示词。</p>
+                <span class="tool-go">打开 →</span>
             </a>
 
-            <a href="frame.html" class="card">
-                <div class="card-icon">🖼️</div>
-                <div class="card-title">图片边框</div>
-                <div class="card-description">
-                    批量给图片加小红书贴纸边框，每张可设底部文案，
-                    预览效果后一键导出到指定文件夹
+            <a href="character.html" class="tool-card">
+                <span class="tape" aria-hidden="true"></span>
+                <div class="tool-head">
+                    <span class="tool-icon" aria-hidden="true">🎭</span>
+                    <h2 class="tool-title">AI 角色扮演</h2>
                 </div>
+                <p class="tool-desc">自定义角色对白与出图，沉浸式聊天联动分镜。</p>
+                <span class="tool-go">打开 →</span>
             </a>
 
-            <a href="generate.html" class="card">
-                <div class="card-icon">✨</div>
-                <div class="card-title">ComfyUI 图片生成</div>
-                <div class="card-description">
-                    选角色预设、写场景即可批量出图，支持 AI 扩写或手动 Prompt，
-                    预览默认带贴纸边框，可选择导出文件夹
+            <a href="split.html" class="tool-card">
+                <span class="tape" aria-hidden="true"></span>
+                <div class="tool-head">
+                    <span class="tool-icon" aria-hidden="true">✂️</span>
+                    <h2 class="tool-title">图片切分</h2>
                 </div>
+                <p class="tool-desc">左右对半切开，方便做抖音式分屏素材。</p>
+                <span class="tool-go">打开 →</span>
             </a>
-        </div>
 
-        <div class="footer">
-            © 2026 AI 工具中心 | 智能创作，无限可能
-        </div>
-    </div>
+            <a href="frame.html" class="tool-card">
+                <span class="tape" aria-hidden="true"></span>
+                <div class="tool-head">
+                    <span class="tool-icon" aria-hidden="true">🖼️</span>
+                    <h2 class="tool-title">图片边框</h2>
+                </div>
+                <p class="tool-desc">批量加小红书贴纸框，底部文案可改，预览后导出。</p>
+                <span class="tool-go">打开 →</span>
+            </a>
+
+            <a href="generate.html" class="tool-card">
+                <span class="tape" aria-hidden="true"></span>
+                <div class="tool-head">
+                    <span class="tool-icon" aria-hidden="true">✨</span>
+                    <h2 class="tool-title">ComfyUI 图片生成</h2>
+                </div>
+                <p class="tool-desc">角色预设批量出图，AI 扩写，默认贴纸边框预览导出。</p>
+                <span class="tool-go">打开 →</span>
+            </a>
+        </nav>
+
+        <p class="home-foot">© 2026 AI 工具中心</p>
+    </main>
 </body>
 </html>
