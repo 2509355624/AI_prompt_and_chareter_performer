@@ -775,7 +775,8 @@ async function generateKrea2BatchToDir(options, destDir) {
             if (onProgress) {
                 onProgress({
                     phase: 'queued',
-                    message: `Krea2 出图中 ${i + 1}/${prompts.length}…`,
+                    message: `Krea2 出图中 ${i + 1}/${prompts.length}` +
+                        (options.enableUpscale ? ' · 含2×放大' : '') + '…',
                     promptId,
                     index: i + 1,
                     total: prompts.length

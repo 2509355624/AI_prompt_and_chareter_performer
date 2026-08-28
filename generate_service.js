@@ -459,13 +459,19 @@ async function runGenerateJob({
         const destDir = path.join(OUTPUT_DIR, batchId);
         fs.mkdirSync(destDir, { recursive: true });
         jobStore.updateJob(job.id, { batchId });
-        progress({ phase: 'queued', message: '提交 Comfy 生成…', batchId });
-
         const comfyOptions = {
             ...presetToComfyOptions(preset, overrides),
             isCancelled,
             onProgress: progress
         };
+        progress({
+            phase: 'queued',
+            message: comfyOptions.enableUpscale
+                ? '提交 Comfy 生成（含 2× 放大）…'
+                : '提交 Comfy 生成…',
+            batchId
+        });
+
         const result = isKrea2
             ? await comfyClient.generateKrea2BatchToDir({
                 ...comfyOptions,

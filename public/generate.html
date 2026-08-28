@@ -153,6 +153,7 @@
 
                         <div id="cfgUpscaleBlock">
                             <label class="config-check"><input type="checkbox" id="cfgEnableUpscale"> 2× 放大</label>
+                            <p class="config-hint">勾选后点「开始生成」即接入 Upscale 节点（不必先保存预设）。Krea2 出图分辨率会变为约 2 倍。</p>
                             <label id="cfgUpscaleModelLabel">放大模型
                                 <select id="cfgUpscaleModel"></select>
                             </label>
@@ -1611,7 +1612,21 @@
                         mode,
                         scene,
                         count: Number(els.countInput.value) || 1,
-                        stream: true
+                        stream: true,
+                        // 右侧表单当前勾选即时生效（不必先点保存预设）
+                        overrides: {
+                            enableUpscale: $('cfgEnableUpscale') ? $('cfgEnableUpscale').checked : false,
+                            upscaleModel: $('cfgUpscaleModel') ? $('cfgUpscaleModel').value : '',
+                            width: Number($('cfgWidth').value) || undefined,
+                            height: Number($('cfgHeight').value) || undefined,
+                            steps: Number($('cfgSteps').value) || undefined,
+                            cfg: Number($('cfgCfg').value) || undefined,
+                            sampler: $('cfgSampler').value || undefined,
+                            scheduler: $('cfgScheduler').value || undefined,
+                            negativePrompt: $('cfgNegative').value,
+                            checkpointName: $('cfgCheckpoint').value || undefined,
+                            basePrompt: $('cfgBasePrompt').value
+                        }
                     })
                 });
 
