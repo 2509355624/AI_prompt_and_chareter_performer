@@ -195,6 +195,8 @@ function workflowDefaults() {
         hiresHeight: config.hiresHeight,
         hiresDenoise: config.hiresDenoise,
         hiresSteps: config.hiresSteps,
+        enableUpscale: Boolean(config.enableUpscale),
+        upscaleModel: config.upscaleModel || '2x_Ani4Kv2_G6i2_Compact_107500.pth',
         negativePrompt: config.negativePrompt,
         loras: JSON.parse(JSON.stringify(config.loras || [])),
         samplerOptions: config.samplerOptions || [],

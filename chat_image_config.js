@@ -19,6 +19,8 @@ module.exports = {
     hiresHeight: 1920,
     hiresDenoise: 0.4,
     hiresSteps: 20,
+    enableUpscale: false,
+    upscaleModel: '2x_Ani4Kv2_G6i2_Compact_107500.pth',
     visionI2iEnabled: process.env.COMFYUI_VISION_I2I === '1',
     checkpointName: process.env.COMFYUI_CHECKPOINT || 'unholyDesireMixSinister_v70.safetensors',
     loras: [

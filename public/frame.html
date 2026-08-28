@@ -530,6 +530,27 @@
             await writable.close();
         }
 
+        async function nextNumberedPngSeqFromHandle(dirHandle) {
+            let max = 0;
+            for await (const [name, handle] of dirHandle.entries()) {
+                if (handle.kind !== 'file') continue;
+                const m = /^(\d+)\.png$/i.exec(name);
+                if (m) max = Math.max(max, parseInt(m[1], 10));
+            }
+            return max + 1;
+        }
+
+        async function nextNumberedPngSeqFromPath(folderPath) {
+            const res = await fetch(`/api/export-next-seq?folderPath=${encodeURIComponent(folderPath)}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.ok) throw new Error(data.error || '无法读取导出序号');
+            return Number(data.nextSeq) || 1;
+        }
+
+        function formatNumberedPngName(seq) {
+            return `${String(seq).padStart(3, '0')}.png`;
+        }
+
         async function postExportImage(folderPath, name, data) {
             const res = await fetch('/api/export-image', {
                 method: 'POST',
@@ -567,31 +588,35 @@
 
             try {
                 const styleBase = readStyleOptions('', { forPreview: false });
-                let seq = 0;
 
                 if (exportDirHandle) {
                     const perm = await exportDirHandle.requestPermission({ mode: 'readwrite' });
                     if (perm !== 'granted') throw new Error('没有文件夹写入权限，请重新选择');
 
+                    let seq = await nextNumberedPngSeqFromHandle(exportDirHandle);
+                    let done = 0;
                     for (const item of selected) {
-                        seq += 1;
-                        els.exportProgress.textContent = `导出中 ${seq}/${selected.length}…`;
+                        done += 1;
+                        els.exportProgress.textContent = `导出中 ${done}/${selected.length}…`;
                         const img = await loadImageFromFile(item.file);
                         const canvas = StickerFrame.renderStickerFrame(img, {
                             ...styleBase,
                             caption: item.caption
                         });
                         const blob = await StickerFrame.canvasToBlob(canvas);
-                        const name = `${String(seq).padStart(3, '0')}.png`;
+                        const name = formatNumberedPngName(seq);
+                        seq += 1;
                         await saveBlobToPickedDir(exportDirHandle, name, blob);
                     }
                     localStorage.setItem(EXPORT_FOLDER_KEY, exportDirHandle.name);
                     alert(`已导出 ${selected.length} 张到文件夹：${exportDirHandle.name}`);
                 } else {
                     const saved = [];
+                    let seq = await nextNumberedPngSeqFromPath(folderPath);
+                    let i = 0;
                     for (const item of selected) {
-                        seq += 1;
-                        els.exportProgress.textContent = `上传导出 ${seq}/${selected.length}…`;
+                        i += 1;
+                        els.exportProgress.textContent = `上传导出 ${i}/${selected.length}…`;
                         const img = await loadImageFromFile(item.file);
                         const canvas = StickerFrame.renderStickerFrame(img, {
                             ...styleBase,
@@ -599,7 +624,8 @@
                         });
                         const blob = await StickerFrame.canvasToBlob(canvas);
                         const data = await StickerFrame.blobToBase64(blob);
-                        const name = `${String(seq).padStart(3, '0')}.png`;
+                        const name = formatNumberedPngName(seq);
+                        seq += 1;
                         await postExportImage(folderPath, name, data);
                         saved.push(name);
                     }

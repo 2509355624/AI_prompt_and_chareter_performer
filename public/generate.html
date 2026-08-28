@@ -1316,6 +1316,27 @@
             await w.close();
         }
 
+        async function nextNumberedPngSeqFromHandle(dirHandle) {
+            let max = 0;
+            for await (const [name, handle] of dirHandle.entries()) {
+                if (handle.kind !== 'file') continue;
+                const m = /^(\d+)\.png$/i.exec(name);
+                if (m) max = Math.max(max, parseInt(m[1], 10));
+            }
+            return max + 1;
+        }
+
+        async function nextNumberedPngSeqFromPath(folderPath) {
+            const res = await fetch(`/api/export-next-seq?folderPath=${encodeURIComponent(folderPath)}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.ok) throw new Error(data.error || '无法读取导出序号');
+            return Number(data.nextSeq) || 1;
+        }
+
+        function formatNumberedPngName(seq) {
+            return `${String(seq).padStart(3, '0')}.png`;
+        }
+
         async function exportSelected() {
             const selected = state.images
                 .map((img, i) => ({ ...img, i }))
@@ -1335,10 +1356,13 @@
             els.progressText.textContent = '导出中…';
 
             try {
-                let seq = 0;
+                let seq = state.exportDirHandle
+                    ? await nextNumberedPngSeqFromHandle(state.exportDirHandle)
+                    : await nextNumberedPngSeqFromPath(folderPath);
+                let done = 0;
                 for (const item of selected) {
-                    seq += 1;
-                    els.progressText.textContent = `导出 ${seq}/${selected.length}…`;
+                    done += 1;
+                    els.progressText.textContent = `导出 ${done}/${selected.length}…`;
                     let blob;
                     if (withFrame) {
                         const canvas = await renderFramedCanvas(item.url, '', undefined, { fullRes: true });
@@ -1347,7 +1371,8 @@
                         const imgRes = await fetch(item.url);
                         blob = await imgRes.blob();
                     }
-                    const name = `${String(seq).padStart(3, '0')}.png`;
+                    const name = formatNumberedPngName(seq);
+                    seq += 1;
                     if (state.exportDirHandle) {
                         await saveBlob(state.exportDirHandle, name, blob);
                     } else {

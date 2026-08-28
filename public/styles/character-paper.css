@@ -525,6 +525,14 @@ body:not(.mobile-shell) .app-container.settings-collapsed .settings-panel {
   opacity: 0.6;
   cursor: wait;
 }
+.debug-btn-rerender {
+  background: #fff !important;
+  border-color: var(--accent-2) !important;
+  color: var(--accent-2) !important;
+}
+.debug-btn-rerender:hover {
+  background: rgba(47, 124, 214, 0.1) !important;
+}
 .settings-header h2 {
   margin: 0;
   font-family: var(--font-display);

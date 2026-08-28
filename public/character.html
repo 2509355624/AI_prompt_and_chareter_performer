@@ -536,7 +536,7 @@
 
         /* Character modal — sticker styles in character-paper.css */
     </style>
-    <link rel="stylesheet" href="styles/character-paper.css?v=20">
+    <link rel="stylesheet" href="styles/character-paper.css?v=21">
 </head>
 <body>
 
@@ -749,6 +749,16 @@
                         <div class="wf-full wf-check-row">
                             <input type="checkbox" id="wfEnableHires" onchange="saveWorkflowSettings(); toggleHiresFields()">
                             <label for="wfEnableHires" style="margin:0;">开启高清修复 / Hires</label>
+                        </div>
+                        <div class="wf-full wf-check-row">
+                            <input type="checkbox" id="wfEnableUpscale" onchange="saveWorkflowSettings(); toggleUpscaleFields()">
+                            <label for="wfEnableUpscale" style="margin:0;">二倍超分 / 2x Upscale（默认关）</label>
+                        </div>
+                        <div id="upscaleFields" class="wf-grid wf-full" style="display:none;">
+                            <div class="wf-full">
+                                <label style="font-size:11px; color:var(--text-muted);">超分模型</label>
+                                <select id="wfUpscaleModel" onchange="saveWorkflowSettings()"></select>
+                            </div>
                         </div>
                         <div id="hiresFields" class="wf-grid wf-full" style="display:none;">
                             <div>
@@ -1378,9 +1388,7 @@
         }
 
         const preset = document.getElementById('stickerFramePreset')?.value || 'paper-collage';
-        const charName = (currentCharacter?.name || 'character').replace(/[^\w\u4e00-\u9fff\-]+/g, '_');
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `${charName}_xhs_${String(messageIndex).padStart(3, '0')}_${stamp}.png`;
+        let filename;
 
         const buttons = document.querySelectorAll(`[data-sticker-export="${messageIndex}"]`);
         buttons.forEach((b) => { b.disabled = true; b.textContent = '导出中…'; });
@@ -1399,6 +1407,8 @@
             if (stickerExportDirHandle) {
                 const perm = await stickerExportDirHandle.requestPermission({ mode: 'readwrite' });
                 if (perm !== 'granted') throw new Error('没有写入所选文件夹的权限');
+                const seq = await nextNumberedPngSeqFromHandle(stickerExportDirHandle);
+                filename = formatNumberedPngName(seq);
                 await saveBlobToPickedDir(stickerExportDirHandle, filename, blob);
                 alert(`已导出小红书边框图：\n${stickerExportDirHandle.name}\\${filename}`);
             } else {
@@ -1406,12 +1416,13 @@
                 const res = await fetch('/api/export-image', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ folderPath, name: filename, data: dataUrl })
+                    body: JSON.stringify({ folderPath, name: 'auto', data: dataUrl, autoNumber: true })
                 });
                 const result = await res.json().catch(() => ({}));
                 if (!res.ok || !result.ok) {
                     throw new Error(result.error || `导出失败 (${res.status})`);
                 }
+                filename = result.saved;
                 localStorage.setItem(STICKER_EXPORT_FOLDER_KEY, folderPath);
                 alert(`已导出小红书边框图：\n${result.folderPath || folderPath}\\${filename}`);
             }
@@ -1659,6 +1670,12 @@
         if (box) box.style.display = on ? 'grid' : 'none';
     }
 
+    function toggleUpscaleFields() {
+        const on = document.getElementById('wfEnableUpscale')?.checked;
+        const box = document.getElementById('upscaleFields');
+        if (box) box.style.display = on ? 'grid' : 'none';
+    }
+
     function fillSelect(el, values, selected, labels) {
         if (!el) return;
         const opts = values.map((v) => {
@@ -1690,6 +1707,8 @@
             hiresHeight: Number(document.getElementById('wfHiresHeight')?.value),
             hiresDenoise: Number(document.getElementById('wfHiresDenoise')?.value),
             hiresSteps: Number(document.getElementById('wfHiresSteps')?.value),
+            enableUpscale: Boolean(document.getElementById('wfEnableUpscale')?.checked),
+            upscaleModel: document.getElementById('wfUpscaleModel')?.value || '2x_Ani4Kv2_G6i2_Compact_107500.pth',
             negativePrompt: document.getElementById('wfNegative')?.value || '',
             loras: [lora(1), lora(2), lora(3)]
         };
@@ -1741,8 +1760,19 @@
         setVal('wfHiresHeight', settings.hiresHeight);
         setVal('wfHiresDenoise', settings.hiresDenoise);
         setVal('wfHiresSteps', settings.hiresSteps);
+        const upscale = document.getElementById('wfEnableUpscale');
+        if (upscale) upscale.checked = Boolean(settings.enableUpscale);
+        const upscaleModels = options.upscaleModels || [
+            settings.upscaleModel || '2x_Ani4Kv2_G6i2_Compact_107500.pth'
+        ];
+        fillSelect(
+            document.getElementById('wfUpscaleModel'),
+            upscaleModels,
+            settings.upscaleModel || upscaleModels[0] || ''
+        );
         setVal('wfNegative', settings.negativePrompt);
         toggleHiresFields();
+        toggleUpscaleFields();
     }
 
     function saveWorkflowSettings() {
@@ -1760,6 +1790,14 @@
             await migrateWorkflowFromLocalStorageOnce();
             const res = await fetch('/api/comfy/workflow-options');
             const data = await res.json();
+            let upscaleModels = ['2x_Ani4Kv2_G6i2_Compact_107500.pth'];
+            try {
+                const upRes = await fetch('/api/comfy/upscale-models');
+                const upData = await upRes.json();
+                if (Array.isArray(upData.models) && upData.models.length) {
+                    upscaleModels = upData.models;
+                }
+            } catch (_) {}
             workflowDefaultsCache = data.defaults || null;
             const saved = loadSavedWorkflowSettings();
             const merged = { ...(data.defaults || {}), ...(saved || {}) };
@@ -1767,11 +1805,13 @@
             if (!merged.checkpointName) {
                 merged.checkpointName = data.defaults?.checkpointName;
             }
+            if (merged.enableUpscale == null) merged.enableUpscale = false;
             workflowOptionsCache = {
                 checkpoints: data.checkpoints || [merged.checkpointName],
                 loras: data.loras || [],
                 samplerOptions: data.defaults?.samplerOptions || [],
-                schedulerOptions: data.defaults?.schedulerOptions || []
+                schedulerOptions: data.defaults?.schedulerOptions || [],
+                upscaleModels
             };
             applyWorkflowSettingsToForm(merged, workflowOptionsCache);
             workflowPersistState.settings = readWorkflowSettingsFromForm();
@@ -2363,13 +2403,15 @@
                 const emotion = msg.emotionAnalysis?.emotionAnalysis || msg.emotionAnalysis;
                 let imageBlock = '';
                 if (msg.imageStatus === 'failed') {
-                    imageBlock = `<div class="image-failed">配图失败${msg.imageError ? '：' + escapeHtml(msg.imageError) : ''}<br><button type="button" class="debug-btn" onclick="retryCharacterImage('${escapeHtml(msg.id)}')">重新出图</button></div>`;
+                    imageBlock = `<div class="image-failed">配图失败${msg.imageError ? '：' + escapeHtml(msg.imageError) : ''}</div>`;
                 } else if (msg.imageUrl && msg.imageStatus === 'ready') {
                     imageBlock = `<div class="chat-image-wrap"><img class="chat-image" src="${escapeHtml(msg.imageUrl)}" alt="" onclick="openChatImage('${escapeHtml(msg.imageUrl)}')"></div>`;
                 } else if (msg.imageStatus && msg.imageStatus !== 'ready') {
                     imageBlock = `<div class="image-pending">${escapeHtml(imageStatusLabel(msg))}</div>`;
                 }
                 const hasReadyImage = Boolean(msg.imageUrl && msg.imageStatus === 'ready');
+                const canRerender = Boolean(msg.id) && (hasReadyImage || msg.imageStatus === 'failed');
+                const showImageTools = hasReadyImage || canShowLog || canRerender;
                 const thinkingPast = msg.debugInfo?.thinkingText
                     ? `<details class="thinking-fold thinking-fold--past"><summary>思考过程</summary><pre class="thinking-text">${escapeHtml(msg.debugInfo.thinkingText)}</pre></details>`
                     : '';
@@ -2380,7 +2422,8 @@
                         ${thinkingPast}
                         ${escapeHtml(msg.content).replace(/\n/g, '<br>')}
                         ${imageBlock}
-                        ${(hasReadyImage || canShowLog) ? `<div class="msg-image-tools">
+                        ${showImageTools ? `<div class="msg-image-tools">
+                            ${canRerender ? `<button type="button" class="debug-btn debug-btn-rerender" onclick="retryCharacterImage('${escapeHtml(msg.id)}')">重新渲染</button>` : ''}
                             ${hasReadyImage ? `<button type="button" class="debug-btn debug-btn-export" data-sticker-export="${index}" onclick="exportChatImageSticker(${index})">导出小红书边框</button>` : ''}
                             ${canShowLog ? `<button type="button" class="debug-btn" onclick="showDebugInfo(${index})">查询日志</button>` : ''}
                         </div>` : ''}
@@ -2463,6 +2506,27 @@
         const writable = await fileHandle.createWritable();
         await writable.write(blob);
         await writable.close();
+    }
+
+    async function nextNumberedPngSeqFromHandle(dirHandle) {
+        let max = 0;
+        for await (const [name, handle] of dirHandle.entries()) {
+            if (handle.kind !== 'file') continue;
+            const m = /^(\d+)\.png$/i.exec(name);
+            if (m) max = Math.max(max, parseInt(m[1], 10));
+        }
+        return max + 1;
+    }
+
+    async function nextNumberedPngSeqFromPath(folderPath) {
+        const res = await fetch(`/api/export-next-seq?folderPath=${encodeURIComponent(folderPath)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || '无法读取导出序号');
+        return Number(data.nextSeq) || 1;
+    }
+
+    function formatNumberedPngName(seq) {
+        return `${String(seq).padStart(3, '0')}.png`;
     }
 
     function openExportModal() {
@@ -2603,25 +2667,24 @@
                 if (perm !== 'granted') {
                     throw new Error('没有所选文件夹的写入权限，请重新选择');
                 }
+                let seq = await nextNumberedPngSeqFromHandle(exportDirHandle);
                 for (let i = 0; i < selectedTurns.length; i++) {
                     btn.textContent = `导出中 ${i + 1}/${selectedTurns.length}…`;
                     const blob = await renderTurnToPngBlob(selectedTurns[i]);
-                    const name = `${String(i + 1).padStart(3, '0')}.png`;
+                    const name = formatNumberedPngName(seq);
+                    seq += 1;
                     await saveBlobToPickedDir(exportDirHandle, name, blob);
                     saved.push(name);
                 }
                 localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, exportDirHandle.name);
-                alert(`已导出 ${saved.length} 张到文件夹：\n${exportDirHandle.name}`);
+                alert(`已导出 ${saved.length} 张到文件夹：\n${exportDirHandle.name}\n文件：${saved.join(', ')}`);
             } else {
                 const files = [];
                 for (let i = 0; i < selectedTurns.length; i++) {
                     btn.textContent = `导出中 ${i + 1}/${selectedTurns.length}…`;
                     const blob = await renderTurnToPngBlob(selectedTurns[i]);
                     const data = await blobToBase64(blob);
-                    files.push({
-                        name: `${String(i + 1).padStart(3, '0')}.png`,
-                        data
-                    });
+                    files.push({ data });
                 }
 
                 localStorage.setItem(EXPORT_FOLDER_STORAGE_KEY, folderPath);
@@ -2636,7 +2699,7 @@
                     throw new Error(result.error || '导出失败');
                 }
                 saved.push(...result.saved);
-                alert(`已导出 ${result.saved.length} 张到：\n${result.folderPath}`);
+                alert(`已导出 ${result.saved.length} 张到：\n${result.folderPath}\n文件：${result.saved.join(', ')}`);
             }
 
             closeExportModal();
@@ -3000,23 +3063,71 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
 
     async function retryCharacterImage(messageId) {
         const msg = characterChatMessages.find((m) => m.id === messageId);
-        if (!msg || !msg.imageJobId) {
-            alert('没有可重试的出图任务');
+        if (!msg) {
+            alert('找不到该条消息');
             return;
         }
+        if (msg.imageStatus === 'queued' || msg.imageStatus === 'running' || msg.imageStatus === 'waiting_vram') {
+            alert('出图进行中，请稍候再试');
+            return;
+        }
+
+        const idx = characterChatMessages.findIndex((m) => m.id === messageId);
+        let userMessage = '';
+        if (idx > 0 && characterChatMessages[idx - 1]?.role === 'user') {
+            userMessage = characterChatMessages[idx - 1].content || '';
+        }
+        let previousVisual = null;
+        for (let i = idx - 1; i >= 0; i--) {
+            const prev = characterChatMessages[i];
+            if (prev.role === 'assistant' && prev.visual) {
+                previousVisual = prev.visual;
+                break;
+            }
+        }
+
+        msg.imageError = '';
+        msg.imageStatusHint = '';
+        msg.imageUrl = '';
+        msg.imageStatus = 'queued';
+        renderCharacterChat();
+        saveChatHistory();
+
+        // 优先重试原任务（服务未重启时）；否则用本轮 visual 重新入队
+        if (msg.imageJobId) {
+            try {
+                const res = await fetch(`/api/image-jobs/${encodeURIComponent(msg.imageJobId)}/retry`, {
+                    method: 'POST'
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    subscribeImageJobStream(msg.imageJobId, messageId);
+                    return;
+                }
+                if (res.status !== 404 && res.status !== 409) {
+                    console.warn('retry job failed, will create new job:', data.error || res.status);
+                }
+            } catch (e) {
+                console.warn('retry job error, will create new job:', e.message);
+            }
+        }
+
+        const emotionBlock = msg.emotionAnalysis?.emotionAnalysis || msg.emotionAnalysis || {};
         try {
-            const res = await fetch(`/api/image-jobs/${encodeURIComponent(msg.imageJobId)}/retry`, {
-                method: 'POST'
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '重试失败');
-            msg.imageStatus = 'queued';
-            msg.imageError = '';
-            msg.imageStatusHint = '';
-            renderCharacterChat();
-            subscribeImageJobStream(msg.imageJobId, messageId);
+            await requestCharacterImage(
+                messageId,
+                emotionBlock,
+                msg.content,
+                msg.visual || null,
+                previousVisual,
+                userMessage
+            );
         } catch (e) {
-            alert('重新出图失败: ' + e.message);
+            msg.imageStatus = 'failed';
+            msg.imageError = e.message || '重新渲染失败';
+            renderCharacterChat();
+            saveChatHistory();
+            alert('重新渲染失败: ' + e.message);
         }
     }
 

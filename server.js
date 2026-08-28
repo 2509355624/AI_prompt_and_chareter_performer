@@ -703,6 +703,38 @@ app.post('/api/character-image-sync', async (req, res) => {
     }
 });
 
+function nextNumberedPngSeq(dirPath) {
+    let max = 0;
+    try {
+        if (!fs.existsSync(dirPath)) return 1;
+        for (const name of fs.readdirSync(dirPath)) {
+            const m = /^(\d+)\.png$/i.exec(name);
+            if (m) max = Math.max(max, parseInt(m[1], 10));
+        }
+    } catch (_) {}
+    return max + 1;
+}
+
+function formatNumberedPngName(seq) {
+    return `${String(seq).padStart(3, '0')}.png`;
+}
+
+app.get('/api/export-next-seq', (req, res) => {
+    const folderPath = String(req.query.folderPath || '').trim();
+    if (!folderPath) {
+        return res.status(400).json({ ok: false, error: 'folderPath is required' });
+    }
+    try {
+        const resolved = path.resolve(folderPath);
+        if (!fs.existsSync(resolved)) {
+            fs.mkdirSync(resolved, { recursive: true });
+        }
+        res.json({ ok: true, folderPath: resolved, nextSeq: nextNumberedPngSeq(resolved) });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 app.post('/api/export-chat-strips', (req, res) => {
     const { folderPath, files } = req.body || {};
     if (!folderPath || typeof folderPath !== 'string') {
@@ -723,10 +755,11 @@ app.post('/api/export-chat-strips', (req, res) => {
 
     const saved = [];
     try {
+        let seq = nextNumberedPngSeq(resolved);
         for (const file of files) {
-            if (!file?.name || !file?.data) continue;
-            const safeName = path.basename(String(file.name)).replace(/[^\w.\-]/g, '_');
-            if (!safeName.toLowerCase().endsWith('.png')) continue;
+            if (!file?.data) continue;
+            const safeName = formatNumberedPngName(seq);
+            seq += 1;
             const base64 = String(file.data).replace(/^data:image\/\w+;base64,/, '');
             const buf = Buffer.from(base64, 'base64');
             fs.writeFileSync(path.join(resolved, safeName), buf);
@@ -746,18 +779,23 @@ app.post('/api/export-chat-strips', (req, res) => {
 
 /** Single full-res PNG export — one file per request to avoid huge batch payloads */
 app.post('/api/export-image', (req, res) => {
-    const { folderPath, name, data } = req.body || {};
+    const { folderPath, name, data, autoNumber } = req.body || {};
     if (!folderPath || typeof folderPath !== 'string') {
         return res.status(400).json({ error: 'folderPath is required' });
     }
-    if (!name || !data) {
-        return res.status(400).json({ error: 'name and data are required' });
+    if (!data) {
+        return res.status(400).json({ error: 'data is required' });
     }
 
     const resolved = path.resolve(folderPath.trim());
-    const safeName = path.basename(String(name)).replace(/[^\w.\-]/g, '_');
-    if (!safeName.toLowerCase().endsWith('.png')) {
-        return res.status(400).json({ error: '仅支持 PNG 文件名' });
+    let safeName;
+    if (autoNumber || !name || name === 'auto') {
+        safeName = formatNumberedPngName(nextNumberedPngSeq(resolved));
+    } else {
+        safeName = path.basename(String(name)).replace(/[^\w.\-]+/g, '_');
+        if (!safeName.toLowerCase().endsWith('.png')) {
+            return res.status(400).json({ error: '仅支持 PNG 文件名' });
+        }
     }
 
     try {
