@@ -196,7 +196,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=5"></script>
+    <script src="js/sticker-frame.js?v=6"></script>
     <script>
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
@@ -219,7 +219,8 @@
             pollTimer: null,
             resultsRenderToken: 0,
             lightboxPaintToken: 0,
-            framePreviewCache: new Map()
+            framePreviewCache: new Map(),
+            frameRenderChain: Promise.resolve()
         };
 
         const $ = (id) => document.getElementById(id);
@@ -789,40 +790,87 @@
             return `${state.framePreset}|${previewCap}|${url}`;
         }
 
+        function isFramedCanvasCorrupt(canvas) {
+            if (!canvas || !canvas.width || !canvas.height) return true;
+            try {
+                const ctx = canvas.getContext('2d');
+                const w = canvas.width;
+                const h = canvas.height;
+                const x0 = Math.floor(w * 0.2);
+                const y0 = Math.floor(h * 0.12);
+                const sw = Math.max(1, Math.floor(w * 0.6));
+                const sh = Math.max(1, Math.floor(h * 0.55));
+                const data = ctx.getImageData(x0, y0, sw, sh).data;
+                let dark = 0;
+                let total = 0;
+                for (let i = 0; i < data.length; i += 16) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    const a = data[i + 3];
+                    if (a < 12) continue;
+                    total += 1;
+                    if (r + g + b < 48) dark += 1;
+                }
+                return total > 24 && dark / total > 0.82;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function plainPreviewNode(url) {
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = '';
+            return img;
+        }
+
+        function enqueueFrameRender(task) {
+            const run = state.frameRenderChain.then(() => task(), () => task());
+            state.frameRenderChain = run.then(() => undefined, () => undefined);
+            return run;
+        }
+
         async function renderFramedCanvas(url, caption, previewMaxWidth, options = {}) {
-            const img = await loadImage(url);
-            // 导出要原图像素；预览必须降采样，否则连画多张 2K 玻璃模糊易把末张画黑
-            if (options.fullRes) {
-                return StickerFrame.renderStickerFrame(img, {
+            return enqueueFrameRender(async () => {
+                const img = await loadImage(url);
+                // 导出要原图像素；预览必须降采样，否则连画多张 2K 玻璃模糊易把末张画黑
+                if (options.fullRes) {
+                    return StickerFrame.renderStickerFrame(img, {
+                        preset: state.framePreset,
+                        caption: caption || '',
+                        previewMaxWidth: 0
+                    });
+                }
+                let maxW = previewMaxWidth;
+                if (maxW === undefined) {
+                    maxW = state.viewMode === 'grid' ? 420 : 720;
+                }
+                const previewCap = maxW > 0 ? maxW : 720;
+                const cacheKey = frameCacheKey(url, previewCap);
+                if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
+                    const cached = cloneCanvas(state.framePreviewCache.get(cacheKey));
+                    if (!isFramedCanvasCorrupt(cached)) return cached;
+                    state.framePreviewCache.delete(cacheKey);
+                }
+                const source = downscaleForPreview(img, previewCap);
+                const canvas = StickerFrame.renderStickerFrame(source, {
                     preset: state.framePreset,
                     caption: caption || '',
-                    previewMaxWidth: 0
+                    previewMaxWidth: previewCap
                 });
-            }
-            let maxW = previewMaxWidth;
-            if (maxW === undefined) {
-                maxW = state.viewMode === 'grid' ? 420 : 900;
-            }
-            const previewCap = maxW > 0 ? maxW : 900;
-            const cacheKey = frameCacheKey(url, previewCap);
-            if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
-                return cloneCanvas(state.framePreviewCache.get(cacheKey));
-            }
-            const source = downscaleForPreview(img, previewCap);
-            const canvas = StickerFrame.renderStickerFrame(source, {
-                preset: state.framePreset,
-                caption: caption || '',
-                previewMaxWidth: previewCap
-            });
-            if (!options.skipCache) {
-                state.framePreviewCache.set(cacheKey, canvas);
-                // 控制缓存体积：最多留约 24 张预览
-                while (state.framePreviewCache.size > 24) {
-                    const oldest = state.framePreviewCache.keys().next().value;
-                    state.framePreviewCache.delete(oldest);
+                if (isFramedCanvasCorrupt(canvas)) {
+                    return plainPreviewNode(url);
                 }
-            }
-            return cloneCanvas(canvas);
+                if (!options.skipCache) {
+                    state.framePreviewCache.set(cacheKey, canvas);
+                    while (state.framePreviewCache.size > 24) {
+                        const oldest = state.framePreviewCache.keys().next().value;
+                        state.framePreviewCache.delete(oldest);
+                    }
+                }
+                return cloneCanvas(canvas);
+            });
         }
 
         function prefetchLightboxNeighbors(centerIndex) {
@@ -831,7 +879,7 @@
             indexes.forEach((i) => {
                 const url = state.images[i] && state.images[i].url;
                 if (!url) return;
-                renderFramedCanvas(url, '', 900).catch(() => {});
+                renderFramedCanvas(url, '', 720).catch(() => {});
             });
         }
 
@@ -912,7 +960,7 @@
             const item = state.images[index];
             let node;
             try {
-                node = await renderFramedCanvas(item.url, '', 900);
+                node = await renderFramedCanvas(item.url, '', 720);
             } catch (_) {
                 node = document.createElement('img');
                 node.src = item.url;

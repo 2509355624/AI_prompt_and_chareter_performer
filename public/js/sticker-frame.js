@@ -462,7 +462,13 @@
         let presetKey = options?.preset || 'paper-collage';
         if (PRESET_ALIASES[presetKey]) presetKey = PRESET_ALIASES[presetKey];
         if (!PRESETS[presetKey]) presetKey = 'paper-collage';
-        return { ...PRESETS[presetKey], ...options, preset: presetKey };
+        const merged = { ...PRESETS[presetKey], ...options, preset: presetKey };
+        // 预览模式跳过玻璃模糊，避免连画多张时 GPU 把末张 canvas 画黑
+        const previewMaxWidth = Number(options?.previewMaxWidth) || 0;
+        if (previewMaxWidth > 0) {
+            merged.glassBg = false;
+        }
+        return merged;
     }
 
     function scaledUi(value, uiScale, minVal) {
