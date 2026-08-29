@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=15">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=17">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -36,7 +36,7 @@
                 </div>
             </aside>
 
-            <!-- 中：图占主区；左下压缩输入；右下本张提示词 -->
+            <!-- 中：图占主区；底栏合一：输入 + 单图本张词 / 网格底模 -->
             <div class="center-col">
                 <section class="gen-panel results-panel">
                     <div class="gen-panel-head">
@@ -63,18 +63,21 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="run-status" id="runStatus" aria-live="polite">
-                            <span class="run-status-dot" aria-hidden="true"></span>
-                            <span class="run-status-text" id="progressText">就绪 · 选好预设后点「开始生成」</span>
-                            <button type="button" class="btn btn-ghost btn-sm run-status-cancel" id="btnCancelGenerate" hidden>取消占用</button>
-                        </div>
-                        <div class="single-bottom" id="workspaceBottom">
-                            <div class="composer-dock open" id="composerDock">
-                                <div class="composer-bar">
-                                    <span class="bar-preset" id="activePresetLabel">未选择预设</span>
-                                    <button type="button" class="btn btn-primary btn-sm" id="btnGenerate">开始生成</button>
-                                </div>
-                                <div class="composer-drawer" id="composerDrawer">
+                        <div class="workspace-panel" id="workspaceBottom">
+                            <div class="workspace-toprow">
+                                <span class="run-status-dot" id="runStatusDot" aria-hidden="true"></span>
+                                <span class="run-status-text" id="progressText">就绪 · 选好预设后点「开始生成」</span>
+                                <button type="button" class="btn btn-ghost btn-sm run-status-cancel" id="btnCancelGenerate" hidden>取消</button>
+                                <span class="workspace-divider" id="gridToolbarDivider" hidden></span>
+                                <span class="grid-toolbar-meta" id="gridToolbarMeta" hidden>0 张 · 已选 0</span>
+                                <button type="button" class="btn btn-ghost btn-sm" id="btnGridSelectAll" hidden>全选</button>
+                                <button type="button" class="btn btn-ghost btn-sm" id="btnGridSelectNone" hidden>取消全选</button>
+                                <button type="button" class="btn btn-accent2 btn-sm" id="btnGridExportSelected" hidden disabled>导出选中</button>
+                                <span class="bar-preset" id="activePresetLabel">未选择预设</span>
+                                <button type="button" class="btn btn-primary btn-sm" id="btnGenerate">开始生成</button>
+                            </div>
+                            <div class="workspace-main" id="composerDock">
+                                <div class="composer-pane">
                                     <div class="composer-card">
                                         <div class="mode-pills">
                                             <label><input type="radio" name="promptMode" value="ai"><span>AI 扩写</span></label>
@@ -89,10 +92,14 @@
                                     </div>
                                     <textarea class="composer-input" id="sceneInput" rows="3" placeholder="场景 / Prompt…"></textarea>
                                 </div>
-                            </div>
-                            <div class="prompt-box" id="singlePromptBox" hidden>
-                                <div class="prompt-box-label">本张提示词</div>
-                                <pre id="singlePromptText"></pre>
+                                <div class="side-pane prompt-box" id="singlePromptBox" hidden>
+                                    <div class="prompt-box-label">本张提示词</div>
+                                    <pre id="singlePromptText"></pre>
+                                </div>
+                                <div class="side-pane base-pane" id="dockBasePane" hidden>
+                                    <div class="prompt-box-label">底模 basePrompt</div>
+                                    <textarea id="dockBasePrompt" rows="4" placeholder="角色外貌等底模，与右侧配置同步"></textarea>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -222,7 +229,7 @@
                 <strong id="importModalTitle">换图 · 手动导入</strong>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnImportModalClose">关闭</button>
             </div>
-            <p class="import-modal-hint" id="importModalHint">原先的「重新渲染」只是重画边框预览。这里可从 ComfyUI output 选图，或从本机导入，替换当前槽位。</p>
+            <p class="import-modal-hint" id="importModalHint">点下方缩略图导入，或「本机选图」。需要时再点「打开文件夹」。</p>
             <div class="import-modal-path">
                 <code id="importOutputPath">查找 output…</code>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnOpenOutputFolder">打开文件夹</button>
@@ -397,7 +404,7 @@
             countWrap: $('countWrap'),
             countInput: $('countInput'),
             progressText: $('progressText'),
-            runStatus: $('runStatus'),
+            workspaceBottom: $('workspaceBottom'),
             activePresetLabel: $('activePresetLabel'),
             btnGenerate: $('btnGenerate'),
             exportWithFrame: $('exportWithFrame'),
@@ -422,7 +429,7 @@
         }
 
         function syncRunBusy() {
-            if (els.runStatus) els.runStatus.classList.toggle('busy', !!state.generating);
+            if (els.workspaceBottom) els.workspaceBottom.classList.toggle('busy', !!state.generating);
             const btnCancel = $('btnCancelGenerate');
             if (btnCancel) btnCancel.hidden = !state.generating;
         }
@@ -697,15 +704,47 @@
         function syncSinglePromptBox() {
             const box = $('singlePromptBox');
             const pre = $('singlePromptText');
+            const bottom = els.workspaceBottom || $('workspaceBottom');
             if (!box || !pre) return;
+            if (state.viewMode === 'grid') {
+                box.hidden = true;
+                return;
+            }
             const item = state.images[state.singleIndex];
             if (!item || !item.prompt) {
                 box.hidden = true;
                 pre.textContent = '';
+                if (bottom) bottom.classList.add('is-single-only');
                 return;
             }
             box.hidden = false;
             pre.textContent = item.prompt;
+            if (bottom) bottom.classList.remove('is-single-only');
+        }
+
+        function syncDockBaseFromConfig() {
+            const dock = $('dockBasePrompt');
+            const cfg = $('cfgBasePrompt');
+            if (!dock || !cfg) return;
+            if (document.activeElement === dock) return;
+            dock.value = cfg.value || '';
+        }
+
+        function wireBasePromptSync() {
+            const dock = $('dockBasePrompt');
+            const cfg = $('cfgBasePrompt');
+            if (!dock || !cfg) return;
+            let syncing = false;
+            const copy = (from, to) => {
+                if (syncing) return;
+                syncing = true;
+                to.value = from.value;
+                syncing = false;
+            };
+            dock.addEventListener('input', () => copy(dock, cfg));
+            cfg.addEventListener('input', () => {
+                if (document.activeElement !== dock) copy(cfg, dock);
+            });
         }
 
         function syncLightboxPromptBox() {
@@ -728,6 +767,7 @@
             const toggle = document.createElement('button');
             toggle.type = 'button';
             toggle.className = 'btn btn-ghost btn-sm';
+            toggle.dataset.promptToggle = '1';
             toggle.textContent = '提示词';
             const copyBtn = document.createElement('button');
             copyBtn.type = 'button';
@@ -739,8 +779,25 @@
             pre.textContent = item.prompt || '（无提示词）';
             toggle.addEventListener('click', (e) => {
                 e.stopPropagation();
-                pre.hidden = !pre.hidden;
-                toggle.textContent = pre.hidden ? '提示词' : '收起';
+                const opening = pre.hidden;
+                const grid = els.resultsGrid || $('resultsGrid');
+                if (grid) {
+                    grid.querySelectorAll('.prompt-meta').forEach((meta) => {
+                        const snip = meta.querySelector('.prompt-snippet');
+                        const btn = meta.querySelector('[data-prompt-toggle]');
+                        if (!snip || !btn) return;
+                        if (meta === wrap && opening) {
+                            snip.hidden = false;
+                            btn.textContent = '收起';
+                        } else {
+                            snip.hidden = true;
+                            btn.textContent = '提示词';
+                        }
+                    });
+                } else {
+                    pre.hidden = !opening;
+                    toggle.textContent = pre.hidden ? '提示词' : '收起';
+                }
             });
             copyBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -813,10 +870,50 @@
 
         function syncExportButtons() {
             const hasImages = state.images.length > 0;
-            const hasSelected = state.images.some((x) => x.selected);
+            const selectedCount = state.images.filter((x) => x.selected).length;
+            const hasSelected = selectedCount > 0;
             if (els.btnExportCurrent) els.btnExportCurrent.disabled = !hasImages;
             if (els.btnExportSelected) els.btnExportSelected.disabled = !hasSelected;
             if (els.btnExportLightbox) els.btnExportLightbox.disabled = !hasImages;
+            const gridExport = $('btnGridExportSelected');
+            if (gridExport) gridExport.disabled = !hasSelected;
+            const meta = $('gridToolbarMeta');
+            if (meta) {
+                meta.textContent = hasImages
+                    ? `${state.images.length} 张 · 已选 ${selectedCount}`
+                    : '0 张 · 已选 0';
+            }
+        }
+
+        function syncViewChrome() {
+            const isGrid = state.viewMode === 'grid';
+            const bottom = els.workspaceBottom || $('workspaceBottom');
+            if (bottom) {
+                bottom.classList.toggle('is-grid', isGrid);
+                if (isGrid) bottom.classList.remove('is-single-only');
+            }
+            const setHidden = (id, hidden) => {
+                const el = $(id);
+                if (el) el.hidden = hidden;
+            };
+            setHidden('gridToolbarDivider', !isGrid);
+            setHidden('gridToolbarMeta', !isGrid);
+            setHidden('btnGridSelectAll', !isGrid);
+            setHidden('btnGridSelectNone', !isGrid);
+            setHidden('btnGridExportSelected', !isGrid);
+
+            const basePane = $('dockBasePane');
+            const promptBox = $('singlePromptBox');
+            if (isGrid) {
+                if (promptBox) promptBox.hidden = true;
+                if (basePane) basePane.hidden = false;
+                syncDockBaseFromConfig();
+            } else {
+                if (basePane) basePane.hidden = true;
+                syncSinglePromptBox();
+            }
+            syncViewToggle();
+            syncExportButtons();
         }
 
         function activePreset() {
@@ -859,6 +956,12 @@
         }
 
         function readConfigForm() {
+            const dock = $('dockBasePrompt');
+            const cfgBase = $('cfgBasePrompt');
+            const basePane = $('dockBasePane');
+            if (dock && cfgBase && basePane && !basePane.hidden) {
+                cfgBase.value = dock.value;
+            }
             const lora = (i) => {
                 const name = $(`cfgLora${i}`).value;
                 const strength = Number($(`cfgLora${i}Str`).value);
@@ -906,6 +1009,7 @@
             const p = preset || state.defaults || {};
             $('cfgName').value = p.name || '';
             $('cfgBasePrompt').value = p.basePrompt || '';
+            syncDockBaseFromConfig();
             fillSelect($('cfgCheckpoint'), state.options?.checkpoints || [], p.checkpointName || p.unetName || '');
             $('cfgWidth').value = p.width ?? 1024;
             $('cfgHeight').value = p.height ?? 1536;
@@ -1263,7 +1367,7 @@
             }
         }
 
-        async function openImportModal(index, { openExplorer = true } = {}) {
+        async function openImportModal(index, { openExplorer = false } = {}) {
             if (index < 0) {
                 // 无现有结果时，导入会新增一张
                 index = 0;
@@ -1276,7 +1380,7 @@
             const hint = $('importModalHint');
             if (hint) {
                 hint.textContent = state.images[index]
-                    ? `将替换第 ${index + 1} 张。点下方缩略图导入，或打开文件夹 / 本机选图。`
+                    ? `将替换第 ${index + 1} 张。点下方缩略图导入，或「本机选图」。需要时再点「打开文件夹」。`
                     : '当前还没有结果图：导入后会作为第 1 张加入。';
             }
             await loadOutputImageList();
@@ -1375,13 +1479,11 @@
             }
             // 空状态提示放进主画布，不再用绝对定位遮罩（会把初始化布局挤扁）
             if (els.resultsEmpty) els.resultsEmpty.hidden = true;
-            syncExportButtons();
+            syncViewChrome();
 
             if (state.viewMode === 'grid') {
                 els.resultsGrid.classList.remove('hidden');
                 els.singleView.classList.remove('active');
-                const promptBox = $('singlePromptBox');
-                if (promptBox) promptBox.hidden = true;
                 els.resultsGrid.innerHTML = '';
                 if (!n) {
                     const empty = document.createElement('div');
@@ -1420,7 +1522,7 @@
                     });
                     meta.querySelector('[data-rerender]').addEventListener('click', (e) => {
                         e.stopPropagation();
-                        openImportModal(i, { openExplorer: true });
+                        openImportModal(i);
                     });
                     card.appendChild(thumb);
                     card.appendChild(meta);
@@ -1434,7 +1536,6 @@
                 els.singleView.classList.add('active');
                 state.singleIndex = Math.max(0, Math.min(state.singleIndex, Math.max(0, n - 1)));
                 els.singleIndexLabel.textContent = n ? `${state.singleIndex + 1} / ${n}` : '0 / 0';
-                syncSinglePromptBox();
                 if (!n) {
                     els.singleStage.innerHTML = '<div class="stage-placeholder">选好预设后，在左下角输入场景并生成。<br>出图后默认带边框预览，点击可放大。</div>';
                     return;
@@ -1927,16 +2028,42 @@
             });
             els.btnViewGrid.addEventListener('click', () => {
                 state.viewMode = 'grid';
-                syncViewToggle();
+                syncViewChrome();
                 saveSession({ viewMode: 'grid' });
                 refreshResults();
             });
             els.btnViewSingle.addEventListener('click', () => {
                 state.viewMode = 'single';
-                syncViewToggle();
+                syncViewChrome();
                 saveSession({ viewMode: 'single' });
                 refreshResults();
             });
+            const btnGridSelectAll = $('btnGridSelectAll');
+            if (btnGridSelectAll) {
+                btnGridSelectAll.addEventListener('click', () => {
+                    state.images.forEach((img) => { img.selected = true; });
+                    els.resultsGrid.querySelectorAll('input[type="checkbox"][data-i]').forEach((el) => {
+                        el.checked = true;
+                    });
+                    syncExportButtons();
+                    saveSession({ images: state.images });
+                });
+            }
+            const btnGridSelectNone = $('btnGridSelectNone');
+            if (btnGridSelectNone) {
+                btnGridSelectNone.addEventListener('click', () => {
+                    state.images.forEach((img) => { img.selected = false; });
+                    els.resultsGrid.querySelectorAll('input[type="checkbox"][data-i]').forEach((el) => {
+                        el.checked = false;
+                    });
+                    syncExportButtons();
+                    saveSession({ images: state.images });
+                });
+            }
+            const btnGridExportSelected = $('btnGridExportSelected');
+            if (btnGridExportSelected) {
+                btnGridExportSelected.addEventListener('click', () => exportSelected());
+            }
             $('btnPrev').addEventListener('click', () => {
                 if (state.singleIndex > 0) {
                     state.singleIndex -= 1;
@@ -1952,7 +2079,7 @@
             els.singleStage.addEventListener('click', () => openLightbox(state.singleIndex));
             $('btnOpenLightbox').addEventListener('click', () => openLightbox(state.singleIndex));
             $('btnRerenderSingle').addEventListener('click', () => {
-                openImportModal(state.images.length ? state.singleIndex : -1, { openExplorer: true });
+                openImportModal(state.images.length ? state.singleIndex : -1);
             });
             if (els.btnExportCurrent) {
                 els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
@@ -1980,7 +2107,7 @@
                 }
             });
             $('btnRerenderLightbox').addEventListener('click', () => {
-                openImportModal(state.images.length ? state.lightboxIndex : -1, { openExplorer: true });
+                openImportModal(state.images.length ? state.lightboxIndex : -1);
             });
             const importModal = $('importModal');
             if (importModal) {
@@ -2067,6 +2194,8 @@
                 }
             });
 
+            wireBasePromptSync();
+
             let draftTimer = null;
             const persistDraft = () => {
                 clearTimeout(draftTimer);
@@ -2089,7 +2218,7 @@
             }
             bind();
             syncModeUi();
-            syncViewToggle();
+            syncViewChrome();
             setConfigOpen(false);
             setPresetsCollapsed(false);
             setComposerOpen(true);
