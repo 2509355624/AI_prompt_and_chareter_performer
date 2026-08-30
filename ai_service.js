@@ -1804,7 +1804,12 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         const totalTimeMs = Date.now() - totalStartTime;
 
         let newTurnMemoryEntry = null;
-        if (displayReply && displayReply !== '无回复') {
+        // 本轮 AI 摘要（generateTurnBrief）已关闭：
+        // - 情感分析用的是最近多轮「完整对白」，不用 brief
+        // - 正文系统提示虽可注入 turnMemory，但当前产品未做超长记忆，多一次 LLM 只拖慢 turn_done
+        // 需要长记忆时再设计专用方案，不要用「每轮再摘要一次」这种方式。
+        const SKIP_TURN_BRIEF = String(process.env.SKIP_TURN_BRIEF || '1') !== '0';
+        if (!SKIP_TURN_BRIEF && displayReply && displayReply !== '无回复') {
             const { userBrief, assistantBrief } = await this.generateTurnBrief(
                 lastUserMsg, displayReply, provider, model, apiKey, baseUrl
             );
@@ -1824,6 +1829,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         console.log('   回复生成完成，VISUAL:', visual ? JSON.stringify(visual) : '(未解析到)');
         if (newTurnMemoryEntry) {
             console.log('   本轮情节记忆:', newTurnMemoryEntry.userBrief, '|', newTurnMemoryEntry.assistantBrief);
+        } else if (SKIP_TURN_BRIEF) {
+            console.log('   本轮情节记忆: 已跳过 (SKIP_TURN_BRIEF)');
         }
         return {
             reply: displayReply,

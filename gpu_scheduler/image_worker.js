@@ -59,12 +59,14 @@ async function startImageWorker({ queue, jobStore, runCharacterImageJob }) {
             const result = await runCharacterImageJob(payload);
             jobStore.updateJob(jobId, { status: 'completed', result, error: null });
             jobStore.emit(jobId, 'image_done', { jobId, ...result });
+            jobStore.close(jobId);
             console.log('[ImageWorker] completed job:', jobId);
         } catch (error) {
             const message = error.message || '出图失败';
             console.error('[ImageWorker] failed job:', jobId, message);
             jobStore.updateJob(jobId, { status: 'failed', error: message });
             jobStore.emit(jobId, 'image_failed', { jobId, error: message });
+            jobStore.close(jobId);
         }
 
         await sleep(200);

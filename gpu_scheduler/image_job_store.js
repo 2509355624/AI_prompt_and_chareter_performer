@@ -91,6 +91,18 @@ class ImageJobStore {
         }
     }
 
+    /** 出图结束（成功/失败）后关掉该 job 的 SSE */
+    close(id) {
+        const set = this.subscribers.get(id);
+        if (!set) return;
+        for (const res of [...set]) {
+            try {
+                if (!res.writableEnded) res.end();
+            } catch (_) {}
+        }
+        this.subscribers.delete(id);
+    }
+
     _write(res, event, data) {
         if (res.writableEnded) return;
         res.write(`event: ${event}\n`);

@@ -74,6 +74,18 @@ class ChatTurnStore {
         }
     }
 
+    /** 主动结束该 turn 的所有 SSE 订阅（turn_done / turn_error 后调用） */
+    close(id) {
+        const set = this.subscribers.get(id);
+        if (!set) return;
+        for (const res of [...set]) {
+            try {
+                if (!res.writableEnded) res.end();
+            } catch (_) {}
+        }
+        this.subscribers.delete(id);
+    }
+
     _write(res, event, data) {
         if (res.writableEnded) return;
         res.write(`event: ${event}\n`);

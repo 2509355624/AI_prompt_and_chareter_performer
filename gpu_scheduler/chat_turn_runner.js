@@ -32,6 +32,8 @@ async function processChatTurn({ turnId, turnStore, aiService, payload }) {
             error: null
         });
         turnStore.emit(turnId, 'turn_done', { turnId, ...result });
+        // 正常结束长连接，避免客户端一直挂着最后被当成 Connection closed 报错
+        turnStore.close(turnId);
 
         if (payload.provider === 'ollama') {
             try {
@@ -49,6 +51,7 @@ async function processChatTurn({ turnId, turnStore, aiService, payload }) {
             error: message
         });
         turnStore.emit(turnId, 'turn_error', { turnId, error: message });
+        turnStore.close(turnId);
     }
 }
 
