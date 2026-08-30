@@ -3,548 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Prompt Studio | 灵感工坊</title>
-    
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <style>
-        :root {
-            /* Colors - Dark Nebula Theme */
-            --bg-dark: #0f172a;
-            --bg-card: rgba(30, 41, 59, 0.6);
-            --bg-input: rgba(15, 23, 42, 0.6);
-            --bg-hover: rgba(255, 255, 255, 0.05);
-            
-            --primary: #8b5cf6;
-            --primary-hover: #7c3aed;
-            --secondary: #3b82f6;
-            --accent: #f472b6;
-            
-            --text-main: #f1f5f9;
-            --text-muted: #94a3b8;
-            --border: rgba(148, 163, 184, 0.1);
-            
-            --glass-border: 1px solid rgba(255, 255, 255, 0.08);
-            --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-            
-            /* Spacing */
-            --radius-lg: 16px;
-            --radius-md: 8px;
-            --radius-sm: 4px;
-        }
-
-        * { box-sizing: border-box; outline: none; }
-        
-        body {
-            margin: 0;
-            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-dark);
-            background-image: 
-                radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(244, 114, 182, 0.1) 0px, transparent 50%);
-            background-attachment: fixed;
-            color: var(--text-main);
-            height: 100vh;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-        }
-
-        /* Layout */
-        .app-container {
-            display: flex;
-            width: 100%;
-            max-width: 1440px;
-            height: 100vh;
-            padding: 20px;
-            gap: 20px;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: 300px;
-            flex-shrink: 0;
-            background: var(--bg-card);
-            backdrop-filter: blur(12px);
-            border: var(--glass-border);
-            border-radius: var(--radius-lg);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            box-shadow: var(--shadow-lg);
-        }
-
-        .brand {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 24px;
-            background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .sidebar-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: var(--glass-border);
-        }
-
-        .sidebar-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .btn-icon {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 4px;
-            border-radius: var(--radius-sm);
-            transition: all 0.2s;
-        }
-        .btn-icon:hover { color: var(--text-main); background: var(--bg-hover); }
-
-        .presets-list {
-            flex: 1;
-            overflow-y: auto;
-            margin: 0 -10px; /* Expand scroll area */
-            padding: 0 10px;
-        }
-        
-        /* Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-
-        .preset-item {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid transparent;
-            border-radius: var(--radius-md);
-            padding: 12px;
-            margin-bottom: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
-            group: 'preset';
-        }
-        .preset-item:hover {
-            background: rgba(255,255,255,0.08);
-            border-color: rgba(255,255,255,0.1);
-            transform: translateY(-1px);
-        }
-        .preset-name {
-            font-weight: 500;
-            margin-bottom: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            padding-right: 20px;
-        }
-        .preset-preview {
-            font-size: 12px;
-            color: var(--text-muted);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .preset-delete {
-            position: absolute;
-            top: 10px;
-            right: 8px;
-            opacity: 0;
-            color: #ef4444;
-            transition: opacity 0.2s;
-        }
-        .preset-edit {
-            position: absolute;
-            top: 10px;
-            right: 32px;
-            opacity: 0;
-            color: var(--secondary);
-            transition: opacity 0.2s;
-        }
-        .preset-item:hover .preset-delete,
-        .preset-item:hover .preset-edit { opacity: 1; }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            min-width: 0; /* Fix flex overflow */
-        }
-
-        /* Config Panel */
-        .config-panel {
-            background: var(--bg-card);
-            backdrop-filter: blur(12px);
-            border: var(--glass-border);
-            border-radius: var(--radius-lg);
-            padding: 0 20px;
-            transition: all 0.3s ease;
-            overflow: hidden;
-        }
-        
-        .config-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 0;
-            cursor: pointer;
-        }
-        .config-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
-        .config-body {
-            padding-bottom: 20px;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            border-top: var(--glass-border);
-            padding-top: 20px;
-        }
-        .config-panel.collapsed .config-body { display: none; }
-        .config-panel.collapsed .config-header { padding-bottom: 16px; }
-
-        /* Forms */
-        .form-group { display: flex; flex-direction: column; gap: 8px; }
-        label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
-        
-        input, select, textarea {
-            background: var(--bg-input);
-            border: 1px solid rgba(255,255,255,0.1);
-            color: var(--text-main);
-            padding: 10px 12px;
-            border-radius: var(--radius-md);
-            font-family: inherit;
-            font-size: 14px;
-            transition: border-color 0.2s;
-        }
-        input:focus, select:focus, textarea:focus {
-            border-color: var(--primary);
-        }
-        
-        /* Layout - Unified Grid */
-        .workspace-grid {
-            display: flex;
-            gap: 20px;
-            height: calc(100vh - 140px); /* Adjust for header/config */
-            overflow: hidden;
-        }
-
-        /* Column 1: Sidebar (Existing styles reused, just positioning) */
-        .sidebar-container {
-            width: 260px;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* Column 2: Chat (Creative Assistant) */
-        .chat-section {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: var(--bg-card);
-            backdrop-filter: blur(12px);
-            border: var(--glass-border);
-            border-radius: 16px;
-            box-shadow: var(--shadow-lg);
-            min-width: 300px;
-            overflow: hidden;
-        }
-        .section-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: rgba(0,0,0,0.2);
-        }
-        .section-title {
-            font-weight: 600;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Column 3: Generator (Workspace) */
-        .generator-section {
-            width: 450px;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-            background: var(--bg-card);
-            backdrop-filter: blur(12px);
-            border: var(--glass-border);
-            border-radius: 16px;
-            box-shadow: var(--shadow-lg);
-            overflow-y: auto;
-        }
-
-        .generator-content {
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        /* Responsive adjustments */
-        @media (max-width: 1200px) {
-            .workspace-grid {
-                flex-direction: column;
-                height: auto;
-                overflow: visible;
-            }
-            .sidebar-container, .chat-section, .generator-section {
-                width: 100%;
-                height: 600px; /* Fixed height for scrollable areas in mobile */
-            }
-            .sidebar-container { height: auto; }
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: var(--radius-md);
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.1s, box-shadow 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        .btn-primary:hover {
-            box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
-            transform: translateY(-1px);
-        }
-        .btn-primary:active { transform: translateY(0); }
-        .btn-primary:disabled { opacity: 0.7; cursor: wait; }
-
-        /* Results Area */
-        .results-area {
-            background: rgba(0,0,0,0.2);
-            border-radius: var(--radius-md);
-            padding: 20px;
-            overflow-y: auto;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-
-        .prompt-card {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: var(--radius-md);
-            padding: 16px;
-            margin-bottom: 16px;
-            position: relative;
-        }
-        .prompt-text {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            line-height: 1.6;
-            color: #e2e8f0;
-            margin-bottom: 12px;
-        }
-        .prompt-meta {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 11px;
-            color: var(--text-muted);
-            border-top: 1px solid rgba(255,255,255,0.05);
-            padding-top: 8px;
-        }
-        .copy-btn-sm {
-            background: rgba(255,255,255,0.1);
-            border: none;
-            color: var(--text-main);
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            cursor: pointer;
-        }
-        .copy-btn-sm:hover { background: var(--primary); }
-
-        /* Chat Styles */
-        .chat-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: rgba(0,0,0,0.1);
-            height: 100%;
-        }
-        
-        .chat-history {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        
-        .message {
-            max-width: 80%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            line-height: 1.5;
-            font-size: 14px;
-            position: relative;
-            animation: fadeIn 0.3s ease;
-        }
-        
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        .message.user {
-            align-self: flex-end;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
-            border-bottom-right-radius: 2px;
-        }
-        
-        .message.ai {
-            align-self: flex-start;
-            background: rgba(255,255,255,0.1);
-            color: var(--text-main);
-            border-bottom-left-radius: 2px;
-        }
-        .message.ai.thinking { opacity: 0.6; font-style: italic; }
-
-        .chat-input-wrapper {
-            padding: 20px;
-            background: var(--bg-card);
-            border-top: var(--glass-border);
-            display: flex;
-            gap: 10px;
-        }
-
-        /* Utilities */
-        .hidden { display: none !important; }
-        .rotate-icon { transform: rotate(-90deg); }
-        
-    /* Toggle Switch */
-    .switch {
-        position: relative;
-        display: inline-block;
-        width: 34px;
-        height: 18px;
-    }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background-color: rgba(255,255,255,0.1);
-        transition: .4s;
-        border-radius: 18px;
-    }
-    .slider:before {
-        position: absolute;
-        content: "";
-        height: 14px;
-        width: 14px;
-        left: 2px;
-        bottom: 2px;
-        background-color: white;
-        transition: .4s;
-        border-radius: 50%;
-    }
-    input:checked + .slider { background-color: var(--primary); }
-    input:checked + .slider:before { transform: translateX(16px); }
-        
-        /* Responsive */
-        @media (max-width: 768px) {
-            .app-container { flex-direction: column; padding: 10px; gap: 10px; }
-            .sidebar { width: 100%; max-height: 200px; }
-            .generator-grid { grid-template-columns: 1fr; }
-        }
-
-        /* Back to Home Button */
-        .back-home {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: var(--bg-card);
-            backdrop-filter: blur(12px);
-            border: var(--glass-border);
-            border-radius: var(--radius-lg);
-            padding: 10px 16px;
-            color: var(--text-main);
-            text-decoration: none;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
-        }
-        .back-home:hover {
-            background: var(--primary);
-            transform: translateY(-2px);
-        }
-    </style>
+    <title>提示词生成 · Prompt Studio</title>
+    <link rel="stylesheet" href="styles/prompt-paper.css?v=3">
 </head>
 <body>
-
-<a href="index.html" class="back-home">
-    <span>🏠</span>
-    <span>返回主页</span>
-</a>
+<a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
 
 <div class="app-container">
-    <!-- Sidebar -->
     <aside class="sidebar">
-        <div class="brand">
-            <span>🎨</span>
-            <span>Prompt Studio</span>
-        </div>
-        
+        <div class="brand"><span>🎨</span><span>Prompt Studio</span></div>
         <div class="sidebar-header">
             <span class="sidebar-title">我的预设库</span>
-            <div id="presetActions" style="display:flex; gap:8px;">
-                <button class="btn-icon" onclick="startNewPreset()" title="清空内容 / 新建">✨ 新建</button>
-                <button id="btnSavePreset" class="btn-icon" onclick="saveCurrentAsPreset()" title="保存预设">💾 保存</button>
-                <button id="btnCancelEdit" class="btn-icon hidden" onclick="cancelEdit()" title="退出编辑模式" style="color:#ef4444;">❌</button>
+            <div style="display:flex;gap:6px;">
+                <button type="button" class="btn-icon" onclick="startNewPreset()" title="清空 / 新建">✨ 新建</button>
+                <button type="button" class="btn-icon" id="btnSavePreset" onclick="saveCurrentAsPreset()" title="保存预设">💾 保存</button>
+                <button type="button" class="btn-icon hidden" id="btnCancelEdit" onclick="cancelEdit()" title="退出编辑" style="color:var(--accent);">❌</button>
             </div>
         </div>
-        
         <div id="presetsList" class="presets-list">
-            <!-- Populated by JS -->
-            <div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">
-                暂无预设
-            </div>
+            <div class="empty-hint" style="padding:16px;">暂无预设</div>
         </div>
     </aside>
 
-    <!-- Main Content -->
     <main class="main-content">
-        <!-- Config Panel -->
         <div class="config-panel" id="configPanel">
             <div class="config-header" onclick="toggleConfig()">
-                <div class="config-title">
-                    <span>⚙️</span>
-                    <span>模型设置 / Configuration</span>
-                </div>
-                <button class="btn-icon toggle-icon">▼</button>
+                <div class="config-title"><span>⚙️</span><span>模型设置</span></div>
+                <button type="button" class="btn-icon toggle-icon">▼</button>
             </div>
-            
             <div class="config-body">
                 <div class="form-group">
                     <label>AI Provider</label>
@@ -555,38 +41,32 @@
                         <option value="openai">OpenAI / Compatible</option>
                     </select>
                 </div>
-
-                <!-- Doubao Specific -->
                 <div id="doubaoInfo" class="form-group">
                     <label>Doubao Model</label>
                     <select id="doubaoModel">
-                        <option value="deepseek-v4-flash-ga-260731" selected>DeepSeek v4 Flash GA (火山引擎)</option>
-                        <option value="deepseek-v4-flash-260425">DeepSeek v4 Flash (火山引擎)</option>
+                        <option value="deepseek-v4-flash-ga-260731" selected>DeepSeek v4 Flash GA</option>
+                        <option value="deepseek-v4-flash-260425">DeepSeek v4 Flash</option>
                         <option value="doubao-seed-2-0-mini-260428">Doubao Seed 2.0 Mini</option>
                         <option value="doubao-seed-2-0-lite-260428">Doubao Seed 2.0 Lite</option>
-                        <option value="2.0" selected>Doubao 2.0 Pro</option>
+                        <option value="2.0">Doubao 2.0 Pro</option>
                         <option value="1.8">Doubao 1.8 Pro</option>
-                        <option value="1.6">Doubao 1.6 Flash (Vision Support)</option>
+                        <option value="1.6">Doubao 1.6 Flash (Vision)</option>
                     </select>
                 </div>
-
-                <!-- Generic Settings -->
                 <div id="genericSettings" class="hidden" style="display:contents;">
                     <div class="form-group" style="flex:2;">
                         <label>Base URL</label>
                         <input type="text" id="baseUrl" value="http://localhost:11434">
                     </div>
-                    
                     <div class="form-group" style="flex:1;">
-                        <div style="display:flex; justify-content:space-between;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
                             <label>Model Name</label>
-                            <span id="refreshModelsBtn" class="hidden" onclick="fetchOllamaModels(true)" style="cursor:pointer; font-size:10px; color:var(--primary);">🔄 Refresh</span>
+                            <span id="refreshModelsBtn" class="hidden" onclick="fetchOllamaModels(true)" style="cursor:pointer;font-size:10px;color:var(--accent-2);">🔄 Refresh</span>
                         </div>
                         <div id="modelInputContainer">
                             <input type="text" id="model" placeholder="e.g. llama3">
                         </div>
                     </div>
-                    
                     <div class="form-group" id="apiKeyGroup">
                         <label>API Key</label>
                         <input type="password" id="apiKey" placeholder="sk-...">
@@ -595,45 +75,33 @@
             </div>
         </div>
 
-        <!-- Unified Workspace Grid -->
         <div class="workspace-grid">
-            
-            <!-- Column 2: Creative Assistant (Chat) -->
             <section class="chat-section">
                 <div class="section-header">
-                    <div class="section-title">
-                        <span>💬</span>
-                        <span>创意助手 / Creative Assistant</span>
-                    </div>
+                    <div class="section-title"><span>💬</span><span>创意助手</span></div>
                 </div>
                 <div class="chat-container">
                     <div id="chatHistory" class="chat-history">
-                        <div class="message ai">
-                            你好！我是你的 AI 绘画创意助手。请在下方输入你的创意想法，我会结合左侧选择的预设，帮你扩充成丰富的场景描述。
-                        </div>
+                        <div class="message ai">你好！我是你的 AI 绘画创意助手。在下方写下想法，我会结合预设帮你扩成场景描述。</div>
                     </div>
-                    
-                    <div class="chat-controls" style="padding: 20px; background: var(--bg-card); border-top: var(--glass-border); display: flex; flex-direction: column; gap: 16px;">
-                        <!-- Preset Context -->
+                    <div class="chat-controls">
                         <div class="form-group">
-                            <label style="display:flex; justify-content:space-between;">
-                                <span>当前预设 / Active Preset</span>
-                                <span style="font-size:10px; opacity:0.7;">(Synced with Generator)</span>
+                            <label style="display:flex;justify-content:space-between;">
+                                <span>当前预设</span>
+                                <span style="font-weight:400;opacity:0.7;">与右侧同步</span>
                             </label>
-                            <textarea id="chatPreset" style="height: 60px; font-size: 12px; color: var(--text-muted); background: rgba(0,0,0,0.2);" placeholder="在此输入或粘贴风格预设..." oninput="syncPresets(this.value, 'topic')"></textarea>
+                            <textarea id="chatPreset" style="height:56px;font-size:12px;" placeholder="风格预设…" oninput="syncPresets(this.value, 'topic')"></textarea>
                         </div>
-
-                        <!-- User Scene Input -->
                         <div class="form-group">
-                            <label>场景想法 / Your Idea</label>
-                            <div style="display: flex; gap: 12px; align-items: stretch;">
-                                <textarea id="chatInput" placeholder="例如：粉色衣服，房间床上躺着睡觉..." style="flex: 1; height: 100px; resize: vertical; min-height: 60px;"></textarea>
-                                <div style="display:flex; flex-direction:column; gap:8px; align-items:center;">
-                                    <button class="btn-primary" onclick="sendAndOptimize()" style="padding: 0 24px; flex-direction: column; gap: 4px; flex:1;" title="生成并自动填入右侧">
-                                        <span style="font-size: 20px;">🚀</span>
-                                        <span style="font-size: 10px;">优化 & 填入</span>
+                            <label>场景想法</label>
+                            <div class="idea-row">
+                                <textarea id="chatInput" placeholder="例如：粉色衣服，房间床上躺着睡觉…"></textarea>
+                                <div class="idea-actions">
+                                    <button type="button" class="btn-primary" onclick="sendAndOptimize()" style="flex-direction:column;padding:10px 14px;flex:1;" title="生成并填入右侧">
+                                        <span style="font-size:18px;">🚀</span>
+                                        <span style="font-size:11px;">优化填入</span>
                                     </button>
-                                    <div style="display:flex; align-items:center; gap:8px; font-size:10px; color:var(--text-muted);">
+                                    <div class="auto-row">
                                         <label class="switch">
                                             <input type="checkbox" id="autoGenerateCheck">
                                             <span class="slider"></span>
@@ -647,55 +115,37 @@
                 </div>
             </section>
 
-            <!-- Column 3: Generator -->
             <section class="generator-section">
                 <div class="section-header">
-                    <div class="section-title">
-                        <span>✨</span>
-                        <span>提示词生成器 / Generator</span>
-                    </div>
+                    <div class="section-title"><span>✨</span><span>提示词生成器</span></div>
                 </div>
-                
                 <div class="generator-content">
                     <div class="input-area">
                         <div class="form-group">
-                            <label>基础预设 / Base Preset (Topic)</label>
-                            <textarea id="topic" style="height:80px; resize:none;" placeholder="点击左侧预设加载基础风格..." oninput="syncPresets(this.value, 'chatPreset')"></textarea>
+                            <label>基础预设</label>
+                            <textarea id="topic" style="height:72px;resize:none;" placeholder="点左侧预设加载…" oninput="syncPresets(this.value, 'chatPreset')"></textarea>
                         </div>
-
                         <div class="form-group">
-                            <label>场景描述 / Scene Description (Paste Here)</label>
-                            <textarea id="sceneDescription" style="height:100px; resize:none;" placeholder="在此粘贴 AI 聊出的具体场景描述..."></textarea>
+                            <label>场景描述</label>
+                            <textarea id="sceneDescription" style="height:88px;resize:none;" placeholder="粘贴或由左侧助手填入…"></textarea>
                         </div>
-                        
                         <div class="form-group">
-                            <label>参考图片 / Image URL (可选)</label>
-                            <input type="text" id="imageUrl" placeholder="https://example.com/image.png">
+                            <label>参考图片 URL（可选）</label>
+                            <input type="text" id="imageUrl" placeholder="https://…">
                         </div>
-                        
                         <div class="form-group">
-                            <label>生成数量 / Count</label>
+                            <label>生成数量</label>
                             <input type="number" id="count" value="3" min="1" max="10">
                         </div>
-
-                        <button id="generateBtn" class="btn-primary" onclick="generatePrompts()">
-                            <span class="btn-text">开始生成 / Generate</span>
-                        </button>
+                        <button type="button" id="generateBtn" class="btn-primary" onclick="generatePrompts()" style="width:100%;">开始生成</button>
                     </div>
-
                     <div class="results-area">
-                        <div id="loading" class="hidden" style="text-align:center; padding:20px; color:var(--text-muted);">
-                            <div class="spinner" style="margin:0 auto 10px;"></div>
-                            <p>正在构思...</p>
+                        <div id="loading" class="loading-hint hidden">
+                            <div class="spinner"></div>
+                            <p>正在构思…</p>
                         </div>
-                        
-                        <div id="emptyState" style="text-align:center; padding:20px; color:var(--text-muted);">
-                            <p>填写预设和场景后点击生成</p>
-                        </div>
-
-                        <div id="promptList">
-                            <!-- Results go here -->
-                        </div>
+                        <div id="emptyState" class="empty-hint">填写预设和场景后点生成</div>
+                        <div id="promptList"></div>
                     </div>
                 </div>
             </section>
@@ -704,46 +154,38 @@
 </div>
 
 <script>
-    // --- Global State ---
     let chatMessages = [];
     let editingPresetId = null;
 
-    // --- Utilities ---
     function syncPresets(val, targetId) {
         const el = document.getElementById(targetId);
         if (el) el.value = val;
     }
 
     function copyText(btn, text) {
-        navigator.clipboard.writeText(text).then(() => {
+        const decoded = text.replace(/\\n/g, '\n').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+        navigator.clipboard.writeText(decoded).then(() => {
             const original = btn.innerText;
-            btn.innerText = '✅ Copied!';
-            setTimeout(() => btn.innerText = original, 2000);
+            btn.innerText = '✅ 已复制';
+            setTimeout(() => { btn.innerText = original; }, 1600);
         });
     }
-    
-    // --- Initialization ---
-    document.addEventListener('DOMContentLoaded', () => {
-        toggleProviderSettings();
-        loadPresets();
-        
-        // Setup Chat Enter Key
-        document.getElementById('chatInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-    });
 
-    // --- UI Logic ---
-    // Tabs removed in Unified View
+    function escapeHtml(s) {
+        return String(s ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
 
     function toggleConfig() {
         const panel = document.getElementById('configPanel');
         const icon = panel.querySelector('.toggle-icon');
         panel.classList.toggle('collapsed');
-        icon.style.transform = panel.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        if (icon) {
+            icon.style.transform = panel.classList.contains('collapsed') ? 'rotate(-90deg)' : '';
+        }
     }
 
     function toggleProviderSettings() {
@@ -758,53 +200,46 @@
             doubaoInfo.classList.remove('hidden');
             genericSettings.classList.add('hidden');
             genericSettings.style.display = 'none';
+            return;
+        }
+
+        doubaoInfo.classList.add('hidden');
+        genericSettings.classList.remove('hidden');
+        genericSettings.style.display = 'contents';
+
+        if (provider === 'ollama') {
+            apiKeyGroup.classList.add('hidden');
+            refreshBtn.classList.remove('hidden');
+            if (baseUrl.value.includes('api.openai.com')) baseUrl.value = 'http://localhost:11434';
+            fetchOllamaModels();
+        } else if (provider === 'deepseek') {
+            apiKeyGroup.classList.add('hidden');
+            refreshBtn.classList.add('hidden');
+            baseUrl.value = 'https://api.deepseek.com';
+            document.getElementById('modelInputContainer').innerHTML =
+                '<input type="text" id="model" value="deepseek-chat" style="width:100%;">';
         } else {
-            doubaoInfo.classList.add('hidden');
-            genericSettings.classList.remove('hidden');
-            genericSettings.style.display = 'contents';
-            
-            if (provider === 'ollama') {
-                apiKeyGroup.classList.add('hidden');
-                refreshBtn.classList.remove('hidden');
-                if(baseUrl.value.includes('api.openai.com')) baseUrl.value = 'http://localhost:11434';
-                fetchOllamaModels();
-            } else if (provider === 'deepseek') {
-                apiKeyGroup.classList.add('hidden');
-                refreshBtn.classList.add('hidden');
-                baseUrl.value = 'https://api.deepseek.com';
-                document.getElementById('modelInputContainer').innerHTML = 
-                    '<input type="text" id="model" value="deepseek-v4-flash" style="width:100%;">';
-            } else {
-                apiKeyGroup.classList.remove('hidden');
-                refreshBtn.classList.add('hidden');
-                baseUrl.value = 'https://api.openai.com/v1';
-                renderModelInput('input');
-            }
+            apiKeyGroup.classList.remove('hidden');
+            refreshBtn.classList.add('hidden');
+            baseUrl.value = 'https://api.openai.com/v1';
+            renderModelInput('input');
         }
     }
 
-    // --- API Interactions ---
-    
-    // 1. Models
     async function fetchOllamaModels(isManual = false) {
-        const provider = document.getElementById('provider').value;
-        if (provider !== 'ollama') return;
-
+        if (document.getElementById('provider').value !== 'ollama') return;
         const baseUrl = document.getElementById('baseUrl').value;
         const btn = document.getElementById('refreshModelsBtn');
-        
         if (isManual) btn.innerText = '...';
-
         try {
             const res = await fetch(`/api/models?baseUrl=${encodeURIComponent(baseUrl)}`);
             const data = await res.json();
-            
             if (data.models && data.models.length > 0) {
                 renderModelInput('select', data.models);
-                if (isManual) alert(`Found ${data.models.length} models`);
+                if (isManual) alert(`找到 ${data.models.length} 个模型`);
             } else {
                 renderModelInput('input');
-                if (isManual) alert('No models found. Check Ollama connection.');
+                if (isManual) alert('未找到模型，请检查 Ollama');
             }
         } catch (e) {
             console.error(e);
@@ -817,34 +252,32 @@
     function renderModelInput(type, models = []) {
         const container = document.getElementById('modelInputContainer');
         const currentVal = document.getElementById('model') ? document.getElementById('model').value : '';
-        
         if (type === 'select') {
-            const options = models.map(m => `<option value="${m}" ${m === currentVal ? 'selected' : ''}>${m}</option>`).join('');
+            const options = models.map((m) =>
+                `<option value="${escapeHtml(m)}" ${m === currentVal ? 'selected' : ''}>${escapeHtml(m)}</option>`
+            ).join('');
             container.innerHTML = `<select id="model">${options}</select>`;
         } else {
-            container.innerHTML = `<input type="text" id="model" value="${currentVal}" placeholder="Model name (e.g. gpt-4)">`;
+            container.innerHTML = `<input type="text" id="model" value="${escapeHtml(currentVal)}" placeholder="Model name (e.g. gpt-4)">`;
         }
     }
 
-    // 2. Presets
     async function loadPresets() {
         try {
             const res = await fetch('/api/presets');
             const presets = await res.json();
             const list = document.getElementById('presetsList');
-            
             if (!presets || presets.length === 0) {
-                list.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">暂无预设</div>';
+                list.innerHTML = '<div class="empty-hint" style="padding:16px;">暂无预设</div>';
                 return;
             }
-            
-            list.innerHTML = presets.map(p => `
+            list.innerHTML = presets.map((p) => `
                 <div class="preset-item" onclick="applyPreset('${p.id}')">
-                    <div class="preset-name">${p.name}</div>
-                    <div class="preset-preview">${p.content.substring(0, 30)}...</div>
-                    <button class="btn-icon preset-edit" onclick="editPreset(event, '${p.id}', '${p.name.replace(/'/g, "\\'")}')">✎</button>
-                    <button class="btn-icon preset-delete" onclick="deletePreset(event, '${p.id}')">×</button>
-                    <div id="preset-content-${p.id}" class="hidden">${p.content}</div>
+                    <div class="preset-name">${escapeHtml(p.name)}</div>
+                    <div class="preset-preview">${escapeHtml((p.content || '').substring(0, 36))}…</div>
+                    <button type="button" class="btn-icon preset-edit" onclick="editPreset(event, '${p.id}')">✎</button>
+                    <button type="button" class="btn-icon preset-delete" onclick="deletePreset(event, '${p.id}')">×</button>
+                    <div id="preset-content-${p.id}" class="hidden">${escapeHtml(p.content || '')}</div>
                 </div>
             `).join('');
         } catch (e) {
@@ -854,62 +287,42 @@
 
     async function saveCurrentAsPreset() {
         const content = document.getElementById('topic').value.trim();
-        if (!content) return alert('请先在"基础预设"框中输入内容');
-        
-        // If editing, use current name as default or ask?
-        // Let's just prompt for name always, pre-filling if editing.
-        // We need to fetch the name if editing, but we didn't store it globally.
-        // Let's rely on user entering it or keeping it same.
-        // Actually, let's fetch the name from the UI or store it when entering edit mode.
-        // For simplicity:
-        let defaultName = '';
-        if (editingPresetId) {
-            // Find name from list? or just empty
-             // Better: pass name to editPreset
-        }
-        
+        if (!content) return alert('请先在「基础预设」里写点内容');
         const name = prompt('为预设命名:', editingPresetId ? '保留原名或输入新名称' : '');
         if (!name) return;
-
         try {
             const payload = { name, content };
             if (editingPresetId) payload.id = editingPresetId;
-
             await fetch('/api/presets', {
-                method: 'POST', // Server handles update if ID exists
-                headers: {'Content-Type': 'application/json'},
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            
-            // If editing, exit edit mode
             if (editingPresetId) cancelEdit();
-            
             loadPresets();
-        } catch (e) { alert('保存失败'); }
-    }
-    
-    function startNewPreset() {
-        if(document.getElementById('topic').value.trim()) {
-            if(!confirm('清空当前内容并新建?')) return;
+        } catch (e) {
+            alert('保存失败');
         }
-        cancelEdit(); // Reset UI
+    }
+
+    function startNewPreset() {
+        if (document.getElementById('topic').value.trim()) {
+            if (!confirm('清空当前内容并新建？')) return;
+        }
+        cancelEdit();
         document.getElementById('topic').value = '';
         document.getElementById('chatPreset').value = '';
     }
 
-    function editPreset(e, id, name) {
+    function editPreset(e, id) {
         e.stopPropagation();
-        applyPreset(id); // Load content
+        applyPreset(id);
         editingPresetId = id;
-        
-        // Update UI
         document.getElementById('btnSavePreset').title = '更新预设';
         document.getElementById('btnSavePreset').innerHTML = '💾 更新';
         document.getElementById('btnCancelEdit').classList.remove('hidden');
-        
-        // Optional: Highlight that we are editing
-        document.getElementById('topic').style.borderColor = 'var(--primary)';
-        document.getElementById('chatPreset').style.borderColor = 'var(--primary)';
+        document.getElementById('topic').style.borderColor = 'var(--accent)';
+        document.getElementById('chatPreset').style.borderColor = 'var(--accent)';
     }
 
     function cancelEdit() {
@@ -917,42 +330,59 @@
         document.getElementById('btnSavePreset').title = '保存预设';
         document.getElementById('btnSavePreset').innerHTML = '💾 保存';
         document.getElementById('btnCancelEdit').classList.add('hidden');
-        
         document.getElementById('topic').style.borderColor = '';
         document.getElementById('chatPreset').style.borderColor = '';
     }
 
     function applyPreset(id) {
         const content = document.getElementById(`preset-content-${id}`).innerText;
-        // Update Generator Base Preset
         document.getElementById('topic').value = content;
-        // Update Chat Preset Context
         document.getElementById('chatPreset').value = content;
-        
-        // Visual feedback
         const chatPreset = document.getElementById('chatPreset');
-        chatPreset.style.borderColor = 'var(--primary)';
-        setTimeout(() => chatPreset.style.borderColor = '', 500);
+        chatPreset.style.borderColor = 'var(--accent)';
+        setTimeout(() => { chatPreset.style.borderColor = ''; }, 500);
     }
 
     async function deletePreset(e, id) {
         e.stopPropagation();
-        if (!confirm('确定删除?')) return;
+        if (!confirm('确定删除？')) return;
         try {
             await fetch(`/api/presets/${id}`, { method: 'DELETE' });
             loadPresets();
-        } catch (e) { alert('删除失败'); }
+        } catch (e2) {
+            alert('删除失败');
+        }
+    }
+
+    function addMessage(role, text) {
+        const history = document.getElementById('chatHistory');
+        const div = document.createElement('div');
+        div.className = `message ${role}`;
+        div.innerText = text;
+        if (role.includes('thinking')) div.id = 'msg-' + Date.now();
+        history.appendChild(div);
+        history.scrollTop = history.scrollHeight;
+        return div.id;
+    }
+
+    function buildProviderPayload() {
+        const provider = document.getElementById('provider').value;
+        let model = document.getElementById('model') ? document.getElementById('model').value : '';
+        if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
+        return {
+            provider,
+            model,
+            baseUrl: document.getElementById('baseUrl').value,
+            apiKey: document.getElementById('apiKey').value
+        };
     }
 
     async function sendAndOptimize() {
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
         const preset = document.getElementById('chatPreset').value.trim();
-        
         if (!text) return alert('请输入你的场景想法');
-        // Preset is optional but recommended
-        
-        // Construct optimized prompt
+
         let promptText = text;
         if (preset) {
             promptText = `Context/Style Preset: """${preset}"""
@@ -962,141 +392,83 @@ User Idea: """${text}"""
 Task: Based on the style preset above, expand the user's idea into a detailed, creative scene description suitable for AI image generation. Keep it descriptive and visual.`;
         }
 
-        addMessage('user', text); // Show only user's text in chat bubble to keep it clean
-        chatMessages.push({ role: 'user', content: promptText }); // Send full context to AI
+        addMessage('user', text);
+        chatMessages.push({ role: 'user', content: promptText });
         input.value = '';
 
-        const loadingId = addMessage('ai thinking', '正在扩充创意...');
-
-        // Payload
-        const provider = document.getElementById('provider').value;
-        let model = document.getElementById('model') ? document.getElementById('model').value : '';
-        if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
-
-        const payload = {
-            messages: chatMessages,
-            provider, model,
-            baseUrl: document.getElementById('baseUrl').value,
-            apiKey: document.getElementById('apiKey').value
-        };
-
+        const loadingId = addMessage('ai thinking', '正在扩充创意…');
         try {
             const res = await fetch('/api/chat', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: chatMessages, ...buildProviderPayload() })
             });
             const data = await res.json();
-            
             const loader = document.getElementById(loadingId);
-            if(loader) loader.remove();
-
+            if (loader) loader.remove();
             if (data.error) throw new Error(data.error);
 
             addMessage('ai', data.reply);
             chatMessages.push({ role: 'assistant', content: data.reply });
-            
-            // Auto-Paste to Scene Description
+
             const sceneBox = document.getElementById('sceneDescription');
             sceneBox.value = data.reply;
-            
-            // Visual feedback for auto-paste
-            sceneBox.style.boxShadow = '0 0 15px var(--primary)';
-            sceneBox.style.borderColor = 'var(--primary)';
-            setTimeout(() => {
-                sceneBox.style.boxShadow = '';
-                sceneBox.style.borderColor = '';
-            }, 1000);
-            
-            // Auto Generate Check
+            sceneBox.style.borderColor = 'var(--accent)';
+            setTimeout(() => { sceneBox.style.borderColor = ''; }, 900);
+
             if (document.getElementById('autoGenerateCheck').checked) {
                 generatePrompts();
             }
-            
         } catch (e) {
             const loader = document.getElementById(loadingId);
-            if(loader) {
+            if (loader) {
                 loader.innerText = 'Error: ' + e.message;
                 loader.classList.remove('thinking');
-                loader.style.color = '#ef4444';
+                loader.style.color = 'var(--accent)';
             }
         }
     }
 
-
-    function addMessage(role, text) {
-        const history = document.getElementById('chatHistory');
-        const div = document.createElement('div');
-        div.className = `message ${role}`;
-        div.innerText = text;
-        
-        if (role.includes('thinking')) {
-            div.id = 'msg-' + Date.now();
-        }
-        
-        history.appendChild(div);
-        history.scrollTop = history.scrollHeight;
-        return div.id;
-    }
-
-    // 3. Generation
     async function generatePrompts() {
         const topic = document.getElementById('topic').value.trim();
         const scene = document.getElementById('sceneDescription').value.trim();
-        
         if (!topic && !scene) return alert('请输入基础预设或场景描述');
-
-        // Combine inputs: Base Preset + Scene
-        const combinedTopic = [topic, scene].filter(Boolean).join('\n\n');
 
         const btn = document.getElementById('generateBtn');
         const loading = document.getElementById('loading');
         const empty = document.getElementById('emptyState');
         const list = document.getElementById('promptList');
-        
-        // Reset State
-        const originalBtnText = btn.innerHTML;
+
         btn.disabled = true;
-        btn.innerHTML = '⏳ 正在生成中... / Generating...';
+        btn.innerHTML = '⏳ 生成中…';
         loading.classList.remove('hidden');
         empty.classList.add('hidden');
         list.innerHTML = '';
 
-        // Payload
-        const provider = document.getElementById('provider').value;
-        let model = document.getElementById('model') ? document.getElementById('model').value : '';
-        if (provider === 'doubao') model = document.getElementById('doubaoModel').value;
-
-        const payload = {
-            provider, model,
-            baseUrl: document.getElementById('baseUrl').value,
-            apiKey: document.getElementById('apiKey').value,
-            count: parseInt(document.getElementById('count').value) || 3,
-            topic: combinedTopic, // Send combined content
-            imageUrl: document.getElementById('imageUrl').value.trim()
-        };
-
         try {
             const res = await fetch('/api/generate', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...buildProviderPayload(),
+                    count: parseInt(document.getElementById('count').value, 10) || 3,
+                    topic: [topic, scene].filter(Boolean).join('\n\n'),
+                    imageUrl: document.getElementById('imageUrl').value.trim()
+                })
             });
             const data = await res.json();
-            
             if (data.error) throw new Error(data.error);
-            if (!data.prompts || data.prompts.length === 0) throw new Error('No prompts generated');
+            if (!data.prompts || data.prompts.length === 0) throw new Error('没有生成出提示词');
 
-            // Render
             data.prompts.forEach((p, i) => {
-                const safeP = p.replace(/'/g, "\\'");
+                const safeP = p.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
                 const div = document.createElement('div');
                 div.className = 'prompt-card';
                 div.innerHTML = `
-                    <div class="prompt-text">${p}</div>
+                    <div class="prompt-text">${escapeHtml(p)}</div>
                     <div class="prompt-meta">
-                        <span>#${i+1}</span>
-                        <button class="copy-btn-sm" onclick="copyText(this, '${safeP}')">📋 复制 / Copy</button>
+                        <span>#${i + 1}</span>
+                        <button type="button" class="copy-btn-sm" onclick="copyText(this, '${safeP}')">📋 复制</button>
                     </div>
                 `;
                 list.appendChild(div);
@@ -1107,10 +479,20 @@ Task: Based on the style preset above, expand the user's idea into a detailed, c
         } finally {
             loading.classList.add('hidden');
             btn.disabled = false;
-            btn.innerHTML = '开始生成 / Generate';
+            btn.innerHTML = '开始生成';
         }
     }
-</script>
 
+    document.addEventListener('DOMContentLoaded', () => {
+        toggleProviderSettings();
+        loadPresets();
+        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendAndOptimize();
+            }
+        });
+    });
+</script>
 </body>
 </html>
