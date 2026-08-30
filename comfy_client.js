@@ -494,7 +494,8 @@ async function waitForHistory(promptId, opts = {}) {
         }
 
         if (filenamePrefix && outputDir) {
-            const files = listOutputFilesByPrefix(outputDir, filenamePrefix, sinceMs);
+            const files = listOutputFilesByPrefix(outputDir, filenamePrefix, sinceMs)
+                .filter((f) => isCompletePngFile(f.full));
             if (expectedCount > 0 && files.length >= expectedCount) {
                 return {
                     entry: null,
@@ -511,7 +512,7 @@ async function waitForHistory(promptId, opts = {}) {
                 lastMsgAt = Date.now();
                 onProgress({
                     phase: 'generating',
-                    message: `Comfy 输出目录已出现 ${files.length} 张…`,
+                    message: `Comfy 输出目录已完整 ${files.length}/${expectedCount || '?'} 张…`,
                     promptId,
                     elapsedMs: Date.now() - started,
                     imageCount: files.length
@@ -532,7 +533,8 @@ async function waitForHistory(promptId, opts = {}) {
     } catch (_) {}
 
     if (filenamePrefix && outputDir) {
-        const files = listOutputFilesByPrefix(outputDir, filenamePrefix, sinceMs);
+        const files = listOutputFilesByPrefix(outputDir, filenamePrefix, sinceMs)
+            .filter((f) => isCompletePngFile(f.full));
         if (files.length) {
             return {
                 entry: null,
@@ -553,23 +555,152 @@ async function waitForHistory(promptId, opts = {}) {
     );
 }
 
-async function downloadView(imageMeta, destPath) {
-    if (imageMeta && imageMeta._localPath && fs.existsSync(imageMeta._localPath)) {
-        fs.mkdirSync(path.dirname(destPath), { recursive: true });
-        fs.copyFileSync(imageMeta._localPath, destPath);
-        return;
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** PNG 标准结尾：长度0 + IEND + CRC */
+const PNG_IEND = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+
+function assertPngBuffer(buf, label = 'image') {
+    if (!Buffer.isBuffer(buf)) {
+        throw new Error(`${label}: response is not a Buffer`);
     }
-    const params = new URLSearchParams({
-        filename: imageMeta.filename,
-        subfolder: imageMeta.subfolder || '',
-        type: imageMeta.type || 'output',
-    });
-    const res = await axios.get(`${config.comfyUrl}/view?${params.toString()}`, {
-        responseType: 'arraybuffer',
-        timeout: 30000,
-    });
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    fs.writeFileSync(destPath, Buffer.from(res.data));
+    if (buf.length < 100) {
+        throw new Error(`${label}: too small (${buf.length} bytes), not a PNG`);
+    }
+    if (!buf.subarray(0, 8).equals(PNG_MAGIC)) {
+        const head = buf.subarray(0, Math.min(48, buf.length)).toString('utf8').replace(/\s+/g, ' ');
+        throw new Error(
+            `${label}: not a PNG (got ${buf.length} bytes, head=${JSON.stringify(head.slice(0, 40))})`
+        );
+    }
+    // 半截 PNG 也有合法文件头；必须以 IEND 结尾才算写完（上次 003.png 就是缺 IEND）
+    if (!buf.subarray(buf.length - 12).equals(PNG_IEND)) {
+        const tail = buf.subarray(Math.max(0, buf.length - 12)).toString('hex');
+        throw new Error(
+            `${label}: PNG incomplete (missing IEND, size=${buf.length}, tail=${tail})`
+        );
+    }
+}
+
+function isCompletePngFile(filePath) {
+    try {
+        const st = fs.statSync(filePath);
+        if (st.size < 100) return false;
+        const fd = fs.openSync(filePath, 'r');
+        try {
+            const head = Buffer.alloc(8);
+            const tail = Buffer.alloc(12);
+            fs.readSync(fd, head, 0, 8, 0);
+            fs.readSync(fd, tail, 0, 12, st.size - 12);
+            return head.equals(PNG_MAGIC) && tail.equals(PNG_IEND);
+        } finally {
+            fs.closeSync(fd);
+        }
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
+ * Wait until local PNG is fully flushed (size stable + IEND present).
+ */
+async function readCompletePngFile(filePath, { timeoutMs = 20000, label } = {}) {
+    const tag = label || path.basename(filePath);
+    const started = Date.now();
+    let lastSize = -1;
+    let stableHits = 0;
+
+    while (Date.now() - started < timeoutMs) {
+        try {
+            const st = fs.statSync(filePath);
+            if (st.size === lastSize && st.size > 0) stableHits += 1;
+            else {
+                lastSize = st.size;
+                stableHits = 0;
+            }
+            if (stableHits >= 2 && isCompletePngFile(filePath)) {
+                const buf = fs.readFileSync(filePath);
+                assertPngBuffer(buf, tag);
+                return buf;
+            }
+        } catch (_) {}
+        await sleep(300);
+    }
+
+    const buf = fs.existsSync(filePath) ? fs.readFileSync(filePath) : Buffer.alloc(0);
+    assertPngBuffer(buf, tag);
+    return buf;
+}
+
+/**
+ * Download/copy a Comfy output into destPath. Retries on bad/truncated bodies.
+ * Never leaves a non-PNG (or half-written PNG) file at destPath on success.
+ */
+async function downloadView(imageMeta, destPath, { retries = 3 } = {}) {
+    const label = imageMeta?.filename || path.basename(destPath);
+    let lastErr = null;
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+            let buf = null;
+            const localPath = imageMeta && imageMeta._localPath;
+            if (localPath && fs.existsSync(localPath)) {
+                try {
+                    buf = await readCompletePngFile(localPath, {
+                        timeoutMs: 20000,
+                        label: `${label}(local)`,
+                    });
+                } catch (localErr) {
+                    console.warn(
+                        `[comfy] local PNG not ready, fallback /view: ${localErr.message}`
+                    );
+                    buf = null;
+                }
+            }
+
+            if (!buf) {
+                if (!imageMeta?.filename) {
+                    throw new Error(`${label}: no filename for Comfy /view`);
+                }
+                const params = new URLSearchParams({
+                    filename: imageMeta.filename,
+                    subfolder: imageMeta.subfolder || '',
+                    type: imageMeta.type || 'output',
+                });
+                const res = await axios.get(`${config.comfyUrl}/view?${params.toString()}`, {
+                    responseType: 'arraybuffer',
+                    timeout: 60000,
+                    validateStatus: () => true,
+                });
+                if (res.status < 200 || res.status >= 300) {
+                    throw new Error(`${label}: Comfy /view HTTP ${res.status}`);
+                }
+                buf = Buffer.from(res.data);
+                const declared = Number(res.headers?.['content-length']);
+                if (Number.isFinite(declared) && declared > 0 && buf.length !== declared) {
+                    throw new Error(
+                        `${label}: truncated download (${buf.length}/${declared} bytes)`
+                    );
+                }
+            }
+
+            assertPngBuffer(buf, label);
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            const tmp = `${destPath}.part`;
+            fs.writeFileSync(tmp, buf);
+            fs.renameSync(tmp, destPath);
+            return;
+        } catch (err) {
+            lastErr = err;
+            try {
+                if (fs.existsSync(`${destPath}.part`)) fs.unlinkSync(`${destPath}.part`);
+            } catch (_) {}
+            if (attempt < retries) {
+                await sleep(500 * (attempt + 1));
+            }
+        }
+    }
+
+    throw lastErr || new Error(`${label}: downloadView failed`);
 }
 
 async function generateOnce(options) {
@@ -692,11 +823,27 @@ async function generateBatchToDir(options, destDir) {
 
         fs.mkdirSync(destDir, { recursive: true });
         const files = [];
+        const downloadErrors = [];
         for (let i = 0; i < savedList.length; i += 1) {
             const name = `${String(i + 1).padStart(3, '0')}.png`;
             const destPath = path.join(destDir, name);
-            await downloadView(savedList[i], destPath);
-            files.push({ name, path: destPath, meta: savedList[i] });
+            try {
+                await downloadView(savedList[i], destPath);
+                files.push({ name, path: destPath, meta: savedList[i] });
+            } catch (err) {
+                downloadErrors.push(`${name}: ${err.message}`);
+                console.error('[comfy] downloadView failed, skip', name, err.message);
+            }
+        }
+        if (!files.length) {
+            throw new Error(
+                `ComfyUI 产出了 ${savedList.length} 张但全部下载失败：${downloadErrors.join('; ')}`
+            );
+        }
+        if (downloadErrors.length) {
+            console.warn(
+                `[comfy] batch partial download: ${files.length}/${savedList.length} ok; ${downloadErrors.join('; ')}`
+            );
         }
 
         const seed = graph['53']?.inputs?.seed ?? null;
@@ -800,8 +947,13 @@ async function generateKrea2BatchToDir(options, destDir) {
 
             const name = `${String(i + 1).padStart(3, '0')}.png`;
             const destPath = path.join(destDir, name);
-            await downloadView(saved, destPath);
-            files.push({ name, path: destPath, meta: saved });
+            try {
+                await downloadView(saved, destPath);
+                files.push({ name, path: destPath, meta: saved });
+            } catch (err) {
+                console.error('[comfy] Krea2 downloadView failed', name, err.message);
+                throw new Error(`Krea2 第 ${i + 1} 张下载失败：${err.message}`);
+            }
         }
 
         return {
