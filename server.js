@@ -608,10 +608,39 @@ app.post('/api/comfy/test', async (req, res) => {
     }
 });
 
+/** Resolve chat credentials from server .env when the client omits keys (thin mobile client). */
+function resolveChatCredentials(body = {}) {
+    const provider = String(body.provider || process.env.DEFAULT_CHAT_PROVIDER || 'deepseek').trim();
+    let model = String(body.model || '').trim();
+    let apiKey = String(body.apiKey || '').trim();
+    let baseUrl = String(body.baseUrl || '').trim();
+
+    if (provider === 'deepseek') {
+        model = model || process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+        apiKey = process.env.DEEPSEEK_API_KEY || apiKey;
+        baseUrl = baseUrl || process.env.DEEPSEEK_BASE_URL || '';
+    } else if (provider === 'doubao') {
+        model = model || process.env.VOLC_MODEL_1_8 || process.env.VOLC_MODEL || '';
+        apiKey = process.env.VOLC_API_KEY || apiKey;
+        baseUrl = baseUrl || process.env.VOLC_BASE_URL || '';
+    } else if (provider === 'ollama') {
+        model = model || process.env.OLLAMA_MODEL || 'llama3';
+        baseUrl = baseUrl || process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+    }
+
+    return { ...body, provider, model, apiKey, baseUrl };
+}
+
 app.post('/api/chat-turn', (req, res) => {
-    const payload = req.body || {};
-    if (!payload.messages || !Array.isArray(payload.messages)) {
+    const raw = req.body || {};
+    if (!raw.messages || !Array.isArray(raw.messages)) {
         return res.status(400).json({ error: 'messages is required' });
+    }
+    const payload = resolveChatCredentials(raw);
+    if ((payload.provider === 'deepseek' || payload.provider === 'doubao') && !payload.apiKey) {
+        return res.status(500).json({
+            error: `服务端未配置 ${payload.provider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'VOLC_API_KEY'}，请在电脑 .env 中填写`
+        });
     }
     const turn = chatTurnStore.createTurn(payload);
     processChatTurn({
@@ -622,7 +651,7 @@ app.post('/api/chat-turn', (req, res) => {
     }).catch((err) => {
         console.error('[ChatTurn] unhandled:', err.message);
     });
-    console.log('[ChatTurn] enqueued', turn.id, 'character:', payload.characterId || '-');
+    console.log('[ChatTurn] enqueued', turn.id, 'character:', payload.characterId || '-', 'provider:', payload.provider);
     res.json({ ok: true, turnId: turn.id });
 });
 
