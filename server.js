@@ -688,7 +688,7 @@ app.get('/api/chat-turn/:id/stream', (req, res) => {
 });
 
 app.post('/api/image-jobs', (req, res) => {
-    const payload = req.body || {};
+    const payload = resolveChatCredentials(req.body || {});
     if (!payload.characterId) {
         return res.status(400).json({ error: 'characterId is required' });
     }
@@ -770,7 +770,7 @@ app.post('/api/image-jobs/:id/retry', (req, res) => {
 });
 
 app.post('/api/character-image', (req, res) => {
-    const payload = req.body || {};
+    const payload = resolveChatCredentials(req.body || {});
     if (!payload.characterId) {
         return res.status(400).json({ error: 'characterId is required' });
     }
