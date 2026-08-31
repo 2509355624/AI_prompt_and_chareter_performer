@@ -1171,7 +1171,7 @@ app.post('/api/comfy/generate', async (req, res) => {
                 presetId: body.presetId,
                 mode: body.mode === 'manual' ? 'manual' : 'ai',
                 scene: body.scene || body.prompt || '',
-                count: body.count,
+                count: Math.max(1, Math.min(10, Number(body.count) || 1)),
                 overrides: body.overrides || {},
                 jobId: body.jobId || null,
                 onProgress: send
@@ -1192,7 +1192,7 @@ app.post('/api/comfy/generate', async (req, res) => {
             presetId: body.presetId,
             mode: body.mode === 'manual' ? 'manual' : 'ai',
             scene: body.scene || body.prompt || '',
-            count: body.count,
+            count: Math.max(1, Math.min(10, Number(body.count) || 1)),
             overrides: body.overrides || {},
             jobId: body.jobId || null
         });

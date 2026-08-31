@@ -296,7 +296,7 @@ function splitManualPrompts(text) {
 }
 
 async function expandClothingPrompts({ scene, count, naturalLanguage = false }) {
-    const n = Math.max(1, Math.min(30, Math.round(Number(count) || 1)));
+    const n = Math.max(1, Math.min(10, Math.round(Number(count) || 1)));
     const settings = readSettings();
     const useNl = Boolean(naturalLanguage);
     const system = useNl
