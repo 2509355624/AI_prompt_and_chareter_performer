@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>图片边框 - 批量贴纸框</title>
-    <link rel="stylesheet" href="styles/frame-paper.css?v=3">
+    <link rel="stylesheet" href="styles/frame-paper.css?v=4">
 </head>
 <body>
     <a href="index.html" class="back-home">
@@ -139,6 +139,39 @@
                             <input type="checkbox" id="tapeCheck" checked>
                             <label for="tapeCheck">显示角上胶带装饰</label>
                         </div>
+
+                        <div class="dof-section">
+                            <div class="dof-section-title">景深 / 破框试验</div>
+                            <p class="dof-hint" id="dofStatusHint">勾选后会调用服务端抠图（首次稍慢），可在本页单独调框与背景板。</p>
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="dofCheck">
+                                <label for="dofCheck">景深抠图（主体清晰 · 背景虚化）</label>
+                            </div>
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="popOutCheck" disabled>
+                                <label for="popOutCheck">破框出屏（空心黑框 + 角色压边）</label>
+                            </div>
+                            <div class="style-row" id="popOutControls" hidden>
+                                <div class="style-field">
+                                    <label for="frameScaleRange">框大小 <span id="frameScaleVal">50</span>%</label>
+                                    <input type="range" id="frameScaleRange" min="25" max="90" step="1" value="50">
+                                </div>
+                                <div class="style-field">
+                                    <label for="frameOffsetRange">框上下 <span id="frameOffsetVal">上</span></label>
+                                    <input type="range" id="frameOffsetRange" min="-100" max="100" step="5" value="-25">
+                                </div>
+                            </div>
+                            <div class="style-row" id="bgOpacityRow" hidden>
+                                <div class="style-field full">
+                                    <label for="bgOpacityRange">背景板白雾 <span id="bgOpacityVal">30</span>%</label>
+                                    <input type="range" id="bgOpacityRange" min="0" max="80" step="5" value="30">
+                                </div>
+                            </div>
+                            <div class="matte-thumb-wrap" id="matteThumbWrap" hidden>
+                                <div class="matte-thumb-label">抠图预览</div>
+                                <img id="matteThumbImg" alt="抠图">
+                            </div>
+                        </div>
                     </div>
 
                     <div class="export-section">
@@ -156,7 +189,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=9"></script>
+    <script src="js/sticker-frame.js?v=10"></script>
     <script>
         const EXPORT_FOLDER_KEY = 'frameExportFolderPath';
         let files = [];
@@ -195,11 +228,27 @@
             tiltRange: document.getElementById('tiltRange'),
             tiltVal: document.getElementById('tiltVal'),
             tapeCheck: document.getElementById('tapeCheck'),
+            dofCheck: document.getElementById('dofCheck'),
+            popOutCheck: document.getElementById('popOutCheck'),
+            popOutControls: document.getElementById('popOutControls'),
+            frameScaleRange: document.getElementById('frameScaleRange'),
+            frameScaleVal: document.getElementById('frameScaleVal'),
+            frameOffsetRange: document.getElementById('frameOffsetRange'),
+            frameOffsetVal: document.getElementById('frameOffsetVal'),
+            bgOpacityRow: document.getElementById('bgOpacityRow'),
+            bgOpacityRange: document.getElementById('bgOpacityRange'),
+            bgOpacityVal: document.getElementById('bgOpacityVal'),
+            matteThumbWrap: document.getElementById('matteThumbWrap'),
+            matteThumbImg: document.getElementById('matteThumbImg'),
+            dofStatusHint: document.getElementById('dofStatusHint'),
             exportFolderPath: document.getElementById('exportFolderPath'),
             pickFolderBtn: document.getElementById('pickFolderBtn'),
             exportBtn: document.getElementById('exportBtn'),
             exportProgress: document.getElementById('exportProgress')
         };
+
+        const matteCache = new Map();
+        let matteBusy = false;
 
         function escapeHtml(value) {
             return String(value ?? '')
@@ -214,7 +263,65 @@
             els.solidBgRow.hidden = useGlass;
         }
 
-        function readStyleOptions(caption = '', { forPreview = false } = {}) {
+        function syncDofUi() {
+            const dofOn = !!els.dofCheck.checked;
+            els.popOutCheck.disabled = !dofOn;
+            if (!dofOn) els.popOutCheck.checked = false;
+            const popOn = dofOn && !!els.popOutCheck.checked;
+            if (els.popOutControls) els.popOutControls.hidden = !popOn;
+            if (els.bgOpacityRow) els.bgOpacityRow.hidden = !popOn;
+            const off = Number(els.frameOffsetRange.value);
+            if (els.frameOffsetVal) {
+                els.frameOffsetVal.textContent = off === 0 ? '中' : (off < 0 ? '上' : '下');
+            }
+            if (els.frameScaleVal) els.frameScaleVal.textContent = els.frameScaleRange.value;
+            if (els.bgOpacityVal) els.bgOpacityVal.textContent = els.bgOpacityRange.value;
+        }
+
+        function fileToDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('读取图片失败'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function loadImageFromDataUrl(dataUrl) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error('抠图结果加载失败'));
+                img.src = dataUrl;
+            });
+        }
+
+        async function fetchMatteForFile(file, maxSide = 1280) {
+            const key = `${file.name}|${file.size}|${file.lastModified}|${maxSide}`;
+            if (matteCache.has(key)) return matteCache.get(key);
+
+            const task = (async () => {
+                const data = await fileToDataUrl(file);
+                const resp = await fetch('/api/image/matte', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data, maxSide })
+                });
+                const json = await resp.json();
+                if (!json.ok) throw new Error(json.error || '抠图失败');
+                const img = await loadImageFromDataUrl(json.foregroundDataUrl);
+                return { img, dataUrl: json.foregroundDataUrl };
+            })();
+
+            matteCache.set(key, task);
+            while (matteCache.size > 12) {
+                const oldest = matteCache.keys().next().value;
+                matteCache.delete(oldest);
+            }
+            return task;
+        }
+
+        function readStyleOptions(caption = '', { forPreview = false, matteFg = null } = {}) {
             const opts = {
                 preset: els.presetSelect.value,
                 padding: Number(els.paddingRange.value),
@@ -229,6 +336,20 @@
             };
             if (forPreview) {
                 opts.previewMaxWidth = 960;
+            }
+            if (els.dofCheck.checked && matteFg) {
+                opts.depthOfField = true;
+                opts.matteForeground = matteFg;
+                opts.dofBlur = 38;
+                opts.dofFrost = 0.03;
+                if (els.popOutCheck.checked) {
+                    opts.popOut = true;
+                    opts.popOutFrameScale = Number(els.frameScaleRange.value) / 100;
+                    opts.popOutFrameOffsetY = Number(els.frameOffsetRange.value) / 100;
+                    opts.popOutBgOpacity = Number(els.bgOpacityRange.value) / 100;
+                    opts.popOutOuterBlur = 14;
+                    opts.popOutOverflow = 0.1;
+                }
             }
             return opts;
         }
@@ -457,16 +578,49 @@
             try {
                 const img = await loadImageFromFile(item.file);
                 const source = downscaleImageForPreview(img, 1280);
-                let canvas = StickerFrame.renderStickerFrame(
-                    source,
-                    readStyleOptions(item.caption, { forPreview: true })
-                );
+                let matteFg = null;
+                if (els.dofCheck.checked) {
+                    matteBusy = true;
+                    if (els.dofStatusHint) els.dofStatusHint.textContent = '正在抠图，请稍候…';
+                    try {
+                        const matte = await fetchMatteForFile(item.file, 1280);
+                        matteFg = matte.img;
+                        if (els.matteThumbWrap && els.matteThumbImg) {
+                            els.matteThumbWrap.hidden = false;
+                            els.matteThumbImg.src = matte.dataUrl;
+                        }
+                        if (els.dofStatusHint) {
+                            els.dofStatusHint.textContent = els.popOutCheck.checked
+                                ? '已抠图 · 破框开启（空心框 + 可调背景板）'
+                                : '已抠图 · 景深开启';
+                        }
+                    } catch (me) {
+                        console.warn('[frame matte]', me);
+                        if (els.dofStatusHint) {
+                            els.dofStatusHint.textContent = `抠图失败：${me.message}（已退回普通加框）`;
+                        }
+                        if (els.matteThumbWrap) els.matteThumbWrap.hidden = true;
+                    } finally {
+                        matteBusy = false;
+                    }
+                } else if (els.matteThumbWrap) {
+                    els.matteThumbWrap.hidden = true;
+                    if (els.dofStatusHint) {
+                        els.dofStatusHint.textContent = '勾选后会调用服务端抠图（首次稍慢），可在本页单独调框与背景板。';
+                    }
+                }
+
+                const styleOpts = readStyleOptions(item.caption, {
+                    forPreview: true,
+                    matteFg
+                });
+                let canvas = StickerFrame.renderStickerFrame(source, styleOpts);
                 if (isPreviewCanvasCorrupt(canvas)) {
                     await new Promise((r) => setTimeout(r, 40));
                     const smaller = downscaleImageForPreview(img, 720);
                     canvas = StickerFrame.renderStickerFrame(
                         smaller,
-                        { ...readStyleOptions(item.caption, { forPreview: true }), previewMaxWidth: 720 }
+                        { ...styleOpts, previewMaxWidth: 720 }
                     );
                 }
                 revokePreviewUrl();
@@ -588,7 +742,17 @@
             els.exportProgress.classList.add('visible');
 
             try {
-                const styleBase = readStyleOptions('', { forPreview: false });
+                async function buildExportOpts(item) {
+                    let matteFg = null;
+                    if (els.dofCheck.checked) {
+                        const matte = await fetchMatteForFile(item.file, 1600);
+                        matteFg = matte.img;
+                    }
+                    return readStyleOptions(item.caption, {
+                        forPreview: false,
+                        matteFg
+                    });
+                }
 
                 if (exportDirHandle) {
                     const perm = await exportDirHandle.requestPermission({ mode: 'readwrite' });
@@ -600,10 +764,7 @@
                         done += 1;
                         els.exportProgress.textContent = `导出中 ${done}/${selected.length}…`;
                         const img = await loadImageFromFile(item.file);
-                        const canvas = StickerFrame.renderStickerFrame(img, {
-                            ...styleBase,
-                            caption: item.caption
-                        });
+                        const canvas = StickerFrame.renderStickerFrame(img, await buildExportOpts(item));
                         const blob = await StickerFrame.canvasToBlob(canvas);
                         const name = formatNumberedPngName(seq);
                         seq += 1;
@@ -619,10 +780,7 @@
                         i += 1;
                         els.exportProgress.textContent = `上传导出 ${i}/${selected.length}…`;
                         const img = await loadImageFromFile(item.file);
-                        const canvas = StickerFrame.renderStickerFrame(img, {
-                            ...styleBase,
-                            caption: item.caption
-                        });
+                        const canvas = StickerFrame.renderStickerFrame(img, await buildExportOpts(item));
                         const blob = await StickerFrame.canvasToBlob(canvas);
                         const data = await StickerFrame.blobToBase64(blob);
                         const name = formatNumberedPngName(seq);
@@ -672,6 +830,29 @@
                 });
                 els[id].addEventListener('input', rerender);
             });
+
+            const onDofChange = () => {
+                syncDofUi();
+                schedulePreview();
+            };
+            if (els.dofCheck) els.dofCheck.addEventListener('change', onDofChange);
+            if (els.popOutCheck) els.popOutCheck.addEventListener('change', onDofChange);
+            [
+                ['frameScaleRange', 'frameScaleVal', (v) => `${v}`],
+                ['bgOpacityRange', 'bgOpacityVal', (v) => `${v}`]
+            ].forEach(([rangeId, labelId, fmt]) => {
+                if (!els[rangeId]) return;
+                els[rangeId].addEventListener('input', () => {
+                    if (els[labelId]) els[labelId].textContent = fmt(els[rangeId].value);
+                    rerender();
+                });
+            });
+            if (els.frameOffsetRange) {
+                els.frameOffsetRange.addEventListener('input', () => {
+                    syncDofUi();
+                    rerender();
+                });
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -682,6 +863,7 @@
 
             applyPresetToForm('paper-collage');
             syncSolidBgRowVisibility();
+            syncDofUi();
             bindStyleControls();
 
             const savedFolder = localStorage.getItem(EXPORT_FOLDER_KEY);

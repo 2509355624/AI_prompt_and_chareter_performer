@@ -109,7 +109,44 @@ async function getMatteForeground(url, maxSide = 1280) {
     return task;
 }
 
+/**
+ * Accept browser-uploaded image (data URL / raw base64) for frame.html experiments.
+ * Saves under public/uploads/frame_matte/ then reuses the file-based matte pipeline.
+ */
+async function getMatteFromDataUrl(dataUrl, maxSide = 1280) {
+    const raw = String(dataUrl || '').trim();
+    if (!raw) throw new Error('缺少图片数据');
+
+    let mime = 'image/png';
+    let b64 = raw;
+    const m = /^data:([^;]+);base64,(.+)$/i.exec(raw);
+    if (m) {
+        mime = m[1] || mime;
+        b64 = m[2];
+    }
+
+    const buf = Buffer.from(b64, 'base64');
+    if (!buf.length) throw new Error('图片数据无效');
+
+    const ext = /jpeg|jpg/i.test(mime) ? 'jpg' : (/webp/i.test(mime) ? 'webp' : 'png');
+    const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 24);
+    const dir = path.join(PUBLIC_DIR, 'uploads', 'frame_matte');
+    fs.mkdirSync(dir, { recursive: true });
+    const fileName = `${hash}.${ext}`;
+    const abs = path.join(dir, fileName);
+    if (!fs.existsSync(abs)) {
+        fs.writeFileSync(abs, buf);
+    }
+
+    const result = await getMatteForeground(`/uploads/frame_matte/${fileName}`, maxSide);
+    return {
+        ...result,
+        sourceUrl: `/uploads/frame_matte/${fileName}`
+    };
+}
+
 module.exports = {
     getMatteForeground,
+    getMatteFromDataUrl,
     resolveUploadPath
 };

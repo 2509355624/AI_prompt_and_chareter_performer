@@ -899,11 +899,14 @@ app.post('/api/export-chat-strips', (req, res) => {
 app.post('/api/image/matte', async (req, res) => {
     try {
         const url = String(req.body?.url || '').trim();
+        const data = String(req.body?.data || '').trim();
         const maxSide = Math.min(2048, Math.max(256, Number(req.body?.maxSide) || 1280));
-        if (!url) {
-            return res.status(400).json({ ok: false, error: '缺少 url' });
+        if (!url && !data) {
+            return res.status(400).json({ ok: false, error: '缺少 url 或 data' });
         }
-        const result = await matteService.getMatteForeground(url, maxSide);
+        const result = data
+            ? await matteService.getMatteFromDataUrl(data, maxSide)
+            : await matteService.getMatteForeground(url, maxSide);
         res.json({ ok: true, ...result });
     } catch (e) {
         console.error('[matte]', e);

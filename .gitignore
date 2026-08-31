@@ -43,6 +43,7 @@ data/comfy_generate_presets.json
 data/comfy_generate_jobs/
 data/comfy_generate_settings.json
 data/matte_cache/
+public/uploads/frame_matte/
 public/uploads/
 !public/uploads/.gitkeep
 !public/uploads/chat_images/
