@@ -211,6 +211,51 @@
     }
 
     /**
+     * 抠图角色绘制：可缩放（默认底部锚定，方便凳脚/裙摆贴框底）+ 可选边缘阴影（景深感）
+     */
+    function resolveSubjectDrawRect(imgX, imgY, drawW, drawH, opts) {
+        const raw = Number(opts.popOutSubjectScale ?? opts.subjectScale);
+        const scale = Number.isFinite(raw) ? Math.min(1.8, Math.max(0.5, raw)) : 1;
+        const w = drawW * scale;
+        const h = drawH * scale;
+        const x = imgX + (drawW - w) / 2;
+        const anchor = String(opts.subjectAnchor || 'bottom');
+        let y;
+        if (anchor === 'center') {
+            y = imgY + (drawH - h) / 2;
+        } else if (anchor === 'top') {
+            y = imgY;
+        } else {
+            // bottom：放大时向下伸，更容易跟黑框下边对齐
+            y = imgY + drawH - h;
+        }
+        return { x, y, w, h, scale };
+    }
+
+    function drawMatteLayer(ctx, matteFg, imgX, imgY, drawW, drawH, opts) {
+        const fgW = matteFg.naturalWidth || matteFg.width;
+        const fgH = matteFg.naturalHeight || matteFg.height;
+        if (!fgW || !fgH) return;
+        const rect = resolveSubjectDrawRect(imgX, imgY, drawW, drawH, opts);
+        const shadowBlurRaw = Number(opts.subjectShadowBlur);
+        const blur = Number.isFinite(shadowBlurRaw)
+            ? Math.max(0, shadowBlurRaw)
+            : (opts.subjectShadow === false ? 0 : 16);
+
+        ctx.save();
+        if (blur > 0) {
+            ctx.shadowColor = opts.subjectShadowColor || 'rgba(0, 0, 0, 0.42)';
+            ctx.shadowBlur = blur;
+            ctx.shadowOffsetX = Number(opts.subjectShadowOffsetX) || 0;
+            ctx.shadowOffsetY = Number.isFinite(Number(opts.subjectShadowOffsetY))
+                ? Number(opts.subjectShadowOffsetY)
+                : Math.max(2, Math.round(blur * 0.28));
+        }
+        ctx.drawImage(matteFg, 0, 0, fgW, fgH, rect.x, rect.y, rect.w, rect.h);
+        ctx.restore();
+    }
+
+    /**
      * 破框图层（从下到上）：
      * 0) 整卡背景板 = 原图（浅模糊 + 可调白雾）——外面已画
      * 1) 空心黑框 = 只有描边，框内什么都不画（透过空洞看见背景板）
@@ -252,10 +297,8 @@
         strokeFramePath(ctx, windowX, windowY, windowW, windowH, winRadius, borderStyle);
         ctx.restore();
 
-        // 抠图层最上：挡住与角色重叠的黑边 → 走出来的感觉
-        const fgW = matteFg.naturalWidth || matteFg.width;
-        const fgH = matteFg.naturalHeight || matteFg.height;
-        ctx.drawImage(matteFg, 0, 0, fgW, fgH, imgX, imgY, drawW, drawH);
+        // 抠图层最上（可缩放 + 边缘阴影）
+        drawMatteLayer(ctx, matteFg, imgX, imgY, drawW, drawH, opts);
     }
 
     function drawDofInsideFrame(ctx, image, matteFg, imgX, imgY, drawW, drawH, opts) {
@@ -268,9 +311,7 @@
             glassZoom: opts.glassZoom ?? 1.06,
             glassTint: 0
         }, drawW);
-        const fgW = matteFg.naturalWidth || matteFg.width;
-        const fgH = matteFg.naturalHeight || matteFg.height;
-        ctx.drawImage(matteFg, 0, 0, fgW, fgH, imgX, imgY, drawW, drawH);
+        drawMatteLayer(ctx, matteFg, imgX, imgY, drawW, drawH, opts);
     }
 
     function drawTape(ctx, x, y, w, h, variant) {

@@ -161,6 +161,16 @@
                                     <input type="range" id="frameOffsetRange" min="-100" max="100" step="5" value="-25">
                                 </div>
                             </div>
+                            <div class="style-row" id="subjectControls" hidden>
+                                <div class="style-field">
+                                    <label for="subjectScaleRange">角色大小 <span id="subjectScaleVal">100</span>%</label>
+                                    <input type="range" id="subjectScaleRange" min="70" max="160" step="1" value="100" title="放大角色，方便凳脚/下摆贴齐黑框底边">
+                                </div>
+                                <div class="style-field">
+                                    <label for="subjectShadowRange">角色阴影 <span id="subjectShadowVal">16</span></label>
+                                    <input type="range" id="subjectShadowRange" min="0" max="40" step="1" value="16" title="抠图边缘阴影，0 关闭">
+                                </div>
+                            </div>
                             <div class="style-row" id="bgOpacityRow" hidden>
                                 <div class="style-field full">
                                     <label for="bgOpacityRange">背景板白雾 <span id="bgOpacityVal">30</span>%</label>
@@ -189,7 +199,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=10"></script>
+    <script src="js/sticker-frame.js?v=11"></script>
     <script>
         const EXPORT_FOLDER_KEY = 'frameExportFolderPath';
         let files = [];
@@ -235,6 +245,11 @@
             frameScaleVal: document.getElementById('frameScaleVal'),
             frameOffsetRange: document.getElementById('frameOffsetRange'),
             frameOffsetVal: document.getElementById('frameOffsetVal'),
+            subjectControls: document.getElementById('subjectControls'),
+            subjectScaleRange: document.getElementById('subjectScaleRange'),
+            subjectScaleVal: document.getElementById('subjectScaleVal'),
+            subjectShadowRange: document.getElementById('subjectShadowRange'),
+            subjectShadowVal: document.getElementById('subjectShadowVal'),
             bgOpacityRow: document.getElementById('bgOpacityRow'),
             bgOpacityRange: document.getElementById('bgOpacityRange'),
             bgOpacityVal: document.getElementById('bgOpacityVal'),
@@ -270,12 +285,15 @@
             const popOn = dofOn && !!els.popOutCheck.checked;
             if (els.popOutControls) els.popOutControls.hidden = !popOn;
             if (els.bgOpacityRow) els.bgOpacityRow.hidden = !popOn;
+            if (els.subjectControls) els.subjectControls.hidden = !dofOn;
             const off = Number(els.frameOffsetRange.value);
             if (els.frameOffsetVal) {
                 els.frameOffsetVal.textContent = off === 0 ? '中' : (off < 0 ? '上' : '下');
             }
             if (els.frameScaleVal) els.frameScaleVal.textContent = els.frameScaleRange.value;
             if (els.bgOpacityVal) els.bgOpacityVal.textContent = els.bgOpacityRange.value;
+            if (els.subjectScaleVal) els.subjectScaleVal.textContent = els.subjectScaleRange.value;
+            if (els.subjectShadowVal) els.subjectShadowVal.textContent = els.subjectShadowRange.value;
         }
 
         function fileToDataUrl(file) {
@@ -342,6 +360,9 @@
                 opts.matteForeground = matteFg;
                 opts.dofBlur = 38;
                 opts.dofFrost = 0.03;
+                opts.popOutSubjectScale = Number(els.subjectScaleRange.value) / 100;
+                opts.subjectShadowBlur = Number(els.subjectShadowRange.value);
+                opts.subjectAnchor = 'bottom';
                 if (els.popOutCheck.checked) {
                     opts.popOut = true;
                     opts.popOutFrameScale = Number(els.frameScaleRange.value) / 100;
@@ -839,7 +860,9 @@
             if (els.popOutCheck) els.popOutCheck.addEventListener('change', onDofChange);
             [
                 ['frameScaleRange', 'frameScaleVal', (v) => `${v}`],
-                ['bgOpacityRange', 'bgOpacityVal', (v) => `${v}`]
+                ['bgOpacityRange', 'bgOpacityVal', (v) => `${v}`],
+                ['subjectScaleRange', 'subjectScaleVal', (v) => `${v}`],
+                ['subjectShadowRange', 'subjectShadowVal', (v) => `${v}`]
             ].forEach(([rangeId, labelId, fmt]) => {
                 if (!els[rangeId]) return;
                 els[rangeId].addEventListener('input', () => {

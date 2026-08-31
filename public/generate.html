@@ -83,6 +83,16 @@
                                         <input type="range" id="glassOpacitySingle" min="0" max="80" step="5" value="30">
                                         <span class="frame-scale-val" id="glassOpacityValSingle">30%</span>
                                     </label>
+                                    <label class="frame-scale-wrap" id="subjectScaleWrapSingle" hidden title="抠图角色放大缩小（底部锚定，方便贴齐框底）">
+                                        <span>角</span>
+                                        <input type="range" id="subjectScaleSingle" min="70" max="160" step="1" value="100">
+                                        <span class="frame-scale-val" id="subjectScaleValSingle">100%</span>
+                                    </label>
+                                    <label class="frame-scale-wrap" id="subjectShadowWrapSingle" hidden title="抠图边缘阴影，0 关闭">
+                                        <span>影</span>
+                                        <input type="range" id="subjectShadowSingle" min="0" max="40" step="1" value="16">
+                                        <span class="frame-scale-val" id="subjectShadowValSingle">16</span>
+                                    </label>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制词</button>
                                     <button type="button" class="btn btn-accent2 btn-sm" id="btnExportCurrent" disabled>导出</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnExportSelected" disabled>导出选中</button>
@@ -266,6 +276,16 @@
                     <span>板</span>
                     <input type="range" id="glassOpacityLightbox" min="0" max="80" step="5" value="30">
                     <span class="frame-scale-val" id="glassOpacityValLightbox">30%</span>
+                </label>
+                <label class="frame-scale-wrap lightbox-frame-scale" id="subjectScaleWrapLightbox" hidden title="抠图角色放大缩小（底部锚定，方便贴齐框底）">
+                    <span>角</span>
+                    <input type="range" id="subjectScaleLightbox" min="70" max="160" step="1" value="100">
+                    <span class="frame-scale-val" id="subjectScaleValLightbox">100%</span>
+                </label>
+                <label class="frame-scale-wrap lightbox-frame-scale" id="subjectShadowWrapLightbox" hidden title="抠图边缘阴影，0 关闭">
+                    <span>影</span>
+                    <input type="range" id="subjectShadowLightbox" min="0" max="40" step="1" value="16">
+                    <span class="frame-scale-val" id="subjectShadowValLightbox">16</span>
                 </label>
                 <button type="button" class="btn btn-accent2 btn-sm" id="btnExportLightbox">导出当前</button>
             </div>
@@ -497,7 +517,19 @@
             glassOpacityValSingle: $('glassOpacityValSingle'),
             glassOpacityWrapLightbox: $('glassOpacityWrapLightbox'),
             glassOpacityLightbox: $('glassOpacityLightbox'),
-            glassOpacityValLightbox: $('glassOpacityValLightbox')
+            glassOpacityValLightbox: $('glassOpacityValLightbox'),
+            subjectScaleWrapSingle: $('subjectScaleWrapSingle'),
+            subjectScaleSingle: $('subjectScaleSingle'),
+            subjectScaleValSingle: $('subjectScaleValSingle'),
+            subjectScaleWrapLightbox: $('subjectScaleWrapLightbox'),
+            subjectScaleLightbox: $('subjectScaleLightbox'),
+            subjectScaleValLightbox: $('subjectScaleValLightbox'),
+            subjectShadowWrapSingle: $('subjectShadowWrapSingle'),
+            subjectShadowSingle: $('subjectShadowSingle'),
+            subjectShadowValSingle: $('subjectShadowValSingle'),
+            subjectShadowWrapLightbox: $('subjectShadowWrapLightbox'),
+            subjectShadowLightbox: $('subjectShadowLightbox'),
+            subjectShadowValLightbox: $('subjectShadowValLightbox')
         };
 
         function currentMode() {
@@ -550,7 +582,9 @@
                     popOutFrameOffsetY: clampFrameOffset(img.popOutFrameOffsetY),
                     popOutBgOpacity: clampGlassOpacity(
                         img.popOutBgOpacity ?? img.popOutGlassOpacity
-                    )
+                    ),
+                    popOutSubjectScale: clampSubjectScale(img.popOutSubjectScale),
+                    subjectShadowBlur: clampSubjectShadow(img.subjectShadowBlur)
                 }));
             const next = {
                 ...prev,
@@ -597,7 +631,9 @@
                 popOutFrameOffsetY: clampFrameOffset(img.popOutFrameOffsetY),
                 popOutBgOpacity: clampGlassOpacity(
                     img.popOutBgOpacity ?? img.popOutGlassOpacity
-                )
+                ),
+                popOutSubjectScale: clampSubjectScale(img.popOutSubjectScale),
+                subjectShadowBlur: clampSubjectShadow(img.subjectShadowBlur)
             }));
             if (opts.resetIndex !== false) state.singleIndex = 0;
             return refreshResults();
@@ -1289,6 +1325,18 @@
             return Math.min(0.8, Math.max(0, n));
         }
 
+        function clampSubjectScale(v) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return 1;
+            return Math.min(1.6, Math.max(0.7, n));
+        }
+
+        function clampSubjectShadow(v) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return 16;
+            return Math.min(40, Math.max(0, n));
+        }
+
         function getPopOutFrameScale(imageIndex) {
             if (typeof imageIndex === 'number' && state.images[imageIndex]) {
                 return clampFrameScale(state.images[imageIndex].popOutFrameScale);
@@ -1311,11 +1359,28 @@
             return 0.3;
         }
 
-        function frameCacheKey(url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity) {
+        function getSubjectScale(imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                return clampSubjectScale(state.images[imageIndex].popOutSubjectScale);
+            }
+            return 1;
+        }
+
+        function getSubjectShadow(imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                return clampSubjectShadow(state.images[imageIndex].subjectShadowBlur);
+            }
+            return 16;
+        }
+
+        function frameCacheKey(url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity, subjectScale, subjectShadow) {
+            const sub = dofEnabled
+                ? `s${Math.round(clampSubjectScale(subjectScale) * 100)}sh${Math.round(clampSubjectShadow(subjectShadow))}`
+                : '';
             const pop = popOutEnabled && dofEnabled
                 ? `pop${Math.round(clampFrameScale(frameScale) * 100)}bg${Math.round(clampGlassOpacity(bgOpacity) * 100)}o${Math.round(clampFrameOffset(frameOffset) * 100)}`
                 : 'flat';
-            return `${state.framePreset}|${dofEnabled ? 'dof' : 'flat'}|${pop}|${previewCap}|${url}`;
+            return `${state.framePreset}|${dofEnabled ? 'dof' : 'flat'}|${pop}|${sub}|${previewCap}|${url}`;
         }
 
         function resolveDofEnabled(url, imageIndex) {
@@ -1398,6 +1463,45 @@
                 wrap.hidden = !show;
                 if (input) input.value = String(bgPct);
                 if (val) val.textContent = `${bgPct}%`;
+            }
+            const showSubject = !!(item && item.dofEnabled);
+            const subPct = Math.round(clampSubjectScale(item?.popOutSubjectScale) * 100);
+            const shadowVal = Math.round(clampSubjectShadow(item?.subjectShadowBlur));
+            const subjectScalePairs = [
+                {
+                    wrap: els.subjectScaleWrapSingle,
+                    input: els.subjectScaleSingle,
+                    val: els.subjectScaleValSingle
+                },
+                {
+                    wrap: els.subjectScaleWrapLightbox,
+                    input: els.subjectScaleLightbox,
+                    val: els.subjectScaleValLightbox
+                }
+            ];
+            for (const { wrap, input, val } of subjectScalePairs) {
+                if (!wrap) continue;
+                wrap.hidden = !showSubject;
+                if (input) input.value = String(subPct);
+                if (val) val.textContent = `${subPct}%`;
+            }
+            const subjectShadowPairs = [
+                {
+                    wrap: els.subjectShadowWrapSingle,
+                    input: els.subjectShadowSingle,
+                    val: els.subjectShadowValSingle
+                },
+                {
+                    wrap: els.subjectShadowWrapLightbox,
+                    input: els.subjectShadowLightbox,
+                    val: els.subjectShadowValLightbox
+                }
+            ];
+            for (const { wrap, input, val } of subjectShadowPairs) {
+                if (!wrap) continue;
+                wrap.hidden = !showSubject;
+                if (input) input.value = String(shadowVal);
+                if (val) val.textContent = String(shadowVal);
             }
         }
 
@@ -1488,6 +1592,8 @@
                 state.matteDataUrlCache.delete(item.url);
                 await fetchMatteForeground(item.url, 1280);
                 item.dofEnabled = true;
+                if (!Number.isFinite(Number(item.popOutSubjectScale))) item.popOutSubjectScale = 1;
+                if (!Number.isFinite(Number(item.subjectShadowBlur))) item.subjectShadowBlur = 16;
                 invalidateFrameCache(item.url);
                 saveSession({ images: state.images });
                 setProgress(`第 ${index + 1} 张：景深已应用`);
@@ -1570,6 +1676,12 @@
                 item.popOutBgOpacity = clampGlassOpacity(
                     item.popOutGlassOpacity ?? 0.3
                 );
+            }
+            if (item.dofEnabled && !Number.isFinite(Number(item.popOutSubjectScale))) {
+                item.popOutSubjectScale = 1;
+            }
+            if (item.dofEnabled && !Number.isFinite(Number(item.subjectShadowBlur))) {
+                item.subjectShadowBlur = 16;
             }
             invalidateFrameCache(item.url);
             saveSession({ images: state.images });
@@ -1689,6 +1801,40 @@
             frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
         }
 
+        async function applySubjectScale(index, pct) {
+            const item = state.images[index];
+            if (!item || !item.dofEnabled) return;
+            item.popOutSubjectScale = clampSubjectScale(Number(pct) / 100);
+            const shown = Math.round(item.popOutSubjectScale * 100);
+            if (els.subjectScaleValSingle) els.subjectScaleValSingle.textContent = `${shown}%`;
+            if (els.subjectScaleValLightbox) els.subjectScaleValLightbox.textContent = `${shown}%`;
+            if (els.subjectScaleSingle && document.activeElement !== els.subjectScaleSingle) {
+                els.subjectScaleSingle.value = String(shown);
+            }
+            if (els.subjectScaleLightbox && document.activeElement !== els.subjectScaleLightbox) {
+                els.subjectScaleLightbox.value = String(shown);
+            }
+            clearTimeout(frameScaleTimer);
+            frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
+        }
+
+        async function applySubjectShadow(index, val) {
+            const item = state.images[index];
+            if (!item || !item.dofEnabled) return;
+            item.subjectShadowBlur = clampSubjectShadow(Number(val));
+            const shown = Math.round(item.subjectShadowBlur);
+            if (els.subjectShadowValSingle) els.subjectShadowValSingle.textContent = String(shown);
+            if (els.subjectShadowValLightbox) els.subjectShadowValLightbox.textContent = String(shown);
+            if (els.subjectShadowSingle && document.activeElement !== els.subjectShadowSingle) {
+                els.subjectShadowSingle.value = String(shown);
+            }
+            if (els.subjectShadowLightbox && document.activeElement !== els.subjectShadowLightbox) {
+                els.subjectShadowLightbox.value = String(shown);
+            }
+            clearTimeout(frameScaleTimer);
+            frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
+        }
+
         async function buildFrameRenderOptions(url, caption, cap, dofEnabled, popOutEnabled, imageIndex) {
             const opts = {
                 preset: state.framePreset,
@@ -1701,6 +1847,9 @@
             opts.dofBlur = 38;
             opts.dofFrost = 0.03;
             opts.glassSheen = 0.1;
+            opts.popOutSubjectScale = getSubjectScale(imageIndex);
+            opts.subjectShadowBlur = getSubjectShadow(imageIndex);
+            opts.subjectAnchor = 'bottom';
             if (popOutEnabled) {
                 opts.popOut = true;
                 opts.popOutFrameScale = getPopOutFrameScale(imageIndex);
@@ -1776,6 +1925,8 @@
                 const frameScale = getPopOutFrameScale(imageIndex);
                 const frameOffset = getPopOutFrameOffsetY(imageIndex);
                 const bgOpacity = getPopOutBgOpacity(imageIndex);
+                const subjectScale = getSubjectScale(imageIndex);
+                const subjectShadow = getSubjectShadow(imageIndex);
                 const img = await loadImage(url);
                 if (options.fullRes) {
                     const frameOpts = await buildFrameRenderOptions(
@@ -1797,7 +1948,7 @@
                 }
                 const previewCap = maxW > 0 ? maxW : 720;
                 const cacheKey = frameCacheKey(
-                    url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity
+                    url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity, subjectScale, subjectShadow
                 );
                 if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
                     const cached = cloneCanvas(state.framePreviewCache.get(cacheKey));
@@ -1848,6 +1999,8 @@
                 popOutFrameScale: 0.5,
                 popOutFrameOffsetY: -0.25,
                 popOutBgOpacity: 0.3,
+                popOutSubjectScale: 1,
+                subjectShadowBlur: 16,
                 selected: state.images[index].selected !== false
             };
             saveSession({ images: state.images, status: 'done' });
@@ -2696,6 +2849,30 @@
             };
             wireBgOpacity(els.glassOpacitySingle);
             wireBgOpacity(els.glassOpacityLightbox);
+            const wireSubjectScale = (input) => {
+                if (!input) return;
+                const onChange = (e) => {
+                    e.stopPropagation();
+                    applySubjectScale(currentFocusImageIndex(), input.value);
+                };
+                input.addEventListener('pointerdown', (e) => e.stopPropagation());
+                input.addEventListener('input', onChange);
+                input.addEventListener('change', onChange);
+            };
+            wireSubjectScale(els.subjectScaleSingle);
+            wireSubjectScale(els.subjectScaleLightbox);
+            const wireSubjectShadow = (input) => {
+                if (!input) return;
+                const onChange = (e) => {
+                    e.stopPropagation();
+                    applySubjectShadow(currentFocusImageIndex(), input.value);
+                };
+                input.addEventListener('pointerdown', (e) => e.stopPropagation());
+                input.addEventListener('input', onChange);
+                input.addEventListener('change', onChange);
+            };
+            wireSubjectShadow(els.subjectShadowSingle);
+            wireSubjectShadow(els.subjectShadowLightbox);
             if (els.btnExportCurrent) {
                 els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
             }
