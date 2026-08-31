@@ -211,11 +211,11 @@
     }
 
     /**
-     * 破框（对齐参考图立体感）：
-     * 1) 整卡背景 = 原图轻微模糊（不是纯色纸）
-     * 2) 缩小黑框在抠图下面；框可上移，让下边框藏进角色身后
-     * 3) 框内可选：继续原图磨砂 / 纯色底
-     * 4) 整层抠图叠最上 → 压住黑边，像角色走出来
+     * 破框图层（从下到上）：
+     * 0) 整卡 = 原图浅模糊背景板（外面已画）
+     * 1) 框内 = 同一张原图 + 半透明玻璃罩（默认约 30% 白雾，可调；不是磨砂亚克力白板）
+     * 2) 黑框描边（在抠图下面）
+     * 3) 整层抠图最上 → 压住黑边，像角色走出来
      */
     function drawPopOutScene(
         ctx,
@@ -249,8 +249,13 @@
         const glassH = Math.max(1, windowH - inset * 2);
         const glassRadius = Math.max(2, winRadius - inset);
         const keepGlass = opts.popOutGlass !== false;
+        const opacityRaw = Number(opts.popOutGlassOpacity);
+        // 玻璃罩透明度：0 = 几乎全透看清原图，1 = 完全盖住；默认 0.3
+        const glassOpacity = Number.isFinite(opacityRaw)
+            ? Math.min(1, Math.max(0, opacityRaw))
+            : 0.3;
 
-        // 框内：原图轻模糊（真玻璃），或纯色
+        // 框内：原图（轻模糊）+ 半透明玻璃罩，或纯色底
         ctx.save();
         clipFramePath(ctx, glassX, glassY, glassW, glassH, glassRadius, borderStyle);
         ctx.clip();
@@ -258,12 +263,12 @@
             drawBlurredImageBackground(ctx, image, glassX, glassY, glassW, glassH, {
                 ...opts,
                 borderRadius: glassRadius,
-                glassBlur: Number(opts.popOutInnerBlur) || 18,
-                glassFrost: 0.02,
-                glassSheen: 0.06,
-                glassZoom: 1.04,
+                glassBlur: Number(opts.popOutInnerBlur) || 8,
+                glassFrost: glassOpacity,
+                glassSheen: Math.min(0.12, 0.04 + glassOpacity * 0.12),
+                glassZoom: 1.02,
                 glassBrightness: 1.0,
-                glassSaturate: 1.05,
+                glassSaturate: 1.02,
                 glassTint: 0
             }, glassW);
         } else {
@@ -775,17 +780,17 @@
         const useDof = opts.depthOfField && matteFg && (matteFg.naturalWidth || matteFg.width);
         const usePopOut = useDof && opts.popOut;
 
-        // 破框：整卡用「原图轻微模糊」当远景（图二立体感的关键），不要纯色纸
+        // 破框：整卡用「原图浅模糊」当背景板，要能认出场景，不要厚磨砂
         if (usePopOut) {
             drawBlurredImageBackground(ctx, image, 0, 0, canvasW, canvasH, {
                 ...opts,
                 borderRadius: 0,
-                glassBlur: Number(opts.popOutOuterBlur) || 28,
-                glassFrost: 0.02,
-                glassSheen: 0.05,
-                glassZoom: 1.08,
+                glassBlur: Number(opts.popOutOuterBlur) || 12,
+                glassFrost: 0,
+                glassSheen: 0.03,
+                glassZoom: 1.04,
                 glassBrightness: 1.0,
-                glassSaturate: 1.04,
+                glassSaturate: 1.02,
                 glassTint: 0
             }, drawW);
         } else {
@@ -803,12 +808,12 @@
             drawBlurredImageBackground(ctx, image, 0, 0, cardW, cardH, {
                 ...opts,
                 borderRadius: 14,
-                glassBlur: Number(opts.popOutOuterBlur) || 28,
-                glassFrost: 0.02,
-                glassSheen: 0.05,
-                glassZoom: 1.08,
+                glassBlur: Number(opts.popOutOuterBlur) || 12,
+                glassFrost: 0,
+                glassSheen: 0.03,
+                glassZoom: 1.04,
                 glassBrightness: 1.0,
-                glassSaturate: 1.04,
+                glassSaturate: 1.02,
                 glassTint: 0
             }, drawW);
         } else {
