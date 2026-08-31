@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=19">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=25">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -48,8 +48,17 @@
                         <div class="results-grid hidden" id="resultsGrid"></div>
                         <div class="single-view active" id="singleView">
                             <div class="single-hero">
-                                <div class="single-stage" id="singleStage" title="点击放大">
-                                    <div class="stage-placeholder">选好预设后，在左下角输入场景并生成。<br>出图后默认带边框预览，点击可放大。</div>
+                                <div class="preview-row" id="singlePreviewRow">
+                                    <aside class="matte-preview-pane" id="singleMattePreview" hidden>
+                                        <div class="matte-preview-head">抠图预览</div>
+                                        <div class="matte-preview-body">
+                                            <img id="singleMattePreviewImg" alt="抠图结果">
+                                        </div>
+                                        <div class="matte-preview-foot">基于原图抠图，非带边框图</div>
+                                    </aside>
+                                    <div class="single-stage" id="singleStage" title="点击放大">
+                                        <div class="stage-placeholder">选好预设后，在左下角输入场景并生成。<br>出图后默认带边框预览，点击可放大。</div>
+                                    </div>
                                 </div>
                                 <div class="single-nav">
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnPrev">◀</button>
@@ -58,6 +67,21 @@
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderSingle" title="从 Comfy output 或本机选图替换当前槽位">换图</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnDofSingle" title="抠图后主体清晰、背景虚化" disabled>景深抠图</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnPopOutSingle" title="需先景深抠图；整层角色破框出屏" disabled>破框出屏</button>
+                                    <label class="frame-scale-wrap" id="frameScaleWrapSingle" hidden title="画框大小（相对角色）">
+                                        <span>框</span>
+                                        <input type="range" id="frameScaleSingle" min="25" max="90" step="1" value="50">
+                                        <span class="frame-scale-val" id="frameScaleValSingle">50%</span>
+                                    </label>
+                                    <label class="frame-scale-wrap" id="frameOffsetWrapSingle" hidden title="画框上下：往上滑，下边框更容易藏进角色身后">
+                                        <span>上下</span>
+                                        <input type="range" id="frameOffsetSingle" min="-100" max="100" step="5" value="-25">
+                                        <span class="frame-scale-val" id="frameOffsetValSingle">上</span>
+                                    </label>
+                                    <label class="pop-glass-toggle" id="popGlassWrapSingle" hidden title="框内是否保留原图磨砂背景">
+                                        <input type="checkbox" id="popGlassSingle" checked>
+                                        <span>磨砂背景</span>
+                                    </label>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制词</button>
                                     <button type="button" class="btn btn-accent2 btn-sm" id="btnExportCurrent" disabled>导出</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnExportSelected" disabled>导出选中</button>
@@ -209,7 +233,16 @@
     <div class="lightbox" id="lightbox" aria-hidden="true">
         <button type="button" class="btn btn-ghost lightbox-close" id="btnLightboxClose">关闭 ✕</button>
         <div class="lightbox-inner">
-            <div class="lightbox-stage" id="lightboxStage"></div>
+            <div class="lightbox-content-row">
+                <aside class="matte-preview-pane lightbox-matte-pane" id="lightboxMattePreview" hidden>
+                    <div class="matte-preview-head">抠图预览</div>
+                    <div class="matte-preview-body">
+                        <img id="lightboxMattePreviewImg" alt="抠图结果">
+                    </div>
+                    <div class="matte-preview-foot" id="lightboxMattePreviewMeta">基于原图抠图，非带边框图</div>
+                </aside>
+                <div class="lightbox-stage" id="lightboxStage"></div>
+            </div>
             <div class="lightbox-nav">
                 <button type="button" class="btn btn-ghost" id="btnLightboxPrev">◀</button>
                 <span id="lightboxIndexLabel">0 / 0</span>
@@ -217,6 +250,21 @@
                 <button type="button" class="btn btn-ghost btn-sm" id="btnCopyLightboxPrompt">复制提示词</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderLightbox" title="从 Comfy output 或本机选图替换">换图</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnDofLightbox" title="抠图后主体清晰、背景虚化">景深抠图</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnPopOutLightbox" title="需先景深抠图；整层角色破框出屏">破框出屏</button>
+                <label class="frame-scale-wrap lightbox-frame-scale" id="frameScaleWrapLightbox" hidden title="画框大小（相对角色）">
+                    <span>框</span>
+                    <input type="range" id="frameScaleLightbox" min="25" max="90" step="1" value="50">
+                    <span class="frame-scale-val" id="frameScaleValLightbox">50%</span>
+                </label>
+                <label class="frame-scale-wrap lightbox-frame-scale" id="frameOffsetWrapLightbox" hidden title="画框上下：往上滑，下边框更容易藏进角色身后">
+                    <span>上下</span>
+                    <input type="range" id="frameOffsetLightbox" min="-100" max="100" step="5" value="-25">
+                    <span class="frame-scale-val" id="frameOffsetValLightbox">上</span>
+                </label>
+                <label class="pop-glass-toggle lightbox-pop-glass" id="popGlassWrapLightbox" hidden title="框内是否保留原图磨砂背景">
+                    <input type="checkbox" id="popGlassLightbox" checked>
+                    <span>磨砂背景</span>
+                </label>
                 <button type="button" class="btn btn-accent2 btn-sm" id="btnExportLightbox">导出当前</button>
             </div>
             <div class="prompt-box lightbox-prompt" id="lightboxPromptBox" hidden>
@@ -243,7 +291,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=10"></script>
+    <script src="js/sticker-frame.js?v=19"></script>
     <script>
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
@@ -383,6 +431,7 @@
             generating: false,
             framePreset: 'paper-collage',
             matteCache: new Map(),
+            matteDataUrlCache: new Map(),
             dofBusy: false,
             jobId: '',
             pollTimer: null,
@@ -426,7 +475,25 @@
             btnViewGrid: $('btnViewGrid'),
             btnViewSingle: $('btnViewSingle'),
             btnDofSingle: $('btnDofSingle'),
-            btnDofLightbox: $('btnDofLightbox')
+            btnDofLightbox: $('btnDofLightbox'),
+            btnPopOutSingle: $('btnPopOutSingle'),
+            btnPopOutLightbox: $('btnPopOutLightbox'),
+            frameScaleWrapSingle: $('frameScaleWrapSingle'),
+            frameScaleSingle: $('frameScaleSingle'),
+            frameScaleValSingle: $('frameScaleValSingle'),
+            frameOffsetWrapSingle: $('frameOffsetWrapSingle'),
+            frameOffsetSingle: $('frameOffsetSingle'),
+            frameOffsetValSingle: $('frameOffsetValSingle'),
+            frameScaleWrapLightbox: $('frameScaleWrapLightbox'),
+            frameScaleLightbox: $('frameScaleLightbox'),
+            frameScaleValLightbox: $('frameScaleValLightbox'),
+            frameOffsetWrapLightbox: $('frameOffsetWrapLightbox'),
+            frameOffsetLightbox: $('frameOffsetLightbox'),
+            frameOffsetValLightbox: $('frameOffsetValLightbox'),
+            popGlassWrapSingle: $('popGlassWrapSingle'),
+            popGlassSingle: $('popGlassSingle'),
+            popGlassWrapLightbox: $('popGlassWrapLightbox'),
+            popGlassLightbox: $('popGlassLightbox')
         };
 
         function currentMode() {
@@ -473,7 +540,11 @@
                     url: img.url,
                     prompt: img.prompt || '',
                     selected: img.selected !== false,
-                    dofEnabled: !!img.dofEnabled
+                    dofEnabled: !!img.dofEnabled,
+                    popOutEnabled: !!img.popOutEnabled,
+                    popOutFrameScale: clampFrameScale(img.popOutFrameScale),
+                    popOutFrameOffsetY: clampFrameOffset(img.popOutFrameOffsetY),
+                    popOutGlass: img.popOutGlass !== false
                 }));
             const next = {
                 ...prev,
@@ -514,7 +585,11 @@
                 url: img.url,
                 prompt: img.prompt || '',
                 selected: img.selected !== false,
-                dofEnabled: !!img.dofEnabled
+                dofEnabled: !!img.dofEnabled,
+                popOutEnabled: !!img.popOutEnabled,
+                popOutFrameScale: clampFrameScale(img.popOutFrameScale),
+                popOutFrameOffsetY: clampFrameOffset(img.popOutFrameOffsetY),
+                popOutGlass: img.popOutGlass !== false
             }));
             if (opts.resetIndex !== false) state.singleIndex = 0;
             return refreshResults();
@@ -1188,8 +1263,44 @@
             return canvas;
         }
 
-        function frameCacheKey(url, previewCap, dofEnabled) {
-            return `${state.framePreset}|${dofEnabled ? 'dof' : 'flat'}|${previewCap}|${url}`;
+        function clampFrameScale(v) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return 0.5;
+            return Math.min(0.9, Math.max(0.25, n));
+        }
+
+        function clampFrameOffset(v) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return -0.25;
+            return Math.min(1, Math.max(-1, n));
+        }
+
+        function getPopOutFrameScale(imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                return clampFrameScale(state.images[imageIndex].popOutFrameScale);
+            }
+            return 0.5;
+        }
+
+        function getPopOutFrameOffsetY(imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                return clampFrameOffset(state.images[imageIndex].popOutFrameOffsetY);
+            }
+            return -0.25;
+        }
+
+        function getPopOutGlass(imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                return state.images[imageIndex].popOutGlass !== false;
+            }
+            return true;
+        }
+
+        function frameCacheKey(url, previewCap, dofEnabled, popOutEnabled, frameScale, popGlass, frameOffset) {
+            const pop = popOutEnabled && dofEnabled
+                ? `pop${Math.round(clampFrameScale(frameScale) * 100)}${popGlass === false ? 'nog' : 'g'}o${Math.round(clampFrameOffset(frameOffset) * 100)}`
+                : 'flat';
+            return `${state.framePreset}|${dofEnabled ? 'dof' : 'flat'}|${pop}|${previewCap}|${url}`;
         }
 
         function resolveDofEnabled(url, imageIndex) {
@@ -1198,6 +1309,70 @@
             }
             const found = state.images.find((img) => img.url === url);
             return !!found?.dofEnabled;
+        }
+
+        function resolvePopOutEnabled(url, imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                const item = state.images[imageIndex];
+                return !!item.dofEnabled && !!item.popOutEnabled;
+            }
+            const found = state.images.find((img) => img.url === url);
+            return !!found?.dofEnabled && !!found?.popOutEnabled;
+        }
+
+        function syncFrameScaleControls(index) {
+            const item = typeof index === 'number' ? state.images[index] : null;
+            const show = !!(item && item.dofEnabled && item.popOutEnabled);
+            const pct = Math.round(clampFrameScale(item?.popOutFrameScale) * 100);
+            const offset = clampFrameOffset(item?.popOutFrameOffsetY);
+            const offsetPct = Math.round(offset * 100);
+            const keepGlass = item?.popOutGlass !== false;
+            const scalePairs = [
+                {
+                    wrap: els.frameScaleWrapSingle,
+                    input: els.frameScaleSingle,
+                    val: els.frameScaleValSingle
+                },
+                {
+                    wrap: els.frameScaleWrapLightbox,
+                    input: els.frameScaleLightbox,
+                    val: els.frameScaleValLightbox
+                }
+            ];
+            for (const { wrap, input, val } of scalePairs) {
+                if (!wrap) continue;
+                wrap.hidden = !show;
+                if (input) input.value = String(pct);
+                if (val) val.textContent = `${pct}%`;
+            }
+            const offsetLabel = offsetPct === 0 ? '中' : (offsetPct < 0 ? '上' : '下');
+            const offsetPairs = [
+                {
+                    wrap: els.frameOffsetWrapSingle,
+                    input: els.frameOffsetSingle,
+                    val: els.frameOffsetValSingle
+                },
+                {
+                    wrap: els.frameOffsetWrapLightbox,
+                    input: els.frameOffsetLightbox,
+                    val: els.frameOffsetValLightbox
+                }
+            ];
+            for (const { wrap, input, val } of offsetPairs) {
+                if (!wrap) continue;
+                wrap.hidden = !show;
+                if (input) input.value = String(offsetPct);
+                if (val) val.textContent = offsetLabel;
+            }
+            const glassPairs = [
+                { wrap: els.popGlassWrapSingle, input: els.popGlassSingle },
+                { wrap: els.popGlassWrapLightbox, input: els.popGlassLightbox }
+            ];
+            for (const { wrap, input } of glassPairs) {
+                if (!wrap) continue;
+                wrap.hidden = !show;
+                if (input) input.checked = keepGlass;
+            }
         }
 
         function syncDofButtonLabels() {
@@ -1215,6 +1390,17 @@
                     els.btnDofSingle.classList.toggle('active', !!singleItem.dofEnabled);
                 }
             }
+            if (els.btnPopOutSingle) {
+                if (!singleItem || !singleItem.dofEnabled) {
+                    els.btnPopOutSingle.textContent = '破框出屏';
+                    els.btnPopOutSingle.disabled = true;
+                    els.btnPopOutSingle.classList.remove('active');
+                } else {
+                    els.btnPopOutSingle.textContent = singleItem.popOutEnabled ? '取消破框' : '破框出屏';
+                    els.btnPopOutSingle.disabled = !!state.dofBusy;
+                    els.btnPopOutSingle.classList.toggle('active', !!singleItem.popOutEnabled);
+                }
+            }
             const lbItem = state.images[state.lightboxIndex];
             if (els.btnDofLightbox) {
                 if (!lbItem) {
@@ -1229,6 +1415,21 @@
                     els.btnDofLightbox.classList.toggle('active', !!lbItem.dofEnabled);
                 }
             }
+            if (els.btnPopOutLightbox) {
+                if (!lbItem || !lbItem.dofEnabled) {
+                    els.btnPopOutLightbox.textContent = '破框出屏';
+                    els.btnPopOutLightbox.disabled = true;
+                    els.btnPopOutLightbox.classList.remove('active');
+                } else {
+                    els.btnPopOutLightbox.textContent = lbItem.popOutEnabled ? '取消破框' : '破框出屏';
+                    els.btnPopOutLightbox.disabled = !!state.dofBusy;
+                    els.btnPopOutLightbox.classList.toggle('active', !!lbItem.popOutEnabled);
+                }
+            }
+            const scaleIndex = els.lightbox?.classList.contains('open')
+                ? state.lightboxIndex
+                : state.singleIndex;
+            syncFrameScaleControls(scaleIndex);
         }
 
         async function applyDepthOfField(index) {
@@ -1237,6 +1438,7 @@
 
             if (item.dofEnabled) {
                 item.dofEnabled = false;
+                item.popOutEnabled = false;
                 invalidateFrameCache(item.url);
                 saveSession({ images: state.images });
                 syncDofButtonLabels();
@@ -1245,18 +1447,25 @@
                     await paintLightbox();
                 }
                 setProgress(`第 ${index + 1} 张：已关闭景深`);
+                syncMattePreview(index);
                 return;
             }
 
             state.dofBusy = true;
             syncDofButtonLabels();
-            setProgress(`第 ${index + 1} 张：抠图中，请稍候（首次约 10–30 秒）…`);
+            setProgress(`第 ${index + 1} 张：抠图中（medium 模型，首次约 15–40 秒）…`);
             try {
+                // 换模型后清掉旧缓存，强制重新抠图
+                for (const key of [...state.matteCache.keys()]) {
+                    if (key.startsWith(`${item.url}|`)) state.matteCache.delete(key);
+                }
+                state.matteDataUrlCache.delete(item.url);
                 await fetchMatteForeground(item.url, 1280);
                 item.dofEnabled = true;
                 invalidateFrameCache(item.url);
                 saveSession({ images: state.images });
                 setProgress(`第 ${index + 1} 张：景深已应用`);
+                syncMattePreview(index);
                 await refreshResults();
                 if (els.lightbox.classList.contains('open') && state.lightboxIndex === index) {
                     await paintLightbox();
@@ -1286,6 +1495,9 @@
                 });
                 const data = await resp.json();
                 if (!data.ok) throw new Error(data.error || '抠图失败');
+                if (data.foregroundDataUrl) {
+                    state.matteDataUrlCache.set(url, data.foregroundDataUrl);
+                }
                 return loadImage(data.foregroundDataUrl);
             })();
 
@@ -1297,7 +1509,156 @@
             return task;
         }
 
-        async function buildFrameRenderOptions(url, caption, cap, dofEnabled) {
+        function syncMattePreview(index) {
+            const item = typeof index === 'number' ? state.images[index] : null;
+            const dataUrl = item?.dofEnabled ? state.matteDataUrlCache.get(item.url) : null;
+            const pairs = [
+                { pane: $('singleMattePreview'), img: $('singleMattePreviewImg') },
+                { pane: $('lightboxMattePreview'), img: $('lightboxMattePreviewImg'), meta: $('lightboxMattePreviewMeta') }
+            ];
+            for (const { pane, img, meta } of pairs) {
+                if (!pane) continue;
+                if (dataUrl) {
+                    pane.hidden = false;
+                    if (img) img.src = dataUrl;
+                    if (meta && item?.url) meta.textContent = `原图：${item.url}`;
+                } else {
+                    pane.hidden = true;
+                    if (img) img.removeAttribute('src');
+                }
+            }
+        }
+
+        async function applyPopOut(index) {
+            const item = state.images[index];
+            if (!item || !item.dofEnabled || state.dofBusy) return;
+
+            item.popOutEnabled = !item.popOutEnabled;
+            if (item.popOutEnabled && !Number.isFinite(Number(item.popOutFrameScale))) {
+                item.popOutFrameScale = 0.5;
+            }
+            if (item.popOutEnabled && !Number.isFinite(Number(item.popOutFrameOffsetY))) {
+                item.popOutFrameOffsetY = -0.25;
+            }
+            if (item.popOutEnabled && item.popOutGlass === undefined) {
+                item.popOutGlass = true;
+            }
+            invalidateFrameCache(item.url);
+            saveSession({ images: state.images });
+            syncDofButtonLabels();
+            setProgress(
+                item.popOutEnabled
+                    ? `第 ${index + 1} 张：破框出屏 · 框 ${Math.round(clampFrameScale(item.popOutFrameScale) * 100)}%`
+                    : `第 ${index + 1} 张：已取消破框`
+            );
+            await refreshResults();
+            if (els.lightbox.classList.contains('open') && state.lightboxIndex === index) {
+                await paintLightbox();
+            }
+        }
+
+        function invalidateFrameCache(url) {
+            for (const key of [...state.framePreviewCache.keys()]) {
+                if (!url || key.includes(url) || key.endsWith(`|${url}`)) {
+                    state.framePreviewCache.delete(key);
+                }
+            }
+        }
+
+        let frameScaleTimer = null;
+        let frameScaleToken = 0;
+
+        function currentFocusImageIndex() {
+            if (els.lightbox && els.lightbox.classList.contains('open')) {
+                return state.lightboxIndex;
+            }
+            return state.singleIndex;
+        }
+
+        async function rerenderAfterFrameAdjust(index) {
+            const token = ++frameScaleToken;
+            const item = state.images[index];
+            if (!item) return;
+            invalidateFrameCache(item.url);
+            saveSession({ images: state.images });
+            const scalePct = Math.round(clampFrameScale(item.popOutFrameScale) * 100);
+            const off = clampFrameOffset(item.popOutFrameOffsetY);
+            setProgress(
+                `破框调整中 · 框 ${scalePct}% · ${off < 0 ? '上' : off > 0 ? '下' : '中'}`
+            );
+
+            try {
+                if (els.lightbox && els.lightbox.classList.contains('open') && state.lightboxIndex === index) {
+                    await paintLightbox({ skipCache: true });
+                } else if (state.viewMode === 'single' && state.singleIndex === index && els.singleStage) {
+                    const node = await renderFramedCanvas(item.url, '', undefined, {
+                        imageIndex: index,
+                        skipCache: true
+                    });
+                    if (token !== frameScaleToken) return;
+                    els.singleStage.replaceChildren(node);
+                    syncDofButtonLabels();
+                    syncMattePreview(index);
+                } else {
+                    await refreshResults();
+                }
+            } catch (e) {
+                console.warn('[popout adjust]', e);
+            }
+            if (token !== frameScaleToken) return;
+            setProgress(`破框 · 框 ${scalePct}%`);
+        }
+
+        async function applyFrameScale(index, pct) {
+            const item = state.images[index];
+            if (!item || !item.popOutEnabled) return;
+            item.popOutFrameScale = clampFrameScale(Number(pct) / 100);
+            const shown = Math.round(item.popOutFrameScale * 100);
+            if (els.frameScaleValSingle) els.frameScaleValSingle.textContent = `${shown}%`;
+            if (els.frameScaleValLightbox) els.frameScaleValLightbox.textContent = `${shown}%`;
+            if (els.frameScaleSingle && document.activeElement !== els.frameScaleSingle) {
+                els.frameScaleSingle.value = String(shown);
+            }
+            if (els.frameScaleLightbox && document.activeElement !== els.frameScaleLightbox) {
+                els.frameScaleLightbox.value = String(shown);
+            }
+            clearTimeout(frameScaleTimer);
+            frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
+        }
+
+        async function applyFrameOffset(index, pct) {
+            const item = state.images[index];
+            if (!item || !item.popOutEnabled) return;
+            item.popOutFrameOffsetY = clampFrameOffset(Number(pct) / 100);
+            const shown = Math.round(item.popOutFrameOffsetY * 100);
+            const label = shown === 0 ? '中' : (shown < 0 ? '上' : '下');
+            if (els.frameOffsetValSingle) els.frameOffsetValSingle.textContent = label;
+            if (els.frameOffsetValLightbox) els.frameOffsetValLightbox.textContent = label;
+            if (els.frameOffsetSingle && document.activeElement !== els.frameOffsetSingle) {
+                els.frameOffsetSingle.value = String(shown);
+            }
+            if (els.frameOffsetLightbox && document.activeElement !== els.frameOffsetLightbox) {
+                els.frameOffsetLightbox.value = String(shown);
+            }
+            clearTimeout(frameScaleTimer);
+            frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
+        }
+
+        async function applyPopOutGlass(index, keepGlass) {
+            const item = state.images[index];
+            if (!item || !item.popOutEnabled) return;
+            item.popOutGlass = !!keepGlass;
+            if (els.popGlassSingle) els.popGlassSingle.checked = item.popOutGlass;
+            if (els.popGlassLightbox) els.popGlassLightbox.checked = item.popOutGlass;
+            await rerenderAfterFrameAdjust(index);
+            setProgress(
+                item.popOutGlass
+                    ? `第 ${index + 1} 张：已保留框内磨砂背景`
+                    : `第 ${index + 1} 张：已关闭框内磨砂背景`
+            );
+        }
+
+        async function buildFrameRenderOptions(url, caption, cap, dofEnabled, popOutEnabled, imageIndex) {
             const opts = {
                 preset: state.framePreset,
                 caption: caption || '',
@@ -1306,24 +1667,26 @@
             if (!dofEnabled) return opts;
 
             opts.depthOfField = true;
-            opts.dofBlur = 48;
+            opts.dofBlur = 38;
+            opts.dofFrost = 0.03;
+            opts.glassSheen = 0.1;
+            if (popOutEnabled) {
+                opts.popOut = true;
+                opts.popOutFrameScale = getPopOutFrameScale(imageIndex);
+                opts.popOutFrameOffsetY = getPopOutFrameOffsetY(imageIndex);
+                opts.popOutGlass = getPopOutGlass(imageIndex);
+                opts.popOutOverflow = 0.1;
+                opts.popOutOuterBlur = 28;
+                opts.popOutInnerBlur = 18;
+            }
             try {
                 opts.matteForeground = await fetchMatteForeground(url, cap > 0 ? cap : 1280);
             } catch (e) {
                 console.warn('[dof] matte failed', e);
                 opts.depthOfField = false;
+                opts.popOut = false;
             }
             return opts;
-        }
-
-        function invalidateFrameCache(url) {
-            const prefix = `${state.framePreset}|`;
-            for (const key of [...state.framePreviewCache.keys()]) {
-                if (!key.startsWith(prefix)) continue;
-                if (!url || key.endsWith(`|${url}`)) {
-                    state.framePreviewCache.delete(key);
-                }
-            }
         }
 
         function isFramedCanvasCorrupt(canvas) {
@@ -1379,9 +1742,15 @@
             return enqueueFrameRender(async () => {
                 const imageIndex = options.imageIndex;
                 const dofEnabled = resolveDofEnabled(url, imageIndex);
+                const popOutEnabled = resolvePopOutEnabled(url, imageIndex);
+                const frameScale = getPopOutFrameScale(imageIndex);
+                const popGlass = getPopOutGlass(imageIndex);
+                const frameOffset = getPopOutFrameOffsetY(imageIndex);
                 const img = await loadImage(url);
                 if (options.fullRes) {
-                    const frameOpts = await buildFrameRenderOptions(url, caption, 0, dofEnabled);
+                    const frameOpts = await buildFrameRenderOptions(
+                        url, caption, 0, dofEnabled, popOutEnabled, imageIndex
+                    );
                     frameOpts.previewMaxWidth = 0;
                     if (typeof StickerFrame.renderStickerFrameSafe === 'function') {
                         const safe = StickerFrame.renderStickerFrameSafe(img, frameOpts);
@@ -1397,7 +1766,9 @@
                     maxW = state.viewMode === 'grid' ? 420 : 720;
                 }
                 const previewCap = maxW > 0 ? maxW : 720;
-                const cacheKey = frameCacheKey(url, previewCap, dofEnabled);
+                const cacheKey = frameCacheKey(
+                    url, previewCap, dofEnabled, popOutEnabled, frameScale, popGlass, frameOffset
+                );
                 if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
                     const cached = cloneCanvas(state.framePreviewCache.get(cacheKey));
                     if (!isFramedCanvasCorrupt(cached)) return cached;
@@ -1407,7 +1778,12 @@
                 async function drawOnce(cap) {
                     const source = downscaleForPreview(img, cap);
                     await new Promise((r) => requestAnimationFrame(r));
-                    const frameOpts = await buildFrameRenderOptions(url, caption, cap, dofEnabled);
+                    const frameOpts = await buildFrameRenderOptions(
+                        url, caption, cap, dofEnabled, popOutEnabled, imageIndex
+                    );
+                    if (dofEnabled && typeof imageIndex === 'number') {
+                        syncMattePreview(imageIndex);
+                    }
                     return StickerFrame.renderStickerFrame(source, frameOpts);
                 }
 
@@ -1438,6 +1814,10 @@
                 ...state.images[index],
                 url,
                 dofEnabled: false,
+                popOutEnabled: false,
+                popOutFrameScale: 0.5,
+                popOutFrameOffsetY: -0.25,
+                popOutGlass: true,
                 selected: state.images[index].selected !== false
             };
             saveSession({ images: state.images, status: 'done' });
@@ -1641,6 +2021,7 @@
                     meta.innerHTML = `
                         <label><input type="checkbox" ${item.selected ? 'checked' : ''} data-i="${i}"> ${String(i + 1).padStart(3, '0')}</label>
                         <button type="button" class="btn-dof${item.dofEnabled ? ' active' : ''}" data-dof="${i}" title="抠图后主体清晰、背景虚化">${item.dofEnabled ? '取消景深' : '景深抠图'}</button>
+                        <button type="button" class="btn-popout${item.popOutEnabled ? ' active' : ''}" data-popout="${i}" title="需先景深抠图" ${item.dofEnabled ? '' : 'disabled'}>${item.popOutEnabled ? '取消破框' : '破框出屏'}</button>
                         <button type="button" class="btn-rerender" data-rerender="${i}" title="从 output / 本机换图">换图</button>
                     `;
                     meta.querySelector('input').addEventListener('change', (e) => {
@@ -1654,6 +2035,10 @@
                     meta.querySelector('[data-dof]').addEventListener('click', (e) => {
                         e.stopPropagation();
                         applyDepthOfField(i);
+                    });
+                    meta.querySelector('[data-popout]').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        applyPopOut(i);
                     });
                     card.appendChild(thumb);
                     card.appendChild(meta);
@@ -1683,15 +2068,17 @@
                 }
                 els.singleStage.replaceChildren(node);
                 syncDofButtonLabels();
+                syncMattePreview(state.singleIndex);
             }
         }
 
-        async function paintLightbox() {
+        async function paintLightbox(options = {}) {
             const paintToken = ++state.lightboxPaintToken;
             const index = state.lightboxIndex;
             const n = state.images.length;
             els.lightboxIndexLabel.textContent = n ? `${index + 1} / ${n}` : '0 / 0';
             syncLightboxPromptBox();
+            syncDofButtonLabels();
             if (!n) {
                 els.lightboxStage.innerHTML = '';
                 return;
@@ -1699,7 +2086,10 @@
             const item = state.images[index];
             let node;
             try {
-                node = await renderFramedCanvas(item.url, '', 720, { imageIndex: index });
+                node = await renderFramedCanvas(item.url, '', 720, {
+                    imageIndex: index,
+                    skipCache: !!options.skipCache
+                });
             } catch (_) {
                 node = document.createElement('img');
                 node.src = item.url;
@@ -1708,6 +2098,7 @@
             if (paintToken !== state.lightboxPaintToken || state.lightboxIndex !== index) return;
             els.lightboxStage.replaceChildren(node);
             syncDofButtonLabels();
+            syncMattePreview(index);
             prefetchLightboxNeighbors(index);
         }
 
@@ -2224,11 +2615,54 @@
                     if (state.images.length) applyDepthOfField(state.singleIndex);
                 });
             }
+            if (els.btnPopOutSingle) {
+                els.btnPopOutSingle.addEventListener('click', () => {
+                    if (state.images.length) applyPopOut(state.singleIndex);
+                });
+            }
             if (els.btnDofLightbox) {
                 els.btnDofLightbox.addEventListener('click', () => {
                     if (state.images.length) applyDepthOfField(state.lightboxIndex);
                 });
             }
+            if (els.btnPopOutLightbox) {
+                els.btnPopOutLightbox.addEventListener('click', () => {
+                    if (state.images.length) applyPopOut(state.lightboxIndex);
+                });
+            }
+            const wireFrameScale = (input) => {
+                if (!input) return;
+                const onChange = (e) => {
+                    e.stopPropagation();
+                    applyFrameScale(currentFocusImageIndex(), input.value);
+                };
+                input.addEventListener('pointerdown', (e) => e.stopPropagation());
+                input.addEventListener('input', onChange);
+                input.addEventListener('change', onChange);
+            };
+            wireFrameScale(els.frameScaleSingle);
+            wireFrameScale(els.frameScaleLightbox);
+            const wireFrameOffset = (input) => {
+                if (!input) return;
+                const onChange = (e) => {
+                    e.stopPropagation();
+                    applyFrameOffset(currentFocusImageIndex(), input.value);
+                };
+                input.addEventListener('pointerdown', (e) => e.stopPropagation());
+                input.addEventListener('input', onChange);
+                input.addEventListener('change', onChange);
+            };
+            wireFrameOffset(els.frameOffsetSingle);
+            wireFrameOffset(els.frameOffsetLightbox);
+            const wirePopGlass = (input) => {
+                if (!input) return;
+                input.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    applyPopOutGlass(currentFocusImageIndex(), input.checked);
+                });
+            };
+            wirePopGlass(els.popGlassSingle);
+            wirePopGlass(els.popGlassLightbox);
             if (els.btnExportCurrent) {
                 els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
             }

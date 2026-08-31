@@ -73,6 +73,94 @@ html.gen-page body {
   color: #fff;
 }
 
+.results-grid .result-card .btn-popout {
+  border: 1.5px solid var(--text);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  flex-shrink: 0;
+}
+
+.results-grid .result-card .btn-popout:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.results-grid .result-card .btn-popout:hover:not(:disabled) {
+  background: rgba(232, 80, 58, 0.08);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.results-grid .result-card .btn-popout.active {
+  background: rgba(232, 80, 58, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.frame-scale-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1.5px solid var(--text);
+  border-radius: 999px;
+  background: var(--surface);
+  user-select: none;
+  pointer-events: auto;
+  z-index: 5;
+  position: relative;
+}
+
+.frame-scale-wrap input[type="range"] {
+  width: 88px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+  pointer-events: auto;
+}
+
+.frame-scale-val {
+  min-width: 2.6em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.lightbox-frame-scale {
+  background: #fff;
+  color: var(--text);
+  border-color: #fff;
+}
+
+.pop-glass-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1.5px solid var(--text);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  user-select: none;
+}
+
+.pop-glass-toggle input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.lightbox-pop-glass {
+  background: #fff;
+  color: var(--text);
+  border-color: #fff;
+}
+
 .single-nav .btn.active,
 .lightbox-nav .btn.active {
   background: rgba(47, 124, 214, 0.12);
@@ -338,6 +426,83 @@ html.gen-page body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.preview-row,
+.lightbox-content-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.matte-preview-pane {
+  width: min(200px, 26vw);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.matte-preview-pane.lightbox-matte-pane {
+  width: min(220px, 24vw);
+}
+
+.matte-preview-head {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.lightbox-matte-pane .matte-preview-head,
+.lightbox-matte-pane .matte-preview-foot {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.matte-preview-body {
+  flex: 1;
+  min-height: 140px;
+  background:
+    conic-gradient(rgba(0, 0, 0, 0.06) 0 25%, transparent 0 50%, rgba(0, 0, 0, 0.06) 0 75%, transparent 0)
+    0 0 / 16px 16px,
+    #f3ebe0;
+  border: 2px solid var(--text);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 6px;
+}
+
+.lightbox-matte-pane .matte-preview-body {
+  border-color: rgba(255, 255, 255, 0.55);
+  background:
+    conic-gradient(rgba(255, 255, 255, 0.08) 0 25%, transparent 0 50%, rgba(255, 255, 255, 0.08) 0 75%, transparent 0)
+    0 0 / 16px 16px,
+    rgba(255, 255, 255, 0.08);
+}
+
+.matte-preview-body img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.matte-preview-foot {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-mute);
+  word-break: break-all;
+}
+
+.preview-row .single-stage {
+  flex: 1;
+  min-width: 0;
 }
 
 .single-stage {
@@ -865,21 +1030,27 @@ html.gen-page body {
 .lightbox.open { display: flex; }
 
 .lightbox-inner {
-  max-width: min(96vw, 1200px);
+  max-width: min(98vw, 1280px);
   max-height: 92vh;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
 }
 
+.lightbox-content-row {
+  max-height: calc(92vh - 56px);
+  align-items: center;
+}
+
 .lightbox-stage {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  max-height: calc(92vh - 56px);
 }
 
 .lightbox-stage canvas,
@@ -897,6 +1068,11 @@ html.gen-page body {
   gap: 12px;
   color: #fff;
   font-size: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  pointer-events: auto;
+  position: relative;
+  z-index: 6;
 }
 
 .lightbox-nav .btn {

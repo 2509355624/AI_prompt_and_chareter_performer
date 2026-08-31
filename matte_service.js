@@ -7,6 +7,9 @@ const CACHE_DIR = path.join(__dirname, 'data', 'matte_cache');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const inFlight = new Map();
 
+/** small ≈ 更快但边缘糊；medium ≈ 更干净（薄纱/发丝更好） */
+const MATTE_MODEL = process.env.MATTE_MODEL === 'small' ? 'small' : 'medium';
+
 let removeBackgroundFn = null;
 
 async function getRemover() {
@@ -43,7 +46,7 @@ function cacheKeyFor(filePath, maxSide) {
     const stat = fs.statSync(filePath);
     return crypto
         .createHash('sha256')
-        .update(`${filePath}|${stat.mtimeMs}|${stat.size}|${maxSide}`)
+        .update(`${filePath}|${stat.mtimeMs}|${stat.size}|${maxSide}|${MATTE_MODEL}`)
         .digest('hex');
 }
 
@@ -76,7 +79,8 @@ async function getMatteForeground(url, maxSide = 1280) {
         const buf = fs.readFileSync(cacheFile);
         return {
             foregroundDataUrl: `data:image/png;base64,${buf.toString('base64')}`,
-            cached: true
+            cached: true,
+            model: MATTE_MODEL
         };
     }
 
@@ -85,7 +89,7 @@ async function getMatteForeground(url, maxSide = 1280) {
     const task = (async () => {
         const removeBackground = await getRemover();
         const blob = await removeBackground(imageInputFromPath(filePath), {
-            model: 'small',
+            model: MATTE_MODEL,
             output: {
                 format: 'image/png',
                 type: 'foreground'
@@ -96,7 +100,8 @@ async function getMatteForeground(url, maxSide = 1280) {
         fs.writeFileSync(cacheFile, buf);
         return {
             foregroundDataUrl: `data:image/png;base64,${buf.toString('base64')}`,
-            cached: false
+            cached: false,
+            model: MATTE_MODEL
         };
     })().finally(() => inFlight.delete(key));
 
