@@ -1365,22 +1365,22 @@
             if (typeof imageIndex === 'number' && state.images[imageIndex]) {
                 return clampFrameScale(state.images[imageIndex].popOutFrameScale);
             }
-            return 0.5;
+            return 0.72;
         }
 
         function getPopOutFrameOffsetY(imageIndex) {
             if (typeof imageIndex === 'number' && state.images[imageIndex]) {
                 return clampFrameOffset(state.images[imageIndex].popOutFrameOffsetY);
             }
-            return -0.25;
+            return -0.2;
         }
 
         function getPopOutBgOpacity(imageIndex) {
             if (typeof imageIndex === 'number' && state.images[imageIndex]) {
                 const item = state.images[imageIndex];
-                return clampGlassOpacity(item.popOutBgOpacity ?? item.popOutGlassOpacity);
+                return clampGlassOpacity(item.popOutBgOpacity ?? item.popOutGlassOpacity ?? 0.22);
             }
-            return 0.3;
+            return 0.22;
         }
 
         function getSubjectScale(imageIndex) {
