@@ -78,12 +78,8 @@
                                         <input type="range" id="frameOffsetSingle" min="-100" max="100" step="5" value="-25">
                                         <span class="frame-scale-val" id="frameOffsetValSingle">上</span>
                                     </label>
-                                    <label class="pop-glass-toggle" id="popGlassWrapSingle" hidden title="框内用原图 + 半透明玻璃罩（关掉则纯色底）">
-                                        <input type="checkbox" id="popGlassSingle" checked>
-                                        <span>玻璃</span>
-                                    </label>
-                                    <label class="frame-scale-wrap" id="glassOpacityWrapSingle" hidden title="玻璃罩白雾强度：0=几乎全透看清原图，越高越像磨砂板；默认 30%">
-                                        <span>雾</span>
+                                    <label class="frame-scale-wrap" id="glassOpacityWrapSingle" hidden title="大背景板白雾：0=原图清晰可见，越高越雾；默认 30%">
+                                        <span>板</span>
                                         <input type="range" id="glassOpacitySingle" min="0" max="80" step="5" value="30">
                                         <span class="frame-scale-val" id="glassOpacityValSingle">30%</span>
                                     </label>
@@ -266,12 +262,8 @@
                     <input type="range" id="frameOffsetLightbox" min="-100" max="100" step="5" value="-25">
                     <span class="frame-scale-val" id="frameOffsetValLightbox">上</span>
                 </label>
-                <label class="pop-glass-toggle lightbox-pop-glass" id="popGlassWrapLightbox" hidden title="框内用原图 + 半透明玻璃罩（关掉则纯色底）">
-                    <input type="checkbox" id="popGlassLightbox" checked>
-                    <span>玻璃</span>
-                </label>
-                <label class="frame-scale-wrap lightbox-frame-scale" id="glassOpacityWrapLightbox" hidden title="玻璃罩白雾强度：0=几乎全透看清原图，越高越像磨砂板；默认 30%">
-                    <span>雾</span>
+                <label class="frame-scale-wrap lightbox-frame-scale" id="glassOpacityWrapLightbox" hidden title="大背景板白雾：0=原图清晰可见，越高越雾；默认 30%">
+                    <span>板</span>
                     <input type="range" id="glassOpacityLightbox" min="0" max="80" step="5" value="30">
                     <span class="frame-scale-val" id="glassOpacityValLightbox">30%</span>
                 </label>
@@ -500,10 +492,6 @@
             frameOffsetWrapLightbox: $('frameOffsetWrapLightbox'),
             frameOffsetLightbox: $('frameOffsetLightbox'),
             frameOffsetValLightbox: $('frameOffsetValLightbox'),
-            popGlassWrapSingle: $('popGlassWrapSingle'),
-            popGlassSingle: $('popGlassSingle'),
-            popGlassWrapLightbox: $('popGlassWrapLightbox'),
-            popGlassLightbox: $('popGlassLightbox'),
             glassOpacityWrapSingle: $('glassOpacityWrapSingle'),
             glassOpacitySingle: $('glassOpacitySingle'),
             glassOpacityValSingle: $('glassOpacityValSingle'),
@@ -560,8 +548,9 @@
                     popOutEnabled: !!img.popOutEnabled,
                     popOutFrameScale: clampFrameScale(img.popOutFrameScale),
                     popOutFrameOffsetY: clampFrameOffset(img.popOutFrameOffsetY),
-                    popOutGlass: img.popOutGlass !== false,
-                    popOutGlassOpacity: clampGlassOpacity(img.popOutGlassOpacity)
+                    popOutBgOpacity: clampGlassOpacity(
+                        img.popOutBgOpacity ?? img.popOutGlassOpacity
+                    )
                 }));
             const next = {
                 ...prev,
@@ -606,8 +595,9 @@
                 popOutEnabled: !!img.popOutEnabled,
                 popOutFrameScale: clampFrameScale(img.popOutFrameScale),
                 popOutFrameOffsetY: clampFrameOffset(img.popOutFrameOffsetY),
-                popOutGlass: img.popOutGlass !== false,
-                popOutGlassOpacity: clampGlassOpacity(img.popOutGlassOpacity)
+                popOutBgOpacity: clampGlassOpacity(
+                    img.popOutBgOpacity ?? img.popOutGlassOpacity
+                )
             }));
             if (opts.resetIndex !== false) state.singleIndex = 0;
             return refreshResults();
@@ -1313,23 +1303,17 @@
             return -0.25;
         }
 
-        function getPopOutGlass(imageIndex) {
+        function getPopOutBgOpacity(imageIndex) {
             if (typeof imageIndex === 'number' && state.images[imageIndex]) {
-                return state.images[imageIndex].popOutGlass !== false;
-            }
-            return true;
-        }
-
-        function getPopOutGlassOpacity(imageIndex) {
-            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
-                return clampGlassOpacity(state.images[imageIndex].popOutGlassOpacity);
+                const item = state.images[imageIndex];
+                return clampGlassOpacity(item.popOutBgOpacity ?? item.popOutGlassOpacity);
             }
             return 0.3;
         }
 
-        function frameCacheKey(url, previewCap, dofEnabled, popOutEnabled, frameScale, popGlass, frameOffset, glassOpacity) {
+        function frameCacheKey(url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity) {
             const pop = popOutEnabled && dofEnabled
-                ? `pop${Math.round(clampFrameScale(frameScale) * 100)}${popGlass === false ? 'nog' : 'g'}${Math.round(clampGlassOpacity(glassOpacity) * 100)}o${Math.round(clampFrameOffset(frameOffset) * 100)}`
+                ? `pop${Math.round(clampFrameScale(frameScale) * 100)}bg${Math.round(clampGlassOpacity(bgOpacity) * 100)}o${Math.round(clampFrameOffset(frameOffset) * 100)}`
                 : 'flat';
             return `${state.framePreset}|${dofEnabled ? 'dof' : 'flat'}|${pop}|${previewCap}|${url}`;
         }
@@ -1357,8 +1341,9 @@
             const pct = Math.round(clampFrameScale(item?.popOutFrameScale) * 100);
             const offset = clampFrameOffset(item?.popOutFrameOffsetY);
             const offsetPct = Math.round(offset * 100);
-            const keepGlass = item?.popOutGlass !== false;
-            const glassPct = Math.round(clampGlassOpacity(item?.popOutGlassOpacity) * 100);
+            const bgPct = Math.round(
+                clampGlassOpacity(item?.popOutBgOpacity ?? item?.popOutGlassOpacity) * 100
+            );
             const scalePairs = [
                 {
                     wrap: els.frameScaleWrapSingle,
@@ -1396,15 +1381,6 @@
                 if (input) input.value = String(offsetPct);
                 if (val) val.textContent = offsetLabel;
             }
-            const glassPairs = [
-                { wrap: els.popGlassWrapSingle, input: els.popGlassSingle },
-                { wrap: els.popGlassWrapLightbox, input: els.popGlassLightbox }
-            ];
-            for (const { wrap, input } of glassPairs) {
-                if (!wrap) continue;
-                wrap.hidden = !show;
-                if (input) input.checked = keepGlass;
-            }
             const opacityPairs = [
                 {
                     wrap: els.glassOpacityWrapSingle,
@@ -1419,9 +1395,9 @@
             ];
             for (const { wrap, input, val } of opacityPairs) {
                 if (!wrap) continue;
-                wrap.hidden = !(show && keepGlass);
-                if (input) input.value = String(glassPct);
-                if (val) val.textContent = `${glassPct}%`;
+                wrap.hidden = !show;
+                if (input) input.value = String(bgPct);
+                if (val) val.textContent = `${bgPct}%`;
             }
         }
 
@@ -1590,11 +1566,10 @@
             if (item.popOutEnabled && !Number.isFinite(Number(item.popOutFrameOffsetY))) {
                 item.popOutFrameOffsetY = -0.25;
             }
-            if (item.popOutEnabled && item.popOutGlass === undefined) {
-                item.popOutGlass = true;
-            }
-            if (item.popOutEnabled && !Number.isFinite(Number(item.popOutGlassOpacity))) {
-                item.popOutGlassOpacity = 0.3;
+            if (item.popOutEnabled && !Number.isFinite(Number(item.popOutBgOpacity))) {
+                item.popOutBgOpacity = clampGlassOpacity(
+                    item.popOutGlassOpacity ?? 0.3
+                );
             }
             invalidateFrameCache(item.url);
             saveSession({ images: state.images });
@@ -1697,26 +1672,11 @@
             frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
         }
 
-        async function applyPopOutGlass(index, keepGlass) {
+        async function applyBgOpacity(index, pct) {
             const item = state.images[index];
             if (!item || !item.popOutEnabled) return;
-            item.popOutGlass = !!keepGlass;
-            if (els.popGlassSingle) els.popGlassSingle.checked = item.popOutGlass;
-            if (els.popGlassLightbox) els.popGlassLightbox.checked = item.popOutGlass;
-            syncFrameScaleControls(index);
-            await rerenderAfterFrameAdjust(index);
-            setProgress(
-                item.popOutGlass
-                    ? `第 ${index + 1} 张：框内玻璃 · 雾 ${Math.round(clampGlassOpacity(item.popOutGlassOpacity) * 100)}%`
-                    : `第 ${index + 1} 张：框内改为纯色底`
-            );
-        }
-
-        async function applyGlassOpacity(index, pct) {
-            const item = state.images[index];
-            if (!item || !item.popOutEnabled || item.popOutGlass === false) return;
-            item.popOutGlassOpacity = clampGlassOpacity(Number(pct) / 100);
-            const shown = Math.round(item.popOutGlassOpacity * 100);
+            item.popOutBgOpacity = clampGlassOpacity(Number(pct) / 100);
+            const shown = Math.round(item.popOutBgOpacity * 100);
             if (els.glassOpacityValSingle) els.glassOpacityValSingle.textContent = `${shown}%`;
             if (els.glassOpacityValLightbox) els.glassOpacityValLightbox.textContent = `${shown}%`;
             if (els.glassOpacitySingle && document.activeElement !== els.glassOpacitySingle) {
@@ -1745,11 +1705,9 @@
                 opts.popOut = true;
                 opts.popOutFrameScale = getPopOutFrameScale(imageIndex);
                 opts.popOutFrameOffsetY = getPopOutFrameOffsetY(imageIndex);
-                opts.popOutGlass = getPopOutGlass(imageIndex);
-                opts.popOutGlassOpacity = getPopOutGlassOpacity(imageIndex);
+                opts.popOutBgOpacity = getPopOutBgOpacity(imageIndex);
                 opts.popOutOverflow = 0.1;
-                opts.popOutOuterBlur = 12;
-                opts.popOutInnerBlur = 8;
+                opts.popOutOuterBlur = 14;
             }
             try {
                 opts.matteForeground = await fetchMatteForeground(url, cap > 0 ? cap : 1280);
@@ -1816,9 +1774,8 @@
                 const dofEnabled = resolveDofEnabled(url, imageIndex);
                 const popOutEnabled = resolvePopOutEnabled(url, imageIndex);
                 const frameScale = getPopOutFrameScale(imageIndex);
-                const popGlass = getPopOutGlass(imageIndex);
                 const frameOffset = getPopOutFrameOffsetY(imageIndex);
-                const glassOpacity = getPopOutGlassOpacity(imageIndex);
+                const bgOpacity = getPopOutBgOpacity(imageIndex);
                 const img = await loadImage(url);
                 if (options.fullRes) {
                     const frameOpts = await buildFrameRenderOptions(
@@ -1840,7 +1797,7 @@
                 }
                 const previewCap = maxW > 0 ? maxW : 720;
                 const cacheKey = frameCacheKey(
-                    url, previewCap, dofEnabled, popOutEnabled, frameScale, popGlass, frameOffset, glassOpacity
+                    url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity
                 );
                 if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
                     const cached = cloneCanvas(state.framePreviewCache.get(cacheKey));
@@ -1890,8 +1847,7 @@
                 popOutEnabled: false,
                 popOutFrameScale: 0.5,
                 popOutFrameOffsetY: -0.25,
-                popOutGlass: true,
-                popOutGlassOpacity: 0.3,
+                popOutBgOpacity: 0.3,
                 selected: state.images[index].selected !== false
             };
             saveSession({ images: state.images, status: 'done' });
@@ -2728,27 +2684,18 @@
             };
             wireFrameOffset(els.frameOffsetSingle);
             wireFrameOffset(els.frameOffsetLightbox);
-            const wirePopGlass = (input) => {
-                if (!input) return;
-                input.addEventListener('change', (e) => {
-                    e.stopPropagation();
-                    applyPopOutGlass(currentFocusImageIndex(), input.checked);
-                });
-            };
-            wirePopGlass(els.popGlassSingle);
-            wirePopGlass(els.popGlassLightbox);
-            const wireGlassOpacity = (input) => {
+            const wireBgOpacity = (input) => {
                 if (!input) return;
                 const onChange = (e) => {
                     e.stopPropagation();
-                    applyGlassOpacity(currentFocusImageIndex(), input.value);
+                    applyBgOpacity(currentFocusImageIndex(), input.value);
                 };
                 input.addEventListener('pointerdown', (e) => e.stopPropagation());
                 input.addEventListener('input', onChange);
                 input.addEventListener('change', onChange);
             };
-            wireGlassOpacity(els.glassOpacitySingle);
-            wireGlassOpacity(els.glassOpacityLightbox);
+            wireBgOpacity(els.glassOpacitySingle);
+            wireBgOpacity(els.glassOpacityLightbox);
             if (els.btnExportCurrent) {
                 els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
             }

@@ -50,7 +50,7 @@
         const offH = Math.max(1, Math.ceil(h * shrink));
         const blurPx = Math.min(
             56,
-            Math.max(8, baseBlur * (Math.max(offW, drawW * shrink || offW) / REF_WIDTH))
+            Math.max(2, baseBlur * (Math.max(offW, drawW * shrink || offW) / REF_WIDTH))
         );
         const zoom = Math.max(1, Number(opts.glassZoom) || 1);
 
@@ -85,7 +85,7 @@
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(off, x, y, w, h);
-        // 极薄雾面：保留原图通透，不要亚克力白板
+        // 半透明玻璃罩：白雾强度由 glassFrost 控制（破框默认约 0.3），不是厚磨砂亚克力
         if (frost > 0) {
             ctx.fillStyle = `rgba(255, 255, 255, ${frost})`;
             ctx.fillRect(x, y, w, h);
@@ -212,10 +212,11 @@
 
     /**
      * 破框图层（从下到上）：
-     * 0) 整卡 = 原图浅模糊背景板（外面已画）
-     * 1) 框内 = 同一张原图 + 半透明玻璃罩（默认约 30% 白雾，可调；不是磨砂亚克力白板）
-     * 2) 黑框描边（在抠图下面）
-     * 3) 整层抠图最上 → 压住黑边，像角色走出来
+     * 0) 整卡背景板 = 原图（浅模糊 + 可调白雾）——外面已画
+     * 1) 空心黑框 = 只有描边，框内什么都不画（透过空洞看见背景板）
+     * 2) 整层抠图最上 → 压住黑边；手/发伸出框外 = 裸眼 3D
+     *
+     * 切勿在框内再画一遍原图：半透明裙/发会透出「第二层角色」，像框穿模。
      */
     function drawPopOutScene(
         ctx,
@@ -242,42 +243,8 @@
         const windowY = imgY + freeY * (0.5 + offsetNorm * 0.5);
         const winRadius = Math.max(6, Math.round(borderRadius * frameScale));
         const strokeW = Math.max(2, Number(borderWidth) || 3);
-        const inset = strokeW * 0.5;
-        const glassX = windowX + inset;
-        const glassY = windowY + inset;
-        const glassW = Math.max(1, windowW - inset * 2);
-        const glassH = Math.max(1, windowH - inset * 2);
-        const glassRadius = Math.max(2, winRadius - inset);
-        const keepGlass = opts.popOutGlass !== false;
-        const opacityRaw = Number(opts.popOutGlassOpacity);
-        // 玻璃罩透明度：0 = 几乎全透看清原图，1 = 完全盖住；默认 0.3
-        const glassOpacity = Number.isFinite(opacityRaw)
-            ? Math.min(1, Math.max(0, opacityRaw))
-            : 0.3;
 
-        // 框内：原图（轻模糊）+ 半透明玻璃罩，或纯色底
-        ctx.save();
-        clipFramePath(ctx, glassX, glassY, glassW, glassH, glassRadius, borderStyle);
-        ctx.clip();
-        if (keepGlass) {
-            drawBlurredImageBackground(ctx, image, glassX, glassY, glassW, glassH, {
-                ...opts,
-                borderRadius: glassRadius,
-                glassBlur: Number(opts.popOutInnerBlur) || 8,
-                glassFrost: glassOpacity,
-                glassSheen: Math.min(0.12, 0.04 + glassOpacity * 0.12),
-                glassZoom: 1.02,
-                glassBrightness: 1.0,
-                glassSaturate: 1.02,
-                glassTint: 0
-            }, glassW);
-        } else {
-            ctx.fillStyle = opts.bgColor || '#f6edda';
-            ctx.fillRect(glassX, glassY, glassW, glassH);
-        }
-        ctx.restore();
-
-        // 黑框在抠图之下
+        // 空心黑框：只描边，框内留空看背景板
         ctx.save();
         ctx.strokeStyle = borderColor || '#26221c';
         ctx.lineWidth = strokeW;
@@ -780,14 +747,18 @@
         const useDof = opts.depthOfField && matteFg && (matteFg.naturalWidth || matteFg.width);
         const usePopOut = useDof && opts.popOut;
 
-        // 破框：整卡用「原图浅模糊」当背景板，要能认出场景，不要厚磨砂
+        // 破框：整卡背景板 = 原图浅模糊 + 可调白雾（popOutBgOpacity，默认 0.3）
         if (usePopOut) {
+            const bgOpacityRaw = Number(opts.popOutBgOpacity);
+            const bgFrost = Number.isFinite(bgOpacityRaw)
+                ? Math.min(0.8, Math.max(0, bgOpacityRaw))
+                : 0.3;
             drawBlurredImageBackground(ctx, image, 0, 0, canvasW, canvasH, {
                 ...opts,
                 borderRadius: 0,
-                glassBlur: Number(opts.popOutOuterBlur) || 12,
-                glassFrost: 0,
-                glassSheen: 0.03,
+                glassBlur: Number(opts.popOutOuterBlur) || 14,
+                glassFrost: bgFrost,
+                glassSheen: Math.min(0.1, 0.02 + bgFrost * 0.1),
                 glassZoom: 1.04,
                 glassBrightness: 1.0,
                 glassSaturate: 1.02,
@@ -805,12 +776,16 @@
         }
 
         if (usePopOut) {
+            const bgOpacityRaw = Number(opts.popOutBgOpacity);
+            const bgFrost = Number.isFinite(bgOpacityRaw)
+                ? Math.min(0.8, Math.max(0, bgOpacityRaw))
+                : 0.3;
             drawBlurredImageBackground(ctx, image, 0, 0, cardW, cardH, {
                 ...opts,
                 borderRadius: 14,
-                glassBlur: Number(opts.popOutOuterBlur) || 12,
-                glassFrost: 0,
-                glassSheen: 0.03,
+                glassBlur: Number(opts.popOutOuterBlur) || 14,
+                glassFrost: bgFrost,
+                glassSheen: Math.min(0.1, 0.02 + bgFrost * 0.1),
                 glassZoom: 1.04,
                 glassBrightness: 1.0,
                 glassSaturate: 1.02,
