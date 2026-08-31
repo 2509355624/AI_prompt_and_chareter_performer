@@ -11,6 +11,7 @@ const { startImageWorker } = require('./gpu_scheduler/image_worker');
 const { processChatTurn } = require('./gpu_scheduler/chat_turn_runner');
 const { runCharacterImageJob } = require('./gpu_scheduler/character_image_runner');
 const ollamaGuard = require('./gpu_scheduler/ollama_guard');
+const matteService = require('./matte_service');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -892,6 +893,22 @@ app.post('/api/export-chat-strips', (req, res) => {
 
     console.log('[Export] saved', saved.length, 'strips to', resolved);
     res.json({ ok: true, folderPath: resolved, saved });
+});
+
+/** Background matting for depth-of-field preview (cached on disk) */
+app.post('/api/image/matte', async (req, res) => {
+    try {
+        const url = String(req.body?.url || '').trim();
+        const maxSide = Math.min(2048, Math.max(256, Number(req.body?.maxSide) || 1280));
+        if (!url) {
+            return res.status(400).json({ ok: false, error: '缺少 url' });
+        }
+        const result = await matteService.getMatteForeground(url, maxSide);
+        res.json({ ok: true, ...result });
+    } catch (e) {
+        console.error('[matte]', e);
+        res.status(500).json({ ok: false, error: e.message || '抠图失败' });
+    }
 });
 
 /** Single full-res PNG export — one file per request to avoid huge batch payloads */

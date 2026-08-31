@@ -73,6 +73,13 @@ html.gen-page body {
   color: #fff;
 }
 
+.single-nav .btn.active,
+.lightbox-nav .btn.active {
+  background: rgba(47, 124, 214, 0.12);
+  border-color: #2f7cd6;
+  color: #1a5aa8;
+}
+
 .gen-layout {
   flex: 1;
   min-height: 0;
@@ -260,8 +267,33 @@ html.gen-page body {
   justify-content: space-between;
   gap: 6px;
   padding: 6px 8px;
+  flex-wrap: wrap;
   font-size: 12px;
   border-top: 1px solid var(--rule);
+}
+
+.results-grid .result-card .btn-dof {
+  border: 1.5px solid var(--text);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  flex-shrink: 0;
+}
+
+.results-grid .result-card .btn-dof:hover {
+  background: rgba(47, 124, 214, 0.08);
+  border-color: #2f7cd6;
+  color: #1a5aa8;
+}
+
+.results-grid .result-card .btn-dof.active {
+  background: rgba(47, 124, 214, 0.18);
+  border-color: #2f7cd6;
+  color: #1a5aa8;
 }
 
 .results-grid .result-card .btn-rerender {

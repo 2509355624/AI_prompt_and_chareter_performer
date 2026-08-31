@@ -676,7 +676,22 @@
         ctx.save();
         clipFramePath(ctx, imgX, imgY, drawW, drawH, borderRadius, borderStyle);
         ctx.clip();
-        ctx.drawImage(image, 0, 0, imgW, imgH, imgX, imgY, drawW, drawH);
+        const matteFg = opts.matteForeground;
+        const useDof = opts.depthOfField && matteFg && (matteFg.naturalWidth || matteFg.width);
+        if (useDof) {
+            const dofOpts = {
+                ...opts,
+                glassBlur: Number(opts.dofBlur) || 42,
+                glassFrost: opts.dofFrost ?? 0.06,
+                glassTint: opts.dofTint ?? 0
+            };
+            drawBlurredImageBackground(ctx, image, imgX, imgY, drawW, drawH, dofOpts, drawW);
+            const fgW = matteFg.naturalWidth || matteFg.width;
+            const fgH = matteFg.naturalHeight || matteFg.height;
+            ctx.drawImage(matteFg, 0, 0, fgW, fgH, imgX, imgY, drawW, drawH);
+        } else {
+            ctx.drawImage(image, 0, 0, imgW, imgH, imgX, imgY, drawW, drawH);
+        }
         ctx.restore();
 
         if (borderWidth > 0) {

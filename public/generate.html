@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ComfyUI 图片生成</title>
-    <link rel="stylesheet" href="styles/generate-paper.css?v=17">
+    <link rel="stylesheet" href="styles/generate-paper.css?v=19">
 </head>
 <body>
     <a href="index.html" class="back-home"><span>🏠</span><span>返回主页</span></a>
@@ -57,6 +57,7 @@
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnNext">▶</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnOpenLightbox">放大</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderSingle" title="从 Comfy output 或本机选图替换当前槽位">换图</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" id="btnDofSingle" title="抠图后主体清晰、背景虚化" disabled>景深抠图</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnCopySinglePrompt">复制词</button>
                                     <button type="button" class="btn btn-accent2 btn-sm" id="btnExportCurrent" disabled>导出</button>
                                     <button type="button" class="btn btn-ghost btn-sm" id="btnExportSelected" disabled>导出选中</button>
@@ -215,6 +216,7 @@
                 <button type="button" class="btn btn-ghost" id="btnLightboxNext">▶</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnCopyLightboxPrompt">复制提示词</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="btnRerenderLightbox" title="从 Comfy output 或本机选图替换">换图</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btnDofLightbox" title="抠图后主体清晰、背景虚化">景深抠图</button>
                 <button type="button" class="btn btn-accent2 btn-sm" id="btnExportLightbox">导出当前</button>
             </div>
             <div class="prompt-box lightbox-prompt" id="lightboxPromptBox" hidden>
@@ -241,7 +243,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=9"></script>
+    <script src="js/sticker-frame.js?v=10"></script>
     <script>
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
@@ -380,6 +382,8 @@
             exportDirHandle: null,
             generating: false,
             framePreset: 'paper-collage',
+            matteCache: new Map(),
+            dofBusy: false,
             jobId: '',
             pollTimer: null,
             resultsRenderToken: 0,
@@ -420,7 +424,9 @@
             lightboxStage: $('lightboxStage'),
             lightboxIndexLabel: $('lightboxIndexLabel'),
             btnViewGrid: $('btnViewGrid'),
-            btnViewSingle: $('btnViewSingle')
+            btnViewSingle: $('btnViewSingle'),
+            btnDofSingle: $('btnDofSingle'),
+            btnDofLightbox: $('btnDofLightbox')
         };
 
         function currentMode() {
@@ -466,7 +472,8 @@
                 .map((img) => ({
                     url: img.url,
                     prompt: img.prompt || '',
-                    selected: img.selected !== false
+                    selected: img.selected !== false,
+                    dofEnabled: !!img.dofEnabled
                 }));
             const next = {
                 ...prev,
@@ -506,7 +513,8 @@
             state.images = (images || []).map((img) => ({
                 url: img.url,
                 prompt: img.prompt || '',
-                selected: img.selected !== false
+                selected: img.selected !== false,
+                dofEnabled: !!img.dofEnabled
             }));
             if (opts.resetIndex !== false) state.singleIndex = 0;
             return refreshResults();
@@ -1180,8 +1188,132 @@
             return canvas;
         }
 
-        function frameCacheKey(url, previewCap) {
-            return `${state.framePreset}|${previewCap}|${url}`;
+        function frameCacheKey(url, previewCap, dofEnabled) {
+            return `${state.framePreset}|${dofEnabled ? 'dof' : 'flat'}|${previewCap}|${url}`;
+        }
+
+        function resolveDofEnabled(url, imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                return !!state.images[imageIndex].dofEnabled;
+            }
+            const found = state.images.find((img) => img.url === url);
+            return !!found?.dofEnabled;
+        }
+
+        function syncDofButtonLabels() {
+            const singleItem = state.images[state.singleIndex];
+            if (els.btnDofSingle) {
+                if (!singleItem) {
+                    els.btnDofSingle.textContent = '景深抠图';
+                    els.btnDofSingle.disabled = true;
+                } else if (state.dofBusy) {
+                    els.btnDofSingle.textContent = '抠图中…';
+                    els.btnDofSingle.disabled = true;
+                } else {
+                    els.btnDofSingle.textContent = singleItem.dofEnabled ? '取消景深' : '景深抠图';
+                    els.btnDofSingle.disabled = false;
+                    els.btnDofSingle.classList.toggle('active', !!singleItem.dofEnabled);
+                }
+            }
+            const lbItem = state.images[state.lightboxIndex];
+            if (els.btnDofLightbox) {
+                if (!lbItem) {
+                    els.btnDofLightbox.textContent = '景深抠图';
+                    els.btnDofLightbox.disabled = true;
+                } else if (state.dofBusy) {
+                    els.btnDofLightbox.textContent = '抠图中…';
+                    els.btnDofLightbox.disabled = true;
+                } else {
+                    els.btnDofLightbox.textContent = lbItem.dofEnabled ? '取消景深' : '景深抠图';
+                    els.btnDofLightbox.disabled = false;
+                    els.btnDofLightbox.classList.toggle('active', !!lbItem.dofEnabled);
+                }
+            }
+        }
+
+        async function applyDepthOfField(index) {
+            const item = state.images[index];
+            if (!item || state.dofBusy) return;
+
+            if (item.dofEnabled) {
+                item.dofEnabled = false;
+                invalidateFrameCache(item.url);
+                saveSession({ images: state.images });
+                syncDofButtonLabels();
+                await refreshResults();
+                if (els.lightbox.classList.contains('open') && state.lightboxIndex === index) {
+                    await paintLightbox();
+                }
+                setProgress(`第 ${index + 1} 张：已关闭景深`);
+                return;
+            }
+
+            state.dofBusy = true;
+            syncDofButtonLabels();
+            setProgress(`第 ${index + 1} 张：抠图中，请稍候（首次约 10–30 秒）…`);
+            try {
+                await fetchMatteForeground(item.url, 1280);
+                item.dofEnabled = true;
+                invalidateFrameCache(item.url);
+                saveSession({ images: state.images });
+                setProgress(`第 ${index + 1} 张：景深已应用`);
+                await refreshResults();
+                if (els.lightbox.classList.contains('open') && state.lightboxIndex === index) {
+                    await paintLightbox();
+                }
+            } catch (e) {
+                alert('景深抠图失败：' + e.message);
+                setProgress('');
+            } finally {
+                state.dofBusy = false;
+                syncDofButtonLabels();
+            }
+        }
+
+        function clearMatteCache() {
+            state.matteCache.clear();
+        }
+
+        async function fetchMatteForeground(url, maxSide) {
+            const key = `${url}|${maxSide}`;
+            if (state.matteCache.has(key)) return state.matteCache.get(key);
+
+            const task = (async () => {
+                const resp = await fetch('/api/image/matte', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, maxSide })
+                });
+                const data = await resp.json();
+                if (!data.ok) throw new Error(data.error || '抠图失败');
+                return loadImage(data.foregroundDataUrl);
+            })();
+
+            state.matteCache.set(key, task);
+            while (state.matteCache.size > 16) {
+                const oldest = state.matteCache.keys().next().value;
+                state.matteCache.delete(oldest);
+            }
+            return task;
+        }
+
+        async function buildFrameRenderOptions(url, caption, cap, dofEnabled) {
+            const opts = {
+                preset: state.framePreset,
+                caption: caption || '',
+                previewMaxWidth: cap
+            };
+            if (!dofEnabled) return opts;
+
+            opts.depthOfField = true;
+            opts.dofBlur = 48;
+            try {
+                opts.matteForeground = await fetchMatteForeground(url, cap > 0 ? cap : 1280);
+            } catch (e) {
+                console.warn('[dof] matte failed', e);
+                opts.depthOfField = false;
+            }
+            return opts;
         }
 
         function invalidateFrameCache(url) {
@@ -1245,31 +1377,27 @@
 
         async function renderFramedCanvas(url, caption, previewMaxWidth, options = {}) {
             return enqueueFrameRender(async () => {
+                const imageIndex = options.imageIndex;
+                const dofEnabled = resolveDofEnabled(url, imageIndex);
                 const img = await loadImage(url);
                 if (options.fullRes) {
+                    const frameOpts = await buildFrameRenderOptions(url, caption, 0, dofEnabled);
+                    frameOpts.previewMaxWidth = 0;
                     if (typeof StickerFrame.renderStickerFrameSafe === 'function') {
-                        const safe = StickerFrame.renderStickerFrameSafe(img, {
-                            preset: state.framePreset,
-                            caption: caption || '',
-                            previewMaxWidth: 0
-                        });
+                        const safe = StickerFrame.renderStickerFrameSafe(img, frameOpts);
                         if (safe.reason === 'still_corrupt') {
                             throw new Error('边框渲染异常（下半发黑）');
                         }
                         return safe.canvas;
                     }
-                    return StickerFrame.renderStickerFrame(img, {
-                        preset: state.framePreset,
-                        caption: caption || '',
-                        previewMaxWidth: 0
-                    });
+                    return StickerFrame.renderStickerFrame(img, frameOpts);
                 }
                 let maxW = previewMaxWidth;
                 if (maxW === undefined) {
                     maxW = state.viewMode === 'grid' ? 420 : 720;
                 }
                 const previewCap = maxW > 0 ? maxW : 720;
-                const cacheKey = frameCacheKey(url, previewCap);
+                const cacheKey = frameCacheKey(url, previewCap, dofEnabled);
                 if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
                     const cached = cloneCanvas(state.framePreviewCache.get(cacheKey));
                     if (!isFramedCanvasCorrupt(cached)) return cached;
@@ -1278,13 +1406,9 @@
 
                 async function drawOnce(cap) {
                     const source = downscaleForPreview(img, cap);
-                    // 让出一帧，减轻连续 blur 压力
                     await new Promise((r) => requestAnimationFrame(r));
-                    return StickerFrame.renderStickerFrame(source, {
-                        preset: state.framePreset,
-                        caption: caption || '',
-                        previewMaxWidth: cap
-                    });
+                    const frameOpts = await buildFrameRenderOptions(url, caption, cap, dofEnabled);
+                    return StickerFrame.renderStickerFrame(source, frameOpts);
                 }
 
                 let canvas = await drawOnce(previewCap);
@@ -1313,6 +1437,7 @@
             state.images[index] = {
                 ...state.images[index],
                 url,
+                dofEnabled: false,
                 selected: state.images[index].selected !== false
             };
             saveSession({ images: state.images, status: 'done' });
@@ -1466,7 +1591,7 @@
             indexes.forEach((i) => {
                 const url = state.images[i] && state.images[i].url;
                 if (!url) return;
-                renderFramedCanvas(url, '', 720).catch(() => {});
+                renderFramedCanvas(url, '', 720, { imageIndex: i }).catch(() => {});
             });
         }
 
@@ -1490,6 +1615,7 @@
                     empty.className = 'results-grid-empty';
                     empty.innerHTML = '选好预设后，在左下角输入场景并生成。<br>也可切到「单图」查看大图布局。';
                     els.resultsGrid.appendChild(empty);
+                    syncDofButtonLabels();
                     return;
                 }
                 const renderToken = (state.resultsRenderToken = (state.resultsRenderToken || 0) + 1);
@@ -1501,7 +1627,7 @@
                     const thumb = document.createElement('div');
                     thumb.className = 'thumb';
                     try {
-                        const canvas = await renderFramedCanvas(item.url, '');
+                        const canvas = await renderFramedCanvas(item.url, '', undefined, { imageIndex: i });
                         if (renderToken !== state.resultsRenderToken) return;
                         thumb.appendChild(canvas);
                     } catch (_) {
@@ -1514,6 +1640,7 @@
                     meta.className = 'meta';
                     meta.innerHTML = `
                         <label><input type="checkbox" ${item.selected ? 'checked' : ''} data-i="${i}"> ${String(i + 1).padStart(3, '0')}</label>
+                        <button type="button" class="btn-dof${item.dofEnabled ? ' active' : ''}" data-dof="${i}" title="抠图后主体清晰、背景虚化">${item.dofEnabled ? '取消景深' : '景深抠图'}</button>
                         <button type="button" class="btn-rerender" data-rerender="${i}" title="从 output / 本机换图">换图</button>
                     `;
                     meta.querySelector('input').addEventListener('change', (e) => {
@@ -1524,6 +1651,10 @@
                         e.stopPropagation();
                         openImportModal(i);
                     });
+                    meta.querySelector('[data-dof]').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        applyDepthOfField(i);
+                    });
                     card.appendChild(thumb);
                     card.appendChild(meta);
                     if (item.prompt) card.appendChild(buildPromptMeta(item, i));
@@ -1531,6 +1662,7 @@
                     // 让出一帧，减轻连续玻璃模糊对 GPU 的压力
                     await new Promise((r) => requestAnimationFrame(r));
                 }
+                syncDofButtonLabels();
             } else {
                 els.resultsGrid.classList.add('hidden');
                 els.singleView.classList.add('active');
@@ -1538,17 +1670,19 @@
                 els.singleIndexLabel.textContent = n ? `${state.singleIndex + 1} / ${n}` : '0 / 0';
                 if (!n) {
                     els.singleStage.innerHTML = '<div class="stage-placeholder">选好预设后，在左下角输入场景并生成。<br>出图后默认带边框预览，点击可放大。</div>';
+                    syncDofButtonLabels();
                     return;
                 }
                 const item = state.images[state.singleIndex];
                 let node;
                 try {
-                    node = await renderFramedCanvas(item.url, '');
+                    node = await renderFramedCanvas(item.url, '', undefined, { imageIndex: state.singleIndex });
                 } catch (_) {
                     node = document.createElement('img');
                     node.src = item.url;
                 }
                 els.singleStage.replaceChildren(node);
+                syncDofButtonLabels();
             }
         }
 
@@ -1565,7 +1699,7 @@
             const item = state.images[index];
             let node;
             try {
-                node = await renderFramedCanvas(item.url, '', 720);
+                node = await renderFramedCanvas(item.url, '', 720, { imageIndex: index });
             } catch (_) {
                 node = document.createElement('img');
                 node.src = item.url;
@@ -1573,6 +1707,7 @@
             // 画好再替换，避免先清空导致白闪；过期请求直接丢弃
             if (paintToken !== state.lightboxPaintToken || state.lightboxIndex !== index) return;
             els.lightboxStage.replaceChildren(node);
+            syncDofButtonLabels();
             prefetchLightboxNeighbors(index);
         }
 
@@ -1932,7 +2067,10 @@
                     setProgress(`导出 ${done}/${selected.length}…`);
                     let blob;
                     if (withFrame) {
-                        const canvas = await renderFramedCanvas(item.url, '', undefined, { fullRes: true });
+                        const canvas = await renderFramedCanvas(item.url, '', undefined, {
+                            fullRes: true,
+                            imageIndex: item.i
+                        });
                         blob = await StickerFrame.canvasToBlob(canvas);
                     } else {
                         const imgRes = await fetch(item.url);
@@ -2081,6 +2219,16 @@
             $('btnRerenderSingle').addEventListener('click', () => {
                 openImportModal(state.images.length ? state.singleIndex : -1);
             });
+            if (els.btnDofSingle) {
+                els.btnDofSingle.addEventListener('click', () => {
+                    if (state.images.length) applyDepthOfField(state.singleIndex);
+                });
+            }
+            if (els.btnDofLightbox) {
+                els.btnDofLightbox.addEventListener('click', () => {
+                    if (state.images.length) applyDepthOfField(state.lightboxIndex);
+                });
+            }
             if (els.btnExportCurrent) {
                 els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
             }
