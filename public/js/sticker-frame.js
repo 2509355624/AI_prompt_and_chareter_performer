@@ -256,126 +256,86 @@
     }
 
     /**
-     * 破框最底层舞台：
-     * frost = 磨砂原图（现状）
-     * letterbox = 横向大黑边（上下黑，中间可留磨砂图）
-     * pillarbox = 竖向大黑边（左右黑）
-     * black = 全黑舞台（角色破框压在纯黑上，最像抖音裸眼 3D）
+     * 景深最底层：只保留磨砂原图，去掉横/竖黑边杂项。
      */
-    function drawPopOutStageBackground(ctx, image, x, y, w, h, opts, drawW, radius) {
-        const mode = String(opts.popOutStageMode || 'frost');
-        const bgOpacityRaw = Number(opts.popOutBgOpacity);
-        const bgFrost = Number.isFinite(bgOpacityRaw)
-            ? Math.min(0.8, Math.max(0, bgOpacityRaw))
-            : 0.3;
-        const frostOpts = {
+    function drawFrostPlate(ctx, image, x, y, w, h, opts, drawW, radius) {
+        const frostRaw = Number(opts.popOutBgOpacity);
+        const frost = Number.isFinite(frostRaw) ? Math.min(0.7, Math.max(0, frostRaw)) : 0.22;
+        drawBlurredImageBackground(ctx, image, x, y, w, h, {
             ...opts,
             borderRadius: radius || 0,
-            glassBlur: Number(opts.popOutOuterBlur) || 14,
-            glassFrost: bgFrost,
-            glassSheen: Math.min(0.1, 0.02 + bgFrost * 0.1),
-            glassZoom: 1.04,
+            glassBlur: Number(opts.popOutOuterBlur) || 18,
+            glassFrost: frost,
+            glassSheen: 0.04,
+            glassZoom: 1.03,
             glassBrightness: 1.0,
             glassSaturate: 1.02,
             glassTint: 0
-        };
-
-        if (mode === 'black' || mode === 'letterbox' || mode === 'pillarbox') {
-            ctx.fillStyle = '#000000';
-            if (radius > 0) {
-                roundRect(ctx, x, y, w, h, radius);
-                ctx.fill();
-            } else {
-                ctx.fillRect(x, y, w, h);
-            }
-
-            if (mode === 'black') return;
-
-            const barRaw = Number(opts.popOutBlackBar);
-            const bar = Number.isFinite(barRaw) ? Math.min(0.4, Math.max(0.1, barRaw)) : 0.22;
-            let ix = x;
-            let iy = y;
-            let iw = w;
-            let ih = h;
-            if (mode === 'letterbox') {
-                const barH = h * bar;
-                iy = y + barH;
-                ih = Math.max(1, h - barH * 2);
-            } else {
-                const barW = w * bar;
-                ix = x + barW;
-                iw = Math.max(1, w - barW * 2);
-            }
-            if (iw > 8 && ih > 8) {
-                drawBlurredImageBackground(ctx, image, ix, iy, iw, ih, {
-                    ...frostOpts,
-                    borderRadius: Math.min(radius || 0, 8)
-                }, drawW);
-            }
-            return;
-        }
-
-        // frost（默认）
-        drawBlurredImageBackground(ctx, image, x, y, w, h, frostOpts, drawW);
+        }, drawW);
     }
 
     /**
-     * 破框图层（从下到上）：
-     * 0) 整卡背景板 = 原图（浅模糊 + 可调白雾）——外面已画
-     * 1) 空心黑框 = 只有描边，框内什么都不画（透过空洞看见背景板）
-     * 2) 整层抠图最上 → 压住黑边；手/发伸出框外 = 裸眼 3D
-     *
-     * 切勿在框内再画一遍原图：半透明裙/发会透出「第二层角色」，像框穿模。
+     * 景深探出（正确模型）：
+     * - 卡片 = 可缩小的空心描边框（框内透明，透出磨砂背景）
+     * - 角色 = 独立抠图层，绝不 clip，放大后自然探出卡片
+     * 不再需要单独的「破框」模式，也不再内套第二层空心黑框。
      */
-    function drawPopOutScene(
+    function drawDofCardAndSubject(
         ctx,
-        image,
         matteFg,
         imgX,
         imgY,
         drawW,
         drawH,
         borderRadius,
-        borderStyle,
         borderWidth,
         borderColor,
         opts
     ) {
-        const frameScale = Number(opts.popOutFrameScale) || 0.5;
-        const windowW = drawW * frameScale;
-        const windowH = drawH * frameScale;
-        const freeY = Math.max(0, drawH - windowH);
-        // offsetY: -1 框贴顶，+1 框贴底，0 居中。默认略上移，让下边框更容易被角色挡住
+        const cardScaleRaw = Number(opts.popOutFrameScale);
+        const cardScale = Number.isFinite(cardScaleRaw)
+            ? Math.min(0.98, Math.max(0.35, cardScaleRaw))
+            : 0.72;
+        const cardW = drawW * cardScale;
+        const cardH = drawH * cardScale;
+        const freeX = Math.max(0, drawW - cardW);
+        const freeY = Math.max(0, drawH - cardH);
         const offsetY = Number(opts.popOutFrameOffsetY);
-        const offsetNorm = Number.isFinite(offsetY) ? Math.max(-1, Math.min(1, offsetY)) : -0.25;
-        const windowX = imgX + (drawW - windowW) / 2;
-        const windowY = imgY + freeY * (0.5 + offsetNorm * 0.5);
-        const winRadius = Math.max(6, Math.round(borderRadius * frameScale));
-        const strokeW = Math.max(2, Number(borderWidth) || 3);
+        const offsetNorm = Number.isFinite(offsetY) ? Math.max(-1, Math.min(1, offsetY)) : -0.2;
+        const cardX = imgX + freeX / 2;
+        const cardY = imgY + freeY * (0.5 + offsetNorm * 0.5);
+        const radius = Math.max(4, Math.round((Number(borderRadius) || 14) * Math.min(1, cardScale + 0.15)));
+        const strokeW = Math.max(2.5, Number(borderWidth) || 3);
 
-        // 空心黑框：只描边，框内留空看背景板
+        // 空心卡片：只用干净圆角描边，避免手绘边框在拐角花掉
         ctx.save();
-        ctx.strokeStyle = borderColor || '#26221c';
+        ctx.strokeStyle = borderColor || '#1a1814';
         ctx.lineWidth = strokeW;
         ctx.lineJoin = 'round';
-        strokeFramePath(ctx, windowX, windowY, windowW, windowH, winRadius, borderStyle);
+        ctx.lineCap = 'round';
+        roundRect(ctx, cardX + strokeW / 2, cardY + strokeW / 2, Math.max(1, cardW - strokeW), Math.max(1, cardH - strokeW), Math.max(2, radius - strokeW / 2));
+        ctx.stroke();
         ctx.restore();
 
-        // 抠图层最上（可缩放 + 边缘阴影）
+        // 角色在最上：可探出卡片（不 clip）
         drawMatteLayer(ctx, matteFg, imgX, imgY, drawW, drawH, opts);
     }
 
     function drawDofInsideFrame(ctx, image, matteFg, imgX, imgY, drawW, drawH, opts) {
-        drawBlurredImageBackground(ctx, image, imgX, imgY, drawW, drawH, {
-            ...opts,
-            borderRadius: opts.borderRadius || 14,
-            glassBlur: Number(opts.dofBlur) || 38,
-            glassFrost: opts.dofFrost ?? 0.03,
-            glassSheen: opts.glassSheen ?? 0.1,
-            glassZoom: opts.glassZoom ?? 1.06,
-            glassTint: 0
-        }, drawW);
-        drawMatteLayer(ctx, matteFg, imgX, imgY, drawW, drawH, opts);
+        // 兼容旧调用：改为同一套「卡片 + 探出」
+        drawFrostPlate(ctx, image, imgX, imgY, drawW, drawH, opts, drawW, opts.borderRadius || 14);
+        drawDofCardAndSubject(
+            ctx,
+            matteFg,
+            imgX,
+            imgY,
+            drawW,
+            drawH,
+            opts.borderRadius || 14,
+            opts.borderWidth || 3,
+            opts.borderColor || '#1a1814',
+            opts
+        );
     }
 
     function drawTape(ctx, x, y, w, h, variant) {
@@ -758,14 +718,12 @@
             ? captionLines.length * captionFontSize * 1.45 + 12
             : 0;
 
-        const usePopOut = !!(opts.popOut && opts.depthOfField);
-        const stageMode = String(opts.popOutStageMode || 'frost');
-        const blackStage = stageMode === 'black' || stageMode === 'letterbox' || stageMode === 'pillarbox';
-        const overflow = Number(opts.popOutOverflow) || (blackStage ? 0.18 : 0.12);
-        const popPadTop = usePopOut ? Math.ceil(drawH * overflow) : 0;
-        const popPadBottom = usePopOut && blackStage ? Math.ceil(drawH * overflow * 0.85) : 0;
-        const sideRatio = blackStage && stageMode === 'pillarbox' ? 0.12 : 0.05;
-        const popPadSides = usePopOut ? Math.ceil(drawW * sideRatio) : 0;
+        // 景深开启即预留探出边距（卡片缩小后角色可探出）
+        const useDofPad = !!(opts.depthOfField);
+        const overflow = Number(opts.popOutOverflow) || 0.16;
+        const popPadTop = useDofPad ? Math.ceil(drawH * overflow) : 0;
+        const popPadBottom = useDofPad ? Math.ceil(drawH * overflow * 0.55) : 0;
+        const popPadSides = useDofPad ? Math.ceil(drawW * 0.08) : 0;
 
         const innerW = drawW + borderWidth * 2;
         const innerH = drawH + borderWidth * 2;
@@ -855,11 +813,10 @@
 
         const matteFg = opts.matteForeground;
         const useDof = opts.depthOfField && matteFg && (matteFg.naturalWidth || matteFg.width);
-        const usePopOut = useDof && opts.popOut;
 
-        // 破框最底层：磨砂原图 / 横向黑边 / 竖向黑边 / 全黑
-        if (usePopOut) {
-            drawPopOutStageBackground(ctx, image, 0, 0, canvasW, canvasH, opts, drawW, 0);
+        // 景深：外层磨砂板 + 可缩小空心卡片 + 独立角色（可探出）
+        if (useDof) {
+            drawFrostPlate(ctx, image, 0, 0, canvasW, canvasH, opts, drawW, 0);
         } else {
             drawCardBackground(ctx, image, 0, 0, canvasW, canvasH, opts, drawW);
         }
@@ -871,13 +828,13 @@
             ctx.translate(-canvasW / 2, -canvasH / 2);
         }
 
-        if (usePopOut) {
-            drawPopOutStageBackground(ctx, image, 0, 0, cardW, cardH, opts, drawW, 14);
+        if (useDof) {
+            drawFrostPlate(ctx, image, 0, 0, cardW, cardH, opts, drawW, 14);
         } else {
             drawCardBackground(ctx, image, 0, 0, cardW, cardH, opts, drawW);
         }
 
-        if (tape) {
+        if (tape && !useDof) {
             const ts = uiScale;
             const variant = tapeVariant || 'warm';
             drawTape(ctx, padding + 8 * ts, padding - 6 * ts, 52 * ts, 16 * ts, variant);
@@ -889,17 +846,15 @@
         const imgX = padding + popPadSides;
         const imgY = padding + popPadTop;
 
-        if (usePopOut) {
-            drawPopOutScene(
+        if (useDof) {
+            drawDofCardAndSubject(
                 ctx,
-                image,
                 matteFg,
                 imgX,
                 imgY,
                 drawW,
                 drawH,
                 borderRadius,
-                borderStyle,
                 borderWidth,
                 borderColor,
                 opts
@@ -909,11 +864,7 @@
             ctx.save();
             clipFramePath(ctx, imgX, imgY, drawW, drawH, borderRadius, borderStyle);
             ctx.clip();
-            if (useDof) {
-                drawDofInsideFrame(ctx, image, matteFg, imgX, imgY, drawW, drawH, opts);
-            } else {
-                ctx.drawImage(image, 0, 0, imgW, imgH, imgX, imgY, drawW, drawH);
-            }
+            ctx.drawImage(image, 0, 0, imgW, imgH, imgX, imgY, drawW, drawH);
             ctx.restore();
 
             if (borderWidth > 0) {
@@ -1053,12 +1004,6 @@
 
     global.StickerFrame = {
         PRESETS,
-        STAGE_MODES: {
-            frost: '磨砂原图',
-            letterbox: '横向大黑边',
-            pillarbox: '竖向大黑边',
-            black: '全黑舞台'
-        },
         mergeOptions,
         measureFrame,
         renderStickerFrame,
