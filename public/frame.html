@@ -173,7 +173,24 @@
                             </div>
                             <div class="style-row" id="bgOpacityRow" hidden>
                                 <div class="style-field full">
-                                    <label for="bgOpacityRange">背景板白雾 <span id="bgOpacityVal">30</span>%</label>
+                                    <label for="stageModeSelect">大背景模板</label>
+                                    <select id="stageModeSelect">
+                                        <option value="frost">磨砂原图</option>
+                                        <option value="letterbox">横向大黑边（上下黑）</option>
+                                        <option value="pillarbox">竖向大黑边（左右黑）</option>
+                                        <option value="black" selected>全黑舞台（最像抖音破框）</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="style-row" id="blackBarRow" hidden>
+                                <div class="style-field full">
+                                    <label for="blackBarRange">黑边宽度 <span id="blackBarVal">22</span>%</label>
+                                    <input type="range" id="blackBarRange" min="10" max="40" step="1" value="22">
+                                </div>
+                            </div>
+                            <div class="style-row" id="bgFrostRow" hidden>
+                                <div class="style-field full">
+                                    <label for="bgOpacityRange">中间区白雾 <span id="bgOpacityVal">30</span>%</label>
                                     <input type="range" id="bgOpacityRange" min="0" max="80" step="5" value="30">
                                 </div>
                             </div>
@@ -199,7 +216,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=11"></script>
+    <script src="js/sticker-frame.js?v=12"></script>
     <script>
         const EXPORT_FOLDER_KEY = 'frameExportFolderPath';
         let files = [];
@@ -251,6 +268,11 @@
             subjectShadowRange: document.getElementById('subjectShadowRange'),
             subjectShadowVal: document.getElementById('subjectShadowVal'),
             bgOpacityRow: document.getElementById('bgOpacityRow'),
+            stageModeSelect: document.getElementById('stageModeSelect'),
+            blackBarRow: document.getElementById('blackBarRow'),
+            blackBarRange: document.getElementById('blackBarRange'),
+            blackBarVal: document.getElementById('blackBarVal'),
+            bgFrostRow: document.getElementById('bgFrostRow'),
             bgOpacityRange: document.getElementById('bgOpacityRange'),
             bgOpacityVal: document.getElementById('bgOpacityVal'),
             matteThumbWrap: document.getElementById('matteThumbWrap'),
@@ -286,12 +308,18 @@
             if (els.popOutControls) els.popOutControls.hidden = !popOn;
             if (els.bgOpacityRow) els.bgOpacityRow.hidden = !popOn;
             if (els.subjectControls) els.subjectControls.hidden = !dofOn;
+            const stage = els.stageModeSelect ? els.stageModeSelect.value : 'frost';
+            const needBar = popOn && (stage === 'letterbox' || stage === 'pillarbox');
+            const needFrost = popOn && stage !== 'black';
+            if (els.blackBarRow) els.blackBarRow.hidden = !needBar;
+            if (els.bgFrostRow) els.bgFrostRow.hidden = !needFrost;
             const off = Number(els.frameOffsetRange.value);
             if (els.frameOffsetVal) {
                 els.frameOffsetVal.textContent = off === 0 ? '中' : (off < 0 ? '上' : '下');
             }
             if (els.frameScaleVal) els.frameScaleVal.textContent = els.frameScaleRange.value;
             if (els.bgOpacityVal) els.bgOpacityVal.textContent = els.bgOpacityRange.value;
+            if (els.blackBarVal) els.blackBarVal.textContent = els.blackBarRange.value;
             if (els.subjectScaleVal) els.subjectScaleVal.textContent = els.subjectScaleRange.value;
             if (els.subjectShadowVal) els.subjectShadowVal.textContent = els.subjectShadowRange.value;
         }
@@ -368,8 +396,10 @@
                     opts.popOutFrameScale = Number(els.frameScaleRange.value) / 100;
                     opts.popOutFrameOffsetY = Number(els.frameOffsetRange.value) / 100;
                     opts.popOutBgOpacity = Number(els.bgOpacityRange.value) / 100;
+                    opts.popOutStageMode = els.stageModeSelect ? els.stageModeSelect.value : 'black';
+                    opts.popOutBlackBar = Number(els.blackBarRange.value) / 100;
                     opts.popOutOuterBlur = 14;
-                    opts.popOutOverflow = 0.1;
+                    opts.popOutOverflow = 0.18;
                 }
             }
             return opts;
@@ -861,6 +891,7 @@
             [
                 ['frameScaleRange', 'frameScaleVal', (v) => `${v}`],
                 ['bgOpacityRange', 'bgOpacityVal', (v) => `${v}`],
+                ['blackBarRange', 'blackBarVal', (v) => `${v}`],
                 ['subjectScaleRange', 'subjectScaleVal', (v) => `${v}`],
                 ['subjectShadowRange', 'subjectShadowVal', (v) => `${v}`]
             ].forEach(([rangeId, labelId, fmt]) => {
@@ -870,6 +901,12 @@
                     rerender();
                 });
             });
+            if (els.stageModeSelect) {
+                els.stageModeSelect.addEventListener('change', () => {
+                    syncDofUi();
+                    schedulePreview();
+                });
+            }
             if (els.frameOffsetRange) {
                 els.frameOffsetRange.addEventListener('input', () => {
                     syncDofUi();

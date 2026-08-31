@@ -125,6 +125,16 @@ html.gen-page body {
   pointer-events: auto;
 }
 
+.frame-scale-wrap select {
+  max-width: 72px;
+  margin: 0;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
 .frame-scale-val {
   min-width: 2.6em;
   font-variant-numeric: tabular-nums;

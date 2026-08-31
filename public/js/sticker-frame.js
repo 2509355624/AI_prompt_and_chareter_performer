@@ -256,6 +256,70 @@
     }
 
     /**
+     * 破框最底层舞台：
+     * frost = 磨砂原图（现状）
+     * letterbox = 横向大黑边（上下黑，中间可留磨砂图）
+     * pillarbox = 竖向大黑边（左右黑）
+     * black = 全黑舞台（角色破框压在纯黑上，最像抖音裸眼 3D）
+     */
+    function drawPopOutStageBackground(ctx, image, x, y, w, h, opts, drawW, radius) {
+        const mode = String(opts.popOutStageMode || 'frost');
+        const bgOpacityRaw = Number(opts.popOutBgOpacity);
+        const bgFrost = Number.isFinite(bgOpacityRaw)
+            ? Math.min(0.8, Math.max(0, bgOpacityRaw))
+            : 0.3;
+        const frostOpts = {
+            ...opts,
+            borderRadius: radius || 0,
+            glassBlur: Number(opts.popOutOuterBlur) || 14,
+            glassFrost: bgFrost,
+            glassSheen: Math.min(0.1, 0.02 + bgFrost * 0.1),
+            glassZoom: 1.04,
+            glassBrightness: 1.0,
+            glassSaturate: 1.02,
+            glassTint: 0
+        };
+
+        if (mode === 'black' || mode === 'letterbox' || mode === 'pillarbox') {
+            ctx.fillStyle = '#000000';
+            if (radius > 0) {
+                roundRect(ctx, x, y, w, h, radius);
+                ctx.fill();
+            } else {
+                ctx.fillRect(x, y, w, h);
+            }
+
+            if (mode === 'black') return;
+
+            const barRaw = Number(opts.popOutBlackBar);
+            const bar = Number.isFinite(barRaw) ? Math.min(0.4, Math.max(0.1, barRaw)) : 0.22;
+            let ix = x;
+            let iy = y;
+            let iw = w;
+            let ih = h;
+            if (mode === 'letterbox') {
+                const barH = h * bar;
+                iy = y + barH;
+                ih = Math.max(1, h - barH * 2);
+            } else {
+                const barW = w * bar;
+                ix = x + barW;
+                iw = Math.max(1, w - barW * 2);
+            }
+            if (iw > 8 && ih > 8) {
+                drawBlurredImageBackground(ctx, image, ix, iy, iw, ih, {
+                    ...frostOpts,
+                    borderRadius: Math.min(radius || 0, 8)
+                }, drawW);
+            }
+            return;
+        }
+
+        // frost（默认）
+        drawBlurredImageBackground(ctx, image, x, y, w, h, frostOpts, drawW);
+    }
+
+    /**
      * 破框图层（从下到上）：
      * 0) 整卡背景板 = 原图（浅模糊 + 可调白雾）——外面已画
      * 1) 空心黑框 = 只有描边，框内什么都不画（透过空洞看见背景板）
@@ -695,15 +759,18 @@
             : 0;
 
         const usePopOut = !!(opts.popOut && opts.depthOfField);
-        const popPadTop = usePopOut
-            ? Math.ceil(drawH * (Number(opts.popOutOverflow) || 0.12))
-            : 0;
-        const popPadSides = usePopOut ? Math.ceil(drawW * 0.05) : 0;
+        const stageMode = String(opts.popOutStageMode || 'frost');
+        const blackStage = stageMode === 'black' || stageMode === 'letterbox' || stageMode === 'pillarbox';
+        const overflow = Number(opts.popOutOverflow) || (blackStage ? 0.18 : 0.12);
+        const popPadTop = usePopOut ? Math.ceil(drawH * overflow) : 0;
+        const popPadBottom = usePopOut && blackStage ? Math.ceil(drawH * overflow * 0.85) : 0;
+        const sideRatio = blackStage && stageMode === 'pillarbox' ? 0.12 : 0.05;
+        const popPadSides = usePopOut ? Math.ceil(drawW * sideRatio) : 0;
 
         const innerW = drawW + borderWidth * 2;
         const innerH = drawH + borderWidth * 2;
         const cardW = innerW + padding * 2 + popPadSides * 2;
-        const cardH = innerH + padding * 2 + extraBottom + captionBlockH + popPadTop;
+        const cardH = innerH + padding * 2 + extraBottom + captionBlockH + popPadTop + popPadBottom;
         const width = cardW + shadowExtra + popPadSides * 2;
         const height = cardH + shadowExtra;
 
@@ -717,6 +784,7 @@
             borderRadius,
             shadowOffset,
             popPadTop,
+            popPadBottom,
             popPadSides,
             captionLines,
             captionFontSize,
@@ -766,9 +834,10 @@
         const canvasW = measured.width;
         const canvasH = measured.height;
         const popPadTop = measured.popPadTop || 0;
+        const popPadBottom = measured.popPadBottom || 0;
         const popPadSides = measured.popPadSides || 0;
         const cardW = drawW + borderWidth * 2 + padding * 2 + popPadSides * 2;
-        const cardH = drawH + borderWidth * 2 + padding * 2 + extraBottom + popPadTop + (
+        const cardH = drawH + borderWidth * 2 + padding * 2 + extraBottom + popPadTop + popPadBottom + (
             measured.captionLines.length
                 ? measured.captionLines.length * measured.captionFontSize * 1.45 + 12
                 : 0
@@ -788,23 +857,9 @@
         const useDof = opts.depthOfField && matteFg && (matteFg.naturalWidth || matteFg.width);
         const usePopOut = useDof && opts.popOut;
 
-        // 破框：整卡背景板 = 原图浅模糊 + 可调白雾（popOutBgOpacity，默认 0.3）
+        // 破框最底层：磨砂原图 / 横向黑边 / 竖向黑边 / 全黑
         if (usePopOut) {
-            const bgOpacityRaw = Number(opts.popOutBgOpacity);
-            const bgFrost = Number.isFinite(bgOpacityRaw)
-                ? Math.min(0.8, Math.max(0, bgOpacityRaw))
-                : 0.3;
-            drawBlurredImageBackground(ctx, image, 0, 0, canvasW, canvasH, {
-                ...opts,
-                borderRadius: 0,
-                glassBlur: Number(opts.popOutOuterBlur) || 14,
-                glassFrost: bgFrost,
-                glassSheen: Math.min(0.1, 0.02 + bgFrost * 0.1),
-                glassZoom: 1.04,
-                glassBrightness: 1.0,
-                glassSaturate: 1.02,
-                glassTint: 0
-            }, drawW);
+            drawPopOutStageBackground(ctx, image, 0, 0, canvasW, canvasH, opts, drawW, 0);
         } else {
             drawCardBackground(ctx, image, 0, 0, canvasW, canvasH, opts, drawW);
         }
@@ -817,21 +872,7 @@
         }
 
         if (usePopOut) {
-            const bgOpacityRaw = Number(opts.popOutBgOpacity);
-            const bgFrost = Number.isFinite(bgOpacityRaw)
-                ? Math.min(0.8, Math.max(0, bgOpacityRaw))
-                : 0.3;
-            drawBlurredImageBackground(ctx, image, 0, 0, cardW, cardH, {
-                ...opts,
-                borderRadius: 14,
-                glassBlur: Number(opts.popOutOuterBlur) || 14,
-                glassFrost: bgFrost,
-                glassSheen: Math.min(0.1, 0.02 + bgFrost * 0.1),
-                glassZoom: 1.04,
-                glassBrightness: 1.0,
-                glassSaturate: 1.02,
-                glassTint: 0
-            }, drawW);
+            drawPopOutStageBackground(ctx, image, 0, 0, cardW, cardH, opts, drawW, 14);
         } else {
             drawCardBackground(ctx, image, 0, 0, cardW, cardH, opts, drawW);
         }
@@ -1012,6 +1053,12 @@
 
     global.StickerFrame = {
         PRESETS,
+        STAGE_MODES: {
+            frost: '磨砂原图',
+            letterbox: '横向大黑边',
+            pillarbox: '竖向大黑边',
+            black: '全黑舞台'
+        },
         mergeOptions,
         measureFrame,
         renderStickerFrame,

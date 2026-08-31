@@ -83,6 +83,15 @@
                                         <input type="range" id="glassOpacitySingle" min="0" max="80" step="5" value="30">
                                         <span class="frame-scale-val" id="glassOpacityValSingle">30%</span>
                                     </label>
+                                    <label class="frame-scale-wrap" id="stageModeWrapSingle" hidden title="最底层大背景：黑边让破框更突出">
+                                        <span>台</span>
+                                        <select id="stageModeSingle">
+                                            <option value="frost">磨砂</option>
+                                            <option value="letterbox">横黑</option>
+                                            <option value="pillarbox">竖黑</option>
+                                            <option value="black" selected>全黑</option>
+                                        </select>
+                                    </label>
                                     <label class="frame-scale-wrap" id="subjectScaleWrapSingle" hidden title="抠图角色放大缩小（底部锚定，方便贴齐框底）">
                                         <span>角</span>
                                         <input type="range" id="subjectScaleSingle" min="70" max="160" step="1" value="100">
@@ -277,6 +286,15 @@
                     <input type="range" id="glassOpacityLightbox" min="0" max="80" step="5" value="30">
                     <span class="frame-scale-val" id="glassOpacityValLightbox">30%</span>
                 </label>
+                <label class="frame-scale-wrap lightbox-frame-scale" id="stageModeWrapLightbox" hidden title="最底层大背景：黑边让破框更突出">
+                    <span>台</span>
+                    <select id="stageModeLightbox">
+                        <option value="frost">磨砂</option>
+                        <option value="letterbox">横黑</option>
+                        <option value="pillarbox">竖黑</option>
+                        <option value="black" selected>全黑</option>
+                    </select>
+                </label>
                 <label class="frame-scale-wrap lightbox-frame-scale" id="subjectScaleWrapLightbox" hidden title="抠图角色放大缩小（底部锚定，方便贴齐框底）">
                     <span>角</span>
                     <input type="range" id="subjectScaleLightbox" min="70" max="160" step="1" value="100">
@@ -313,7 +331,7 @@
         </div>
     </div>
 
-    <script src="js/sticker-frame.js?v=20"></script>
+    <script src="js/sticker-frame.js?v=21"></script>
     <script>
     (function () {
         const PLACEHOLDER_AI = '描述服饰、动作、氛围即可，例如：蕾丝连衣裙，白色长筒袜，公园长椅，夜晚\\n数量由上方数字控制';
@@ -518,6 +536,10 @@
             glassOpacityWrapLightbox: $('glassOpacityWrapLightbox'),
             glassOpacityLightbox: $('glassOpacityLightbox'),
             glassOpacityValLightbox: $('glassOpacityValLightbox'),
+            stageModeWrapSingle: $('stageModeWrapSingle'),
+            stageModeSingle: $('stageModeSingle'),
+            stageModeWrapLightbox: $('stageModeWrapLightbox'),
+            stageModeLightbox: $('stageModeLightbox'),
             subjectScaleWrapSingle: $('subjectScaleWrapSingle'),
             subjectScaleSingle: $('subjectScaleSingle'),
             subjectScaleValSingle: $('subjectScaleValSingle'),
@@ -584,7 +606,8 @@
                         img.popOutBgOpacity ?? img.popOutGlassOpacity
                     ),
                     popOutSubjectScale: clampSubjectScale(img.popOutSubjectScale),
-                    subjectShadowBlur: clampSubjectShadow(img.subjectShadowBlur)
+                    subjectShadowBlur: clampSubjectShadow(img.subjectShadowBlur),
+                    popOutStageMode: normalizeStageMode(img.popOutStageMode)
                 }));
             const next = {
                 ...prev,
@@ -633,7 +656,8 @@
                     img.popOutBgOpacity ?? img.popOutGlassOpacity
                 ),
                 popOutSubjectScale: clampSubjectScale(img.popOutSubjectScale),
-                subjectShadowBlur: clampSubjectShadow(img.subjectShadowBlur)
+                subjectShadowBlur: clampSubjectShadow(img.subjectShadowBlur),
+                popOutStageMode: normalizeStageMode(img.popOutStageMode)
             }));
             if (opts.resetIndex !== false) state.singleIndex = 0;
             return refreshResults();
@@ -1337,6 +1361,12 @@
             return Math.min(40, Math.max(0, n));
         }
 
+        function normalizeStageMode(v) {
+            const m = String(v || 'black');
+            if (m === 'frost' || m === 'letterbox' || m === 'pillarbox' || m === 'black') return m;
+            return 'black';
+        }
+
         function getPopOutFrameScale(imageIndex) {
             if (typeof imageIndex === 'number' && state.images[imageIndex]) {
                 return clampFrameScale(state.images[imageIndex].popOutFrameScale);
@@ -1373,12 +1403,19 @@
             return 16;
         }
 
-        function frameCacheKey(url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity, subjectScale, subjectShadow) {
+        function getPopOutStageMode(imageIndex) {
+            if (typeof imageIndex === 'number' && state.images[imageIndex]) {
+                return normalizeStageMode(state.images[imageIndex].popOutStageMode);
+            }
+            return 'black';
+        }
+
+        function frameCacheKey(url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity, subjectScale, subjectShadow, stageMode) {
             const sub = dofEnabled
                 ? `s${Math.round(clampSubjectScale(subjectScale) * 100)}sh${Math.round(clampSubjectShadow(subjectShadow))}`
                 : '';
             const pop = popOutEnabled && dofEnabled
-                ? `pop${Math.round(clampFrameScale(frameScale) * 100)}bg${Math.round(clampGlassOpacity(bgOpacity) * 100)}o${Math.round(clampFrameOffset(frameOffset) * 100)}`
+                ? `pop${Math.round(clampFrameScale(frameScale) * 100)}bg${Math.round(clampGlassOpacity(bgOpacity) * 100)}o${Math.round(clampFrameOffset(frameOffset) * 100)}st${normalizeStageMode(stageMode)}`
                 : 'flat';
             return `${state.framePreset}|${dofEnabled ? 'dof' : 'flat'}|${pop}|${sub}|${previewCap}|${url}`;
         }
@@ -1502,6 +1539,16 @@
                 wrap.hidden = !showSubject;
                 if (input) input.value = String(shadowVal);
                 if (val) val.textContent = String(shadowVal);
+            }
+            const stage = normalizeStageMode(item?.popOutStageMode);
+            const stagePairs = [
+                { wrap: els.stageModeWrapSingle, input: els.stageModeSingle },
+                { wrap: els.stageModeWrapLightbox, input: els.stageModeLightbox }
+            ];
+            for (const { wrap, input } of stagePairs) {
+                if (!wrap) continue;
+                wrap.hidden = !show;
+                if (input) input.value = stage;
             }
         }
 
@@ -1677,6 +1724,9 @@
                     item.popOutGlassOpacity ?? 0.3
                 );
             }
+            if (item.popOutEnabled && !item.popOutStageMode) {
+                item.popOutStageMode = 'black';
+            }
             if (item.dofEnabled && !Number.isFinite(Number(item.popOutSubjectScale))) {
                 item.popOutSubjectScale = 1;
             }
@@ -1835,6 +1885,16 @@
             frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
         }
 
+        async function applyStageMode(index, mode) {
+            const item = state.images[index];
+            if (!item || !item.popOutEnabled) return;
+            item.popOutStageMode = normalizeStageMode(mode);
+            if (els.stageModeSingle) els.stageModeSingle.value = item.popOutStageMode;
+            if (els.stageModeLightbox) els.stageModeLightbox.value = item.popOutStageMode;
+            clearTimeout(frameScaleTimer);
+            frameScaleTimer = setTimeout(() => rerenderAfterFrameAdjust(index), 60);
+        }
+
         async function buildFrameRenderOptions(url, caption, cap, dofEnabled, popOutEnabled, imageIndex) {
             const opts = {
                 preset: state.framePreset,
@@ -1855,7 +1915,9 @@
                 opts.popOutFrameScale = getPopOutFrameScale(imageIndex);
                 opts.popOutFrameOffsetY = getPopOutFrameOffsetY(imageIndex);
                 opts.popOutBgOpacity = getPopOutBgOpacity(imageIndex);
-                opts.popOutOverflow = 0.1;
+                opts.popOutStageMode = getPopOutStageMode(imageIndex);
+                opts.popOutBlackBar = 0.22;
+                opts.popOutOverflow = 0.18;
                 opts.popOutOuterBlur = 14;
             }
             try {
@@ -1927,6 +1989,7 @@
                 const bgOpacity = getPopOutBgOpacity(imageIndex);
                 const subjectScale = getSubjectScale(imageIndex);
                 const subjectShadow = getSubjectShadow(imageIndex);
+                const stageMode = getPopOutStageMode(imageIndex);
                 const img = await loadImage(url);
                 if (options.fullRes) {
                     const frameOpts = await buildFrameRenderOptions(
@@ -1948,7 +2011,7 @@
                 }
                 const previewCap = maxW > 0 ? maxW : 720;
                 const cacheKey = frameCacheKey(
-                    url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity, subjectScale, subjectShadow
+                    url, previewCap, dofEnabled, popOutEnabled, frameScale, frameOffset, bgOpacity, subjectScale, subjectShadow, stageMode
                 );
                 if (!options.skipCache && state.framePreviewCache.has(cacheKey)) {
                     const cached = cloneCanvas(state.framePreviewCache.get(cacheKey));
@@ -2001,6 +2064,7 @@
                 popOutBgOpacity: 0.3,
                 popOutSubjectScale: 1,
                 subjectShadowBlur: 16,
+                popOutStageMode: 'black',
                 selected: state.images[index].selected !== false
             };
             saveSession({ images: state.images, status: 'done' });
@@ -2873,6 +2937,15 @@
             };
             wireSubjectShadow(els.subjectShadowSingle);
             wireSubjectShadow(els.subjectShadowLightbox);
+            const wireStageMode = (input) => {
+                if (!input) return;
+                input.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    applyStageMode(currentFocusImageIndex(), input.value);
+                });
+            };
+            wireStageMode(els.stageModeSingle);
+            wireStageMode(els.stageModeLightbox);
             if (els.btnExportCurrent) {
                 els.btnExportCurrent.addEventListener('click', () => exportCurrentImage());
             }
