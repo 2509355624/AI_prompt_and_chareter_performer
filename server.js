@@ -611,7 +611,7 @@ app.post('/api/comfy/test', async (req, res) => {
 
 /** Resolve chat credentials from server .env when the client omits keys (thin mobile client). */
 function resolveChatCredentials(body = {}) {
-    const provider = String(body.provider || process.env.DEFAULT_CHAT_PROVIDER || 'deepseek').trim();
+    const provider = String(body.provider || process.env.DEFAULT_CHAT_PROVIDER || 'doubao').trim();
     let model = String(body.model || '').trim();
     let apiKey = String(body.apiKey || '').trim();
     let baseUrl = String(body.baseUrl || '').trim();
@@ -621,9 +621,13 @@ function resolveChatCredentials(body = {}) {
         apiKey = process.env.DEEPSEEK_API_KEY || apiKey;
         baseUrl = baseUrl || process.env.DEEPSEEK_BASE_URL || '';
     } else if (provider === 'doubao') {
-        model = model || process.env.VOLC_MODEL_1_8 || process.env.VOLC_MODEL || '';
+        // 与网页默认一致：火山方舟上的 DeepSeek v4 Flash GA
+        model = model
+            || process.env.VOLC_CHAT_MODEL
+            || process.env.VOLC_MODEL
+            || 'deepseek-v4-flash-ga-260731';
         apiKey = process.env.VOLC_API_KEY || apiKey;
-        baseUrl = baseUrl || process.env.VOLC_BASE_URL || '';
+        baseUrl = baseUrl || process.env.VOLC_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
     } else if (provider === 'ollama') {
         model = model || process.env.OLLAMA_MODEL || 'llama3';
         baseUrl = baseUrl || process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';

@@ -97,12 +97,15 @@ class AIService {
 - 服饰：按对话当前穿着写；未提及变化 → 沿用 continuity。`;
     }
 
-    // 解析火山引擎模型别名
+    // 解析火山引擎模型别名；默认与网页一致：DeepSeek v4 Flash GA
     resolveDoubaoModel(model) {
         if (model === '1.6') return process.env.VOLC_MODEL_1_6;
         if (model === '2.0') return process.env.VOLC_MODEL_2_0;
         if (model === '1.8') return process.env.VOLC_MODEL_1_8 || process.env.VOLC_MODEL;
-        return model || process.env.VOLC_MODEL_1_8 || process.env.VOLC_MODEL || 'deepseek-v4-flash-ga-260731';
+        return model
+            || process.env.VOLC_CHAT_MODEL
+            || process.env.VOLC_MODEL
+            || 'deepseek-v4-flash-ga-260731';
     }
 
     async getOllamaModels(baseUrl) {
