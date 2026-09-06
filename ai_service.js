@@ -777,7 +777,23 @@ camera: medium_shot, from_front, upper_body
                 : `[记忆${idx + 1}·${who}${topics}]`;
             return `${header}\n${String(doc.content || '').trim()}`;
         });
-        return `\n\n【长期情节记忆（向量检索；已标注发言归属；与最近 messages 冲突时以 messages 为准）】\n${lines.join('\n\n')}`;
+        return `\n\n【长期情节记忆（向量检索；已标注发言归属；当用户询问关于自己/双方/角色的既有事实——喜欢什么、约好过什么、发生过什么——时以此为准：近期对话只是话题提及、不是偏好变更，只能补充不能覆盖）】\n${lines.join('\n\n')}`;
+    }
+
+    /** 情感分析阶段的长期记忆核对块：只影响 keyPoints 与语气建议，不污染情绪标签 */
+    formatRagFactsForEmotion(ragDocs) {
+        if (!Array.isArray(ragDocs) || !ragDocs.length) return '';
+        const whoLabel = {
+            user: '用户自述',
+            character: '角色言行',
+            shared: '双方约定'
+        };
+        const lines = ragDocs.map((doc, idx) => {
+            const meta = doc.metadata || {};
+            const who = whoLabel[meta.about] || '记忆';
+            return `[事实${idx + 1}·${who}]\n${String(doc.content || '').trim()}`;
+        });
+        return `\n\n【长期记忆中的既有事实（向量检索自更早轮次；仅作核对依据）】\n${lines.join('\n\n')}\n\n【用法】\n1. 用户情绪（primaryEmotion/intensity/trend）只依据最近对话判断，不受长期记忆影响。\n2. 当用户询问关于自己/双方/角色的既有事实（喜欢什么、约好过什么、发生过什么）时，keyPoints 必须与长期记忆中的自述事实一致并显式引用；近期对话里提到的内容只是话题、不是偏好变更，只能补充不能覆盖。\n3. 长期记忆与最近对话冲突时，以用户更早亲口自述的事实为准。\n`;
     }
 
     formatDialogueForMemorySummary(messages) {
@@ -2042,7 +2058,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
     }
 
     // 阶段1：情感分析
-    async analyzeEmotion(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '') {
+    async analyzeEmotion(messages, provider, model, apiKey, baseUrl, characterSystemPrompt = '', ragDocs = null) {
         const cleanMessages = Array.isArray(messages)
             ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
             : [];
@@ -2057,7 +2073,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         let prompt = this.emotionAnalysisPrompt
             .replace('{chat_history}', chatHistory)
             .replace('{user_message}', userMessage);
-        prompt = `${this.buildRoleInfoBlock(characterSystemPrompt)}${prompt}`;
+        const ragFactsBlock = this.formatRagFactsForEmotion(ragDocs);
+        prompt = `${this.buildRoleInfoBlock(characterSystemPrompt)}${ragFactsBlock}${prompt}`;
 
         const debugInfo = {
             emotionPrompt: prompt,
@@ -2147,13 +2164,13 @@ ${this.visualChangeHint(changeIntent, userMessage)}
     }
 
     /** 阶段1：仅情感分析（生图在对白之后单独调用） */
-    async prepareEmotionPhase(cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit) {
+    async prepareEmotionPhase(cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit, ragDocs = null) {
         const emitFn = typeof emit === 'function' ? emit : () => {};
 
         emitFn('phase', { phase: 'emotion_analyzing' });
         const emotionStartTime = Date.now();
         const emotionResultWithDebug = await this.analyzeEmotion(
-            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt
+            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, ragDocs
         );
         const emotionTimeMs = Date.now() - emotionStartTime;
         const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
@@ -2499,7 +2516,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         }
 
         const prep = await this.prepareEmotionPhase(
-            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit
+            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit, ragDocs
         );
         const {
             emotionOnly,
