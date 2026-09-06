@@ -1,4 +1,5 @@
 const axios = require('axios');
+const ragService = require('./rag_service');
 
 /** Recent verbatim rounds sent in messages; older context via turnMemory briefs */
 const RECENT_FULL_ROUNDS = 4;
@@ -56,6 +57,49 @@ class AIService {
 }
 
 【注意】只分析情绪与对白语气；不要输出服饰、动作、场景或任何 SD 出图 tags。只输出 JSON。`;
+
+        this.memoryBatchSummaryPrompt = `你是角色扮演对话的记忆提取器。只提取「谁说了什么」的事实，严禁把用户和角色的话混在一起。
+
+【对话（第 {assistant_start}–{assistant_end} 次 AI 回复）】
+{dialogue}
+
+【最重要：发言归属】
+1. 「用户：」开头的句子 = 只能记成用户事实；「角色：」开头的句子 = 只能记成角色事实。
+2. 角色的提问、猜测、想象、提议、自我介绍，一律不算用户观点。
+3. 禁止把角色说的喜好/经历写成「用户喜欢…」「用户会…」。
+4. 只有用户亲口说出的偏好、经历、承诺、关系信息，才能写进 about="user"。
+5. 角色亲口说出的设定、喜好、承诺，写进 about="character"。
+6. 共同约定（双方都明确同意的计划）才可用 about="shared"。
+
+【其他要求】
+- 忽略寒暄、重复、无情节推进的内容
+- 不要记录 SD 出图 tags、穿着细节、镜头机位
+- 若全无值得记住的内容，设 skip=true 且 entries=[]
+- 最多 4 条 entries；每条 content ≤120 字，且必须以「用户：」或「角色：」或「双方：」开头
+- 只输出 JSON：
+{
+  "skip": false,
+  "entries": [
+    {
+      "about": "user",
+      "content": "用户：……",
+      "topics": ["主题"],
+      "primaryEmotion": "可选",
+      "openThreads": ["未解决的线头"]
+    },
+    {
+      "about": "character",
+      "content": "角色：……",
+      "topics": ["主题"],
+      "primaryEmotion": "",
+      "openThreads": []
+    }
+  ]
+}
+
+【反例（禁止）】
+对话里角色说「我也想学做蛋卷」，却写成「用户喜欢自制软蛋卷」——这是错误归属。
+`;
 
         // 阶段3（对白之后）：生图 tags — 仅本轮一问一答 + continuity 快照
         this.sd15PhotographerHandbook = `【要点】
@@ -714,9 +758,118 @@ camera: medium_shot, from_front, upper_body
         };
     }
 
+    formatRagMemoryForPrompt(ragDocs) {
+        if (!Array.isArray(ragDocs) || !ragDocs.length) return '';
+        const aboutLabel = {
+            user: '用户事实',
+            character: '角色言行',
+            shared: '双方约定'
+        };
+        const lines = ragDocs.map((doc, idx) => {
+            const meta = doc.metadata || {};
+            const range = meta.assistantStart && meta.assistantEnd
+                ? `第${meta.assistantStart}-${meta.assistantEnd}次回复`
+                : '';
+            const who = aboutLabel[meta.about] || '记忆';
+            const topics = meta.topics ? `｜主题：${meta.topics}` : '';
+            const header = range
+                ? `[记忆${idx + 1}·${who}·${range}${topics}]`
+                : `[记忆${idx + 1}·${who}${topics}]`;
+            return `${header}\n${String(doc.content || '').trim()}`;
+        });
+        return `\n\n【长期情节记忆（向量检索；已标注发言归属；与最近 messages 冲突时以 messages 为准）】\n${lines.join('\n\n')}`;
+    }
+
+    formatDialogueForMemorySummary(messages) {
+        return (messages || [])
+            .map((m, idx) => {
+                const role = m.role === 'user' ? '用户' : '角色';
+                const body = String(m.content || '').trim();
+                return `----- 第${idx + 1}条 · ${role} -----\n${role}：${body}`;
+            })
+            .join('\n\n');
+    }
+
+    normalizeMemoryAbout(about, content) {
+        const a = String(about || '').trim().toLowerCase();
+        if (a === 'user' || a === 'character' || a === 'shared') return a;
+        const c = String(content || '');
+        if (/^角色[：:]/.test(c) || /^【角色】/.test(c)) return 'character';
+        if (/^双方[：:]/.test(c) || /^【双方】/.test(c)) return 'shared';
+        if (/^用户[：:]/.test(c) || /^【用户】/.test(c)) return 'user';
+        return 'user';
+    }
+
+    ensureMemoryContentPrefix(about, content) {
+        let text = String(content || '').trim();
+        if (!text) return '';
+        const prefixMap = { user: '用户：', character: '角色：', shared: '双方：' };
+        const prefix = prefixMap[about] || '用户：';
+        if (/^(用户|角色|双方)[：:]/.test(text) || /^【(用户|角色|双方)】/.test(text)) {
+            return text;
+        }
+        return `${prefix}${text}`;
+    }
+
+    parseMemoryBatchSummary(raw) {
+        const text = String(raw || '').trim();
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start === -1 || end <= start) {
+            return { skip: true, entries: [] };
+        }
+        try {
+            const data = JSON.parse(text.slice(start, end + 1));
+            const entries = Array.isArray(data.entries)
+                ? data.entries
+                    .filter((e) => e && String(e.content || '').trim())
+                    .slice(0, 4)
+                    .map((e) => {
+                        const about = this.normalizeMemoryAbout(e.about, e.content);
+                        return {
+                            about,
+                            content: this.ensureMemoryContentPrefix(about, e.content),
+                            topics: Array.isArray(e.topics) ? e.topics.map(String) : [],
+                            primaryEmotion: String(e.primaryEmotion || '').trim(),
+                            openThreads: Array.isArray(e.openThreads) ? e.openThreads.map(String) : []
+                        };
+                    })
+                    .filter((e) => e.content)
+                : [];
+            return {
+                skip: Boolean(data.skip) || !entries.length,
+                entries
+            };
+        } catch (_) {
+            return { skip: true, entries: [] };
+        }
+    }
+
+    async summarizeMemoryBatch({ messages, assistantRange, provider, model, apiKey, baseUrl }) {
+        const [assistantStart, assistantEnd] = assistantRange || [];
+        const cleaned = (messages || []).map((m) => {
+            if (m.role !== 'assistant') return m;
+            return { role: 'assistant', content: this.stripVisualBlocksFromReply(m.content) };
+        });
+        const dialogue = this.formatDialogueForMemorySummary(cleaned);
+        const prompt = this.memoryBatchSummaryPrompt
+            .replace('{assistant_start}', String(assistantStart || '?'))
+            .replace('{assistant_end}', String(assistantEnd || '?'))
+            .replace('{dialogue}', dialogue);
+
+        try {
+            const raw = await this.callJsonAnalysis(prompt, provider, model, apiKey, baseUrl);
+            return this.parseMemoryBatchSummary(raw);
+        } catch (e) {
+            console.error('[RAG] memory summary failed:', e.message);
+            return { skip: true, entries: [] };
+        }
+    }
+
     /** 对话系统提示：角色 + 情绪 + 当前穿着 + 记忆，不含出图分镜指令 */
-    buildDialogueSystemPrompt(characterSystemPrompt, emotionResult, turnMemory, conversationSummary, previousVisual = null) {
-        const memoryText = this.buildMemoryContextBlock(turnMemory, conversationSummary);
+    buildDialogueSystemPrompt(characterSystemPrompt, emotionResult, turnMemory, conversationSummary, previousVisual = null, ragDocs = null) {
+        const ragText = this.formatRagMemoryForPrompt(ragDocs);
+        const memoryText = ragText || this.buildMemoryContextBlock(turnMemory, conversationSummary);
         const ea = emotionResult?.emotionAnalysis || {};
         const rs = emotionResult?.responseSuggestion || {};
         const emotionInfo = `
@@ -2321,13 +2474,29 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             baseUrl,
             conversationSummary,
             turnMemory = [],
-            previousVisual
+            previousVisual,
+            characterId
         } = payload;
 
         const totalStartTime = Date.now();
         const cleanMessages = Array.isArray(messages)
             ? messages.filter(m => m && typeof m === 'object').map(m => ({ role: m.role, content: m.content }))
             : [];
+
+        let ragDocs = [];
+        let ragRetrieveMs = 0;
+        if (ragService.isEnabled() && characterId) {
+            const lastUserMsg = [...cleanMessages].reverse().find((m) => m.role === 'user')?.content || '';
+            if (lastUserMsg) {
+                emit('phase', { phase: 'rag_retrieving' });
+                const ragStart = Date.now();
+                ragDocs = await ragService.retrieve(characterId, lastUserMsg);
+                ragRetrieveMs = Date.now() - ragStart;
+                if (ragDocs.length) {
+                    console.log(`[RAG] retrieved ${ragDocs.length} docs for ${characterId} (${ragRetrieveMs}ms)`);
+                }
+            }
+        }
 
         const prep = await this.prepareEmotionPhase(
             cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit
@@ -2341,7 +2510,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         } = prep;
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
-            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary, previousVisual
+            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary, previousVisual, ragDocs
         );
         const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
@@ -2374,7 +2543,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             emit('reply_delta', { delta: visible, accumulated: visible });
         }
 
-        return this.finalizeChatReply({
+        const result = await this.finalizeChatReply({
             replyContent,
             conversationSummary,
             turnMemory,
@@ -2394,6 +2563,13 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             previousVisual: previousVisual || null,
             emit
         });
+
+        return {
+            ...result,
+            ragDocs,
+            ragRetrieveMs,
+            characterId
+        };
     }
 }
 

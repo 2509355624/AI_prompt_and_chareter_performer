@@ -8,10 +8,12 @@ const AsyncQueue = require('./gpu_scheduler/async_queue');
 const ImageJobStore = require('./gpu_scheduler/image_job_store');
 const ChatTurnStore = require('./gpu_scheduler/chat_turn_store');
 const { startImageWorker } = require('./gpu_scheduler/image_worker');
+const { startRagWorker } = require('./gpu_scheduler/rag_worker');
 const { processChatTurn } = require('./gpu_scheduler/chat_turn_runner');
 const { runCharacterImageJob } = require('./gpu_scheduler/character_image_runner');
 const ollamaGuard = require('./gpu_scheduler/ollama_guard');
 const matteService = require('./matte_service');
+const ragService = require('./rag_service');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -79,6 +81,7 @@ function writeComfyWorkflowState(state) {
 }
 
 const imageQueue = new AsyncQueue();
+const ragQueue = new AsyncQueue();
 const imageJobStore = new ImageJobStore();
 const chatTurnStore = new ChatTurnStore();
 
@@ -90,6 +93,15 @@ startImageWorker({
         chatImagesDir
     })
 }).catch((err) => console.error('[ImageWorker] fatal:', err));
+
+if (ragService.isEnabled()) {
+    ragService.start().catch((err) => console.error('[RAG] daemon start failed:', err.message));
+    startRagWorker({
+        queue: ragQueue,
+        aiService,
+        getImageQueueSize: () => imageQueue.size
+    }).catch((err) => console.error('[RagWorker] fatal:', err.message));
+}
 
 // Ensure data files exist
 if (!fs.existsSync(PRESETS_FILE)) {
@@ -370,6 +382,12 @@ app.delete('/api/chat-history/:characterId', (req, res) => {
         const emotionData = JSON.parse(fs.readFileSync(EMOTION_HISTORY_FILE, 'utf8') || '{}');
         delete emotionData[characterId];
         fs.writeFileSync(EMOTION_HISTORY_FILE, JSON.stringify(emotionData, null, 2));
+
+        if (ragService.isEnabled()) {
+            ragService.deleteCharacter(characterId).catch((err) => {
+                console.warn('[RAG] clear on delete failed:', err.message);
+            });
+        }
         
         res.json({ success: true });
     } catch (e) {
@@ -652,7 +670,9 @@ app.post('/api/chat-turn', (req, res) => {
         turnId: turn.id,
         turnStore: chatTurnStore,
         aiService,
-        payload
+        payload,
+        ragService,
+        ragQueue
     }).catch((err) => {
         console.error('[ChatTurn] unhandled:', err.message);
     });

@@ -1,6 +1,6 @@
 const ollamaGuard = require('./ollama_guard');
 
-async function processChatTurn({ turnId, turnStore, aiService, payload }) {
+async function processChatTurn({ turnId, turnStore, aiService, payload, ragService, ragQueue }) {
     const turn = turnStore.getTurn(turnId);
     if (!turn) return;
 
@@ -32,8 +32,24 @@ async function processChatTurn({ turnId, turnStore, aiService, payload }) {
             error: null
         });
         turnStore.emit(turnId, 'turn_done', { turnId, ...result });
-        // 正常结束长连接，避免客户端一直挂着最后被当成 Connection closed 报错
         turnStore.close(turnId);
+
+        if (ragService?.isEnabled?.() && ragQueue && payload.characterId && result?.reply) {
+            const allMessages = [
+                ...(Array.isArray(payload.messages) ? payload.messages : []),
+                { role: 'assistant', content: result.reply }
+            ];
+            ragService.maybeScheduleIngest({
+                ragQueue,
+                characterId: payload.characterId,
+                allMessages,
+                provider: payload.provider,
+                model: payload.model,
+                apiKey: payload.apiKey,
+                baseUrl: payload.baseUrl,
+                stripVisualFn: (text) => aiService.stripVisualBlocksFromReply(text)
+            });
+        }
 
         if (payload.provider === 'ollama') {
             try {

@@ -43,6 +43,8 @@ data/comfy_generate_presets.json
 data/comfy_generate_jobs/
 data/comfy_generate_settings.json
 data/matte_cache/
+data/rag/
+rag/data/
 public/uploads/frame_matte/
 public/uploads/
 !public/uploads/.gitkeep
