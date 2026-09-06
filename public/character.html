@@ -2639,9 +2639,11 @@
                         ${emotion && emotion.primaryEmotion ? `<div class="emotion-tag">${emotion.primaryEmotion} ${emotion.intensity || 0}/10</div>` : ''}
                         ${msg.timing ? `
                         <div class="timing-info">
-                            <span class="timing-item">情感: ${(msg.timing.emotionTimeMs / 1000).toFixed(1)}s</span>
-                            <span class="timing-item">回复: ${(msg.timing.replyTimeMs / 1000).toFixed(1)}s</span>
-                            <span class="timing-item">总耗时: ${(msg.timing.totalTimeMs / 1000).toFixed(1)}s</span>
+                            <span class="timing-item" title="情绪与语气分析（LLM）">情感: ${((msg.timing.emotionTimeMs || 0) / 1000).toFixed(1)}s</span>
+                            <span class="timing-item" title="对白文本生成（不含服饰/分镜）">文本: ${(Math.max(0, (msg.timing.replyTimeMs || 0) - (msg.timing.outfitVisualTimeMs || 0)) / 1000).toFixed(1)}s</span>
+                            <span class="timing-item" title="服饰与分镜 tag 分析（LLM）">服饰: ${((msg.timing.outfitVisualTimeMs || 0) / 1000).toFixed(1)}s</span>
+                            ${msg.imageElapsedMs != null ? `<span class="timing-item" title="Comfy 实际出图耗时">生图: ${(msg.imageElapsedMs / 1000).toFixed(1)}s</span>` : ''}
+                            <span class="timing-item" title="本轮对话端到端（不含异步生图）">总耗时: ${((msg.timing.totalTimeMs || 0) / 1000).toFixed(1)}s</span>
                         </div>
                         ` : ''}
                         </div>
@@ -3170,6 +3172,7 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             msg.imageUrl = data.imageUrl;
             msg.imageStatus = 'ready';
             msg.imageError = '';
+            if (data.elapsedMs != null) msg.imageElapsedMs = data.elapsedMs;
         }
     }
 
