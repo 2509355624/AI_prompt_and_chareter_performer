@@ -680,6 +680,10 @@ app.post('/api/chat-turn', (req, res) => {
     res.json({ ok: true, turnId: turn.id });
 });
 
+app.get('/api/rag/status', (req, res) => {
+    res.json({ ok: true, ...ragService.status() });
+});
+
 app.get('/api/chat-turn/active', (req, res) => {
     const characterId = String(req.query.characterId || '').trim();
     if (!characterId) {

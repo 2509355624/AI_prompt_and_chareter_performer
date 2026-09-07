@@ -2513,7 +2513,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             previousVisual,
             characterId,
             skipImagePipeline = false,
-            ragRuling = 'fixed'
+            ragRuling = 'fixed',
+            ragEnabled = true
         } = payload;
 
         const totalStartTime = Date.now();
@@ -2523,7 +2524,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
 
         let ragDocs = [];
         let ragRetrieveMs = 0;
-        if (ragService.isEnabled() && characterId) {
+        if (ragService.isEnabled() && ragEnabled !== false && characterId) {
             const lastUserMsg = [...cleanMessages].reverse().find((m) => m.role === 'user')?.content || '';
             if (lastUserMsg) {
                 emit('phase', { phase: 'rag_retrieving' });

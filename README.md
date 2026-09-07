@@ -165,6 +165,8 @@ negative       ← 右侧负向提示词或 chat_image_config.negativePrompt
 
 **模型未就绪的表现**：控制台打印"向量模型未找到，RAG 已禁用，对话仅使用历史上下文"，聊天正常、无长期记忆注入。
 
+**页面开关**：角色扮演页右上角「🧠 RAG」按钮（AI 生图旁）可在前端开关本页对话是否接入 RAG——开启时会先查询服务端状态：`.env` 未开启或模型未就绪会弹窗说明原因，不会静默下载；关闭则该页请求不做向量检索。
+
 环境要求补充：RAG 需要 Python 环境与 `rag/requirements.txt` 依赖（sentence-transformers、chromadb、modelscope、torch），模型建议放 GPU 机器。
 
 ---

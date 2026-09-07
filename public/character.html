@@ -605,6 +605,8 @@
             <div class="chat-topbar-actions desktop-only-actions">
                 <button type="button" id="btnImageToggle" onclick="toggleChatImage()" title="AI 生图：开（点按关闭，只聊文本更快）"
                     style="font-weight:700;font-size:14px;padding:6px 14px;border:none;border-radius:20px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(0,0,0,.18);transition:background .15s;color:#fff;background:linear-gradient(135deg,#22c55e,#16a34a);">🖼️ <span id="imgToggleText">AI 生图 开</span></button>
+                <button type="button" id="btnRagToggle" onclick="toggleChatRag()" title="RAG 长期记忆：开（点按关闭）"
+                    style="font-weight:700;font-size:14px;padding:6px 14px;border:none;border-radius:20px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(0,0,0,.18);transition:background .15s;color:#fff;background:#9ca3af;">🧠 <span id="ragToggleText">RAG 关</span></button>
                 <button class="btn-icon" id="btnToggleSettings" onclick="toggleSettingsCollapsed()" title="展开/收起配置贴纸">⚙️ 配置</button>
                 <button class="btn-icon" onclick="openVisualRefEditor()" title="查看/编辑发给 AI 的上轮生图参考">🎨</button>
                 <button class="btn-icon" onclick="openExportModal()" title="导出对话截图">📸</button>
@@ -1490,6 +1492,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         renderChatImageToggle();
+        renderChatRagToggle();
         initMobileShell();
         loadCharacters();
         toggleProviderSettings();
@@ -3036,6 +3039,46 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
         renderChatImageToggle();
     }
 
+    // RAG 长期记忆开关：请求级（本页每次对话是否接入向量记忆）。
+    // 真正可用仍需服务端 .env 的 RAG_ENABLED=1 且向量模型已就绪；打开时会查询 /api/rag/status 校验。
+    let chatRagEnabled = (localStorage.getItem('charRagEnabled') ?? '1') !== '0';
+    function renderChatRagToggle() {
+        const b = document.getElementById('btnRagToggle');
+        const t = document.getElementById('ragToggleText');
+        if (b) {
+            b.style.background = chatRagEnabled ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)' : '#9ca3af';
+            b.title = chatRagEnabled ? 'RAG 长期记忆：开（点按关闭）' : 'RAG 长期记忆：关（点按开启）';
+        }
+        if (t) t.textContent = chatRagEnabled ? 'RAG 开' : 'RAG 关';
+    }
+    async function toggleChatRag() {
+        const want = !chatRagEnabled;
+        if (want) {
+            // 打开前校验服务端是否具备 RAG 能力（env 开启 + 向量模型就绪）
+            try {
+                const res = await fetch('/api/rag/status');
+                const data = await res.json();
+                if (data && data.enabled) {
+                    // env 已开且模型未被判缺失 → 允许开启（daemon 若仍在加载，首次请求会自动等就绪）
+                    chatRagEnabled = true;
+                } else if (data && data.fatalDisabled) {
+                    alert('未检测到向量模型，RAG 不可用。请先在 .env 配置并下载模型（见 README「RAG 长期记忆」章节），' + (data.modelMissingHint || ''));
+                    chatRagEnabled = false;
+                } else {
+                    alert('RAG 未启用：服务端需先在 .env 设 RAG_ENABLED=1（并下载向量模型）后重启。详情见 README「RAG 长期记忆」。');
+                    chatRagEnabled = false;
+                }
+            } catch (e) {
+                alert('无法连接服务端检查 RAG 状态：' + (e.message || e));
+                chatRagEnabled = false;
+            }
+        } else {
+            chatRagEnabled = false;
+        }
+        localStorage.setItem('charRagEnabled', chatRagEnabled ? '1' : '0');
+        renderChatRagToggle();
+    }
+
     async function startChatTurn(userText, { skipPushUser = false } = {}) {
         if (!currentCharacter) {
             alert('请先选择角色');
@@ -3081,7 +3124,8 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             appearancePrompt: currentCharacter.appearancePrompt || '',
             outfitPrompt: currentCharacter.outfitPrompt || '',
             previousVisual,
-            skipImagePipeline: !chatImageEnabled
+            skipImagePipeline: !chatImageEnabled,
+            ragEnabled: chatRagEnabled
         };
 
         activeChatTurn = {

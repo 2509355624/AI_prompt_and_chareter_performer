@@ -32,6 +32,18 @@ class RagService {
         this.ready = false;
         this.startPromise = null;
         this.fatalDisabled = false;
+        this.modelMissingHint = null;
+    }
+
+    /** Web/外部查询 RAG 能力状态：env 是否开、daemon 是否就绪、模型是否缺失等 */
+    status() {
+        return {
+            enabled: RAG_ENABLED && !this.fatalDisabled,
+            envEnabled: RAG_ENABLED,
+            daemonReady: this.ready,
+            fatalDisabled: this.fatalDisabled,
+            modelMissingHint: this.modelMissingHint
+        };
     }
 
     isEnabled() {
@@ -127,7 +139,8 @@ class RagService {
                 }
                 if (msg.event === 'model_missing') {
                     this.fatalDisabled = true;
-                    console.error('[RAG] ' + (msg.hint || msg.error || `vector model not found (${msg.model || ''})`));
+                    this.modelMissingHint = msg.hint || msg.error || `vector model not found (${msg.model || ''})`;
+                    console.error('[RAG] ' + this.modelMissingHint);
                     continue;
                 }
                 if (msg.event === 'ready' && msg.ok) {
