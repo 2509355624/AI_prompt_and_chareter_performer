@@ -603,6 +603,8 @@
                 </div>
             </div>
             <div class="chat-topbar-actions desktop-only-actions">
+                <button type="button" id="btnImageToggle" onclick="toggleChatImage()" title="AI 生图：开（点按关闭，只聊文本更快）"
+                    style="font-weight:700;font-size:14px;padding:6px 14px;border:none;border-radius:20px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(0,0,0,.18);transition:background .15s;color:#fff;background:linear-gradient(135deg,#22c55e,#16a34a);">🖼️ <span id="imgToggleText">AI 生图 开</span></button>
                 <button class="btn-icon" id="btnToggleSettings" onclick="toggleSettingsCollapsed()" title="展开/收起配置贴纸">⚙️ 配置</button>
                 <button class="btn-icon" onclick="openVisualRefEditor()" title="查看/编辑发给 AI 的上轮生图参考">🎨</button>
                 <button class="btn-icon" onclick="openExportModal()" title="导出对话截图">📸</button>
@@ -1487,6 +1489,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        renderChatImageToggle();
         initMobileShell();
         loadCharacters();
         toggleProviderSettings();
@@ -2334,7 +2337,7 @@
             visual: data.visual || null,
             imageTurnPrompt: turnPromptFromChat,
             timing: data.timing,
-            imageStatus: 'queued',
+            imageStatus: chatImageEnabled ? 'queued' : '',
             imageJobId: ''
         });
         console.log('[continuity] previousVisual sent:', previousVisual);
@@ -2349,7 +2352,9 @@
         if (currentCharacter) clearRoleplaySession(currentCharacter.id);
         renderCharacterChat();
         saveChatHistory();
-        requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual, userText);
+        if (chatImageEnabled) {
+            requestCharacterImage(assistantId, emotionBlock, data.reply, data.visual, previousVisual, userText);
+        }
     }
 
     function subscribeChatTurnStream(turnId, userText, previousVisual) {
@@ -3013,6 +3018,24 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
         });
     }
     
+    // AI 生图总开关（右上角大按钮）。默认开 = 保留现行为（每轮自动出图）。
+    // 关闭后：请求带 skipImagePipeline（跳过服饰分镜 tag LLM 分析），且 turn 完成后不自动排配图。
+    let chatImageEnabled = (localStorage.getItem('charImageEnabled') ?? '1') !== '0';
+    function renderChatImageToggle() {
+        const b = document.getElementById('btnImageToggle');
+        const t = document.getElementById('imgToggleText');
+        if (b) {
+            b.style.background = chatImageEnabled ? 'linear-gradient(135deg,#22c55e,#16a34a)' : '#9ca3af';
+            b.title = chatImageEnabled ? 'AI 生图：开（点按关闭，只聊文本更快）' : 'AI 生图：关（点按开启，恢复每轮配图）';
+        }
+        if (t) t.textContent = chatImageEnabled ? 'AI 生图 开' : 'AI 生图 关';
+    }
+    function toggleChatImage() {
+        chatImageEnabled = !chatImageEnabled;
+        localStorage.setItem('charImageEnabled', chatImageEnabled ? '1' : '0');
+        renderChatImageToggle();
+    }
+
     async function startChatTurn(userText, { skipPushUser = false } = {}) {
         if (!currentCharacter) {
             alert('请先选择角色');
@@ -3057,7 +3080,8 @@ ${debugInfo.outfitPlan ? '\noutfitPlan：\n' + escapeHtml(JSON.stringify(debugIn
             conversationSummary: conversationSummary,
             appearancePrompt: currentCharacter.appearancePrompt || '',
             outfitPrompt: currentCharacter.outfitPrompt || '',
-            previousVisual
+            previousVisual,
+            skipImagePipeline: !chatImageEnabled
         };
 
         activeChatTurn = {
