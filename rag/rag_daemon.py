@@ -38,12 +38,42 @@ def _resolve_data_dir() -> Path:
     return p
 
 
+def _model_cache_hit(model_name: str) -> str | None:
+    """本地目录直接可用；否则仅在 modelscope 缓存命中时返回路径。未命中返回 None（不联网下载）。"""
+    if os.path.isdir(model_name):
+        return model_name
+    try:
+        from modelscope import snapshot_download
+        try:
+            return snapshot_download(model_name, local_files_only=True)
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
 def _load_services():
     data_dir = _resolve_data_dir()
     chroma_dir = data_dir / "chroma"
     print(f"[RAG] data_dir={data_dir}", file=sys.stderr, flush=True)
     device = os.environ.get("RAG_EMBED_DEVICE", "cuda").strip().lower()
     model_name = os.environ.get("LOCAL_EMBEDDING_MODEL", DEFAULT_MODEL)
+    auto_download = os.environ.get("RAG_AUTO_DOWNLOAD", "0").strip().lower() in ("1", "true", "yes")
+
+    # 模型缺失预检：未命中缓存且不允许自动下载 → 明确提示并禁用 RAG（仅历史上下文），不静默联网下载。
+    if _model_cache_hit(model_name) is None and not auto_download:
+        hint = (
+            f"向量模型未找到（{model_name}），RAG 长期记忆已禁用，对话仅使用历史上下文。\n"
+            "启用方式（任选其一）：\n"
+            "  1) 设 LOCAL_EMBEDDING_MODEL 指向本地已下载的模型目录；\n"
+            "  2) 设 RAG_AUTO_DOWNLOAD=1 让 daemon 自动联网下载（首次需网络）；\n"
+            "  3) 手动下载：python -c \"from modelscope import snapshot_download; "
+            "snapshot_download('BAAI/bge-m3')\""
+        )
+        print(f"[RAG] {hint}", file=sys.stderr, flush=True)
+        _reply({"id": "0", "ok": False, "event": "model_missing", "model": model_name, "hint": hint})
+        sys.exit(1)
+
     embeddings = LocalEmbeddings(model_name=model_name, device=device)
     store = MemoryStore(chroma_dir)
     return embeddings, store

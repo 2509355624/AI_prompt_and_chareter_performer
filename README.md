@@ -11,7 +11,8 @@
 |------|------|------|
 | 工具首页 | `/` → `index.html` | 入口导航 |
 | 提示词生成 | `prompt.html` | 根据主题批量生成 SD/MJ 英文提示词 |
-| 角色扮演 | **`character.html`** | 选角色 → 多轮对话 → ComfyUI 出图 |
+| 角色扮演 | **`character.html`** | 选角色 → 多轮对话 →（可选）RAG 长期记忆 → ComfyUI 出图 |
+| RAG 长期记忆 | 内嵌角色扮演 | 向量检索早期对话，默认关闭（见文末章节） |
 | 其他 | `split.html` 等 | 辅助工具 |
 
 本文档重点说明 **角色扮演 + ComfyUI**；提示词生成与首页用法见各页面内说明。
@@ -62,6 +63,8 @@ LAN access (same Wi‑Fi):
 **手机 / 窄屏（≤1100px）**：自动进入「对话优先」布局 — 全屏聊天，👤 打开角色抽屉，⚙️ 打开配置抽屉，··· 为导出 / 编辑等次要操作。底部输入栏固定，不会被长对话顶出屏幕。
 
 桌面宽屏右上角 **📱** 可强制预览手机布局。
+
+**AI 生图开关（右上角大按钮）**：默认开启。每轮文本回复后会自动做"服饰/分镜 tag 分析 + ComfyUI 出图"；点击右上角「🖼️ AI 生图」切换为关闭后，仅进行文本对话（跳过 tag 分析与出图，回复明显更快），选择存在浏览器本地。
 
 ### 一轮对话的处理流程
 
@@ -137,6 +140,31 @@ negative       ← 右侧负向提示词或 chat_image_config.negativePrompt
 
 ---
 
+## RAG 长期记忆（可选 · 默认关闭）
+
+角色扮演对话一旦超过上下文窗口，模型会忘记早期你亲口说过的偏好与约定。开启后系统把历史对话**每 5 次 AI 回复提炼为一条结构化记忆**（区分"用户 / 角色 / 双方"发言归属，并打主题标签），本地向量化入库；每轮对话按**当前用户消息**检索最相关的 4 条长期记忆，作为事实依据**同时注入情感分析与对白生成两个阶段**——角色据此能回应很早以前的自述事实。
+
+> 本质是"检索"而不是"记住"：不把全部历史塞进上下文，而是需要时把相关旧信息捞回来当依据。
+
+**默认关闭**：向量模型需要额外下载或接入向量服务。模型未就绪时即使打开开关，系统也会自动禁用 RAG 并提示，对话只依赖历史上下文，不影响聊天。
+
+### 开启步骤
+
+1. 准备向量模型（三选一）
+   - **自动下载**：`.env` 设 `RAG_ENABLED=1` 且 `RAG_AUTO_DOWNLOAD=1`，首次启动 daemon 自动联网下载 BGE-M3（数百 MB，需网络）；
+   - **手动下载**：`python -c "from modelscope import snapshot_download; snapshot_download('BAAI/bge-m3')"`；
+   - **本地目录**：下载/已有模型后，把 `.env` 的 `LOCAL_EMBEDDING_MODEL` 指向模型绝对路径（跳过下载）。
+2. `.env` 设 `RAG_ENABLED=1`。
+3. 重启服务，启动日志出现 `[RAG] daemon ready (local BGE-M3)` 即启用成功。
+4. 新对话从累计第 5 次 AI 回复起自动异步入库；想为已有角色立即建记忆，运行
+   `node scripts/rebuild_rag_character.js <characterId>`。
+
+**模型未就绪的表现**：控制台打印"向量模型未找到，RAG 已禁用，对话仅使用历史上下文"，聊天正常、无长期记忆注入。
+
+环境要求补充：RAG 需要 Python 环境与 `rag/requirements.txt` 依赖（sentence-transformers、chromadb、modelscope、torch），模型建议放 GPU 机器。
+
+---
+
 ## 环境变量（.env）
 
 复制 `.env.example` 后按需修改：
@@ -151,6 +179,10 @@ negative       ← 右侧负向提示词或 chat_image_config.negativePrompt
 | `VOLC_*` | 火山引擎 / Doubao |
 | `DEEPSEEK_*` | DeepSeek |
 | Ollama | 页面选 Local Ollama，Base URL 默认 `http://localhost:11434` |
+| `RAG_ENABLED` | RAG 长期记忆总开关，**默认 0=关**；需向量模型就绪（见上文章节） |
+| `RAG_AUTO_DOWNLOAD` | `1` 时允许模型缺失时自动联网下载（首次需网络） |
+| `LOCAL_EMBEDDING_MODEL` | 嵌入模型：`BAAI/bge-m3` 或本地模型绝对路径 |
+| `RAG_EMBED_DEVICE` / `RAG_DATA_DIR` | 嵌入设备（cuda/cpu）与向量库目录 |
 
 **勿将 `.env`、真实 API Key、本地对话历史提交到 git。**
 

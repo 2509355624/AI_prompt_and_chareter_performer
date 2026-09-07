@@ -14,7 +14,8 @@ const RAG_DATA_DIR = resolveRagDataDir();
 const INGEST_STATE_FILE = path.join(RAG_DATA_DIR, 'ingest_state.json');
 const DAEMON_SCRIPT = path.join(ROOT, 'rag', 'rag_daemon.py');
 
-const RAG_ENABLED = String(process.env.RAG_ENABLED || '1') !== '0';
+// RAG 默认关闭：需在 .env 显式 RAG_ENABLED=1 才会启用（因为要额外下载/配置向量模型）。
+const RAG_ENABLED = String(process.env.RAG_ENABLED || '0') !== '0';
 const INGEST_EVERY_ASSISTANT_REPLIES = Math.max(
     1,
     parseInt(process.env.RAG_INGEST_EVERY_ASSISTANT_REPLIES || '5', 10)
@@ -30,10 +31,11 @@ class RagService {
         this.reqId = 0;
         this.ready = false;
         this.startPromise = null;
+        this.fatalDisabled = false;
     }
 
     isEnabled() {
-        return RAG_ENABLED;
+        return RAG_ENABLED && !this.fatalDisabled;
     }
 
     getIngestEvery() {
@@ -79,6 +81,10 @@ class RagService {
             console.log('[RAG] disabled (RAG_ENABLED=0)');
             return false;
         }
+        if (this.fatalDisabled) {
+            console.log('[RAG] disabled (vector model missing)');
+            return false;
+        }
         if (this.startPromise) return this.startPromise;
         this.startPromise = this._startDaemon();
         return this.startPromise;
@@ -117,6 +123,11 @@ class RagService {
                     msg = JSON.parse(line);
                 } catch (e) {
                     console.warn('[RAG] bad daemon line:', line.slice(0, 200));
+                    continue;
+                }
+                if (msg.event === 'model_missing') {
+                    this.fatalDisabled = true;
+                    console.error('[RAG] ' + (msg.hint || msg.error || `vector model not found (${msg.model || ''})`));
                     continue;
                 }
                 if (msg.event === 'ready' && msg.ok) {
