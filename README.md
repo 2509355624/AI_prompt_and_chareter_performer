@@ -1,30 +1,67 @@
-# AI 工具中心 / Picture Prompt Produce
+# Mnemosyne · AI 角色扮演引擎
 
-本地 Web 服务：AI 绘图提示词生成 + **ComfyUI 角色扮演**（对话、情感分析、自动出图）。  
-适合单人局域网使用：电脑跑服务与 ComfyUI，手机 / iPad 同 Wi‑Fi 访问聊天页。
-
----
-
-## 功能概览
-
-| 模块 | 页面 | 说明 |
-|------|------|------|
-| 工具首页 | `/` → `index.html` | 入口导航 |
-| 提示词生成 | `prompt.html` | 根据主题批量生成 SD/MJ 英文提示词 |
-| 角色扮演 | **`character.html`** | 选角色 → 多轮对话 →（可选）RAG 长期记忆 → ComfyUI 出图 |
-| RAG 长期记忆 | 内嵌角色扮演 | 向量检索早期对话，默认关闭（见文末章节） |
-| 其他 | `split.html` 等 | 辅助工具 |
-
-本文档重点说明 **角色扮演 + ComfyUI**；提示词生成与首页用法见各页面内说明。
+> 基于 RAG 长期记忆的 AI 角色扮演系统：角色定制 · 情感分析 · 自动生图 · 记忆检索与冲突裁决
+>
+> Local-first：本地部署，局域网访问，手机/平板同 Wi-Fi 直连。
 
 ---
 
-## 环境要求
+## 架构总览
 
-- [Node.js](https://nodejs.org/)（运行本服务）
-- 对话 AI：火山引擎 Doubao / DeepSeek / OpenAI 兼容 API / 本地 [Ollama](https://ollama.com/)
-- 出图：[ComfyUI](https://github.com/comfyanonymous/ComfyUI) 已启动，且安装自定义节点 **BatchPromptImageGenerator**（工作流 `workflows/character_bust.json` 依赖此节点）
-- （可选）NVIDIA GPU；本地 Ollama + Comfy 同时跑时，服务会按显存门槛排队出图
+```
+用户消息
+  │
+  ├──→ RAG 检索（BGE-M3 + ChromaDB + MMR）
+  │         检索 top-4 长期记忆，注入情感分析 + 对白生成
+  │
+  ├──→ ① 情感 AI ── 分析用户情绪，给出语气/回复要点建议
+  ├──→ ② 对白 AI ── 角色 systemPrompt + 情绪 + 记忆 → 生成回复
+  └──→ ③ 生图 AI ── 对白 + continuity → 服饰/分镜 tags → ComfyUI 出图
+                                          ↓
+              每 5 轮 AI 回复 ──→ 情节提取 LLM ──→ 向量化入库
+```
+
+**核心设计**：对话超过上下文窗口后，靠 RAG 检索早期用户自述事实，而非把全部历史塞进上下文。
+
+---
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| **RAG 记忆** | BGE-M3 向量化 · ChromaDB 持久化 · MMR 多样性去重 · 记忆冲突裁决 |
+| **LLM** | 火山豆包 / DeepSeek / Ollama（多 Provider 运行时切换） |
+| **出图** | ComfyUI + GPU 队列调度 + 显存门槛 + SSE 实时进度 |
+| **后端** | Node.js + Express + SSE 流式推送 |
+| **前端** | 原生 Web（贴纸手帐风）+ Flutter 客户端（移动端） |
+| **RAG daemon** | Python（sentence-transformers + chromadb + torch） |
+
+---
+
+## 功能模块
+
+### 🎭 角色扮演（核心）
+
+- 自定义角色：性格 systemPrompt + 外观 appearancePrompt + 服饰 outfitPrompt
+- 多轮对话 + 情感分析 + 自动出图（对白先生成，再据内容出图，避免错位）
+- 上下文窗口 6 轮（12 条消息），与 RAG ingest 间隔（5 轮）对齐，消除失忆区
+- 记忆冲突裁决：长期自述事实 vs 近期对话话题，事实询问以长期为准
+- MMR 检索：从候选池 20 条中按多样性选 top-4，避免小记忆库重复命中
+- A/B 开关：`ragRuling=legacy|fixed`，请求级切换无需重启
+- 调试日志：查询日志可查看 RAG 检索语句、命中结果、发送给 AI 的完整 messages
+
+### 🖼️ ComfyUI 图片生成
+
+- 对话内自动出图 + 独立批量生图
+- 固定工作流拓扑：1 Checkpoint + 3 LoRA 槽位 + BatchPromptImageGenerator
+- 可配置采样参数、高清修复、负向提示词
+- GPU 队列异步执行，Ollama 占显存时自动等待
+
+### 🔧 辅助工具
+
+- 图片边框：批量加小红书贴纸框，底部文案可改
+- 图片切分：左右对半切，分屏素材制作
+- 提示词生成：主题 → 英文 SD/MJ 提示词批量输出
 
 ---
 
@@ -36,165 +73,64 @@ cp .env.example .env   # 填入 API Key、ComfyUI 地址等
 npm start
 ```
 
-**Windows 一键启动**：配置好 `.env` 后，双击项目根目录的 **`启动项目.bat`** 即可——它会先清理占用 3000 端口的旧进程，再启动服务（等价于 `npm start`）。注意该脚本只启动 Web 服务：
-- **ComfyUI**（8188）需另行启动；
-- **RAG 长期记忆** 是否启用由 `.env` 的 `RAG_ENABLED` 控制，脚本不干预（见下文 RAG 章节）。
+**Windows 一键启动**：双击 `启动项目.bat`（清理旧进程 + 启动服务）。ComfyUI（8188）需另行启动。
 
 浏览器打开：
 
 - 本机：<http://localhost:3000>
 - 角色扮演：<http://localhost:3000/character.html>
 
-启动后控制台会打印 **局域网地址**（服务监听 `0.0.0.0`），手机在同一 Wi‑Fi 下可访问，例如：
-
-```text
-LAN access (same Wi‑Fi):
-  http://192.168.x.x:3000/character.html
-```
-
-若手机无法访问，请在 Windows 防火墙中放行 **入站 TCP 3000**（专用网络）。
+启动后控制台打印局域网地址（监听 `0.0.0.0`），手机同 Wi-Fi 可访问。防火墙需放行入站 TCP 3000。
 
 ---
 
-## 角色扮演（character.html）
+## RAG 长期记忆
 
-### 界面布局
-
-- **左侧**：角色列表（贴纸卡片），新建 / 编辑角色
-- **中间**：与当前角色的对话、配图、调试信息
-- **右侧**：配置贴纸 — AI Provider、Comfy 出图参数、强制提示词等
-
-**手机 / 窄屏（≤1100px）**：自动进入「对话优先」布局 — 全屏聊天，👤 打开角色抽屉，⚙️ 打开配置抽屉，··· 为导出 / 编辑等次要操作。底部输入栏固定，不会被长对话顶出屏幕。
-
-桌面宽屏右上角 **📱** 可强制预览手机布局。
-
-**AI 生图开关（右上角大按钮）**：默认开启。每轮文本回复后会自动做"服饰/分镜 tag 分析 + ComfyUI 出图"；点击右上角「🖼️ AI 生图」切换为关闭后，仅进行文本对话（跳过 tag 分析与出图，回复明显更快），选择存在浏览器本地。
-
-### 一轮对话的处理流程
-
-```text
-① 情感 AI   → 分析用户情绪，给出对白语气建议（tone / keyPoints）
-② 文本 AI   → 仅根据角色设定 + 情绪 + 记忆生成角色回复
-③ 生图 AI   → 对白完成后，根据「本轮用户 + 本轮回复 + 上一轮 continuity」生成 SD tags
-④ 代码层    → 角色 appearancePrompt（底模）+ 本轮 tags → ComfyUI 出图
-```
-
-要点：
-
-- 生图在对白**之后**，避免「还没说站起来，图里已经坐好」的错位
-- continuity 快照只继承 **服饰 + 抽象场景/氛围**，不复制上一轮动作或道具 tag（如 tablet、desk）
-- 对白系统提示词可带 **当前穿着**（叙事用），与出图 tags 分离
-
-### 角色数据
-
-| 字段 | 用途 |
-|------|------|
-| `systemPrompt` | 角色性格与对白风格 |
-| `appearancePrompt` | Comfy **底模**正向前缀（发色、画风 tag 等，每轮都拼上） |
-| `outfitPrompt` | 可选，默认服饰补充 |
-| `personality` / `description` | 展示与编辑用 |
-
-角色列表默认：`data/characters.json`（可提交模板角色）。  
-本地私有角色可放 `data/characters.local.json`（已在 `.gitignore`，不会进 git）。
-
-对话与配图历史：`data/chat_history.json`（本地运行时写入，默认不提交）。
-
----
-
-## ComfyUI 出图
-
-### 工作流结构
-
-固定模板：`workflows/character_bust.json`（API 格式，非 UI 拖拽导出）。
-
-| 节点 | 类型 | 作用 |
-|------|------|------|
-| `4` | CheckpointLoaderSimple | **主模型**（1 个） |
-| `25` → `24` → `19` | LoraLoader 串联 | **LoRA 槽位 3 个**（名称 + model/clip 强度） |
-| `53` | BatchPromptImageGenerator | `base_prompt` + `multi_prompts`（底模 + 本轮 tags） |
-| `7` | CLIPTextEncode | 负向提示词 |
-| `9` | SaveImage | 保存出图 |
-
-服务端 `comfy_client.js` 的 `buildPromptGraph()` 在每轮出图时写入上述节点；**不是**通用「拖任意 Comfy 工作流」解析器。
-
-### 右侧配置项（与代码默认值）
-
-与 `chat_image_config.js` / `.env` 一致，可在页面调整并 **存为预设**（保存到 `data/comfy_workflow_settings.json`，换浏览器 / 手机 LAN 访问也会同步）：
-
-- **Checkpoint**：主模型文件名
-- **LoRA 1～3**：名称、Model 强度、CLIP 强度（选 `(none)` 或强度 0 即关闭）
-- **宽高、Steps、CFG、Sampler、Scheduler、Denoise、Seed**
-- **高清修复 Hires**（可选）
-- **负向提示词**
-
-默认主模型示例：`unholyDesireMixSinister_v70.safetensors`  
-默认 LoRA 示例见 `chat_image_config.js` 中 `loras` 数组。
-
-下拉列表来自 ComfyUI 的 `object_info`（需 Comfy 在线）；离线时使用配置里的默认值。
-
-### 提示词如何拼进 Comfy
-
-```text
-base_prompt    ← 角色 appearancePrompt（+ 可选 outfitPrompt / 风格前缀）
-multi_prompts  ← 本轮 visual.prompt（服饰、动作、表情、场景、氛围、机位等英文 tags）
-negative       ← 右侧负向提示词或 chat_image_config.negativePrompt
-```
-
-出图任务经 GPU 队列异步执行；Ollama 占用显存时会等待 VRAM 释放后再跑 Comfy（见 `IMAGE_MIN_VRAM_MB`）。
-
----
-
-## RAG 长期记忆（可选 · 默认关闭）
-
-角色扮演对话一旦超过上下文窗口，模型会忘记早期你亲口说过的偏好与约定。开启后系统把历史对话**每 5 次 AI 回复提炼为一条结构化记忆**（区分"用户 / 角色 / 双方"发言归属，并打主题标签），本地向量化入库；每轮对话按**当前用户消息**检索最相关的 4 条长期记忆，作为事实依据**同时注入情感分析与对白生成两个阶段**——角色据此能回应很早以前的自述事实。
+角色对话超过上下文窗口后，模型会忘记早期你亲口说过的偏好与约定。RAG 系统把历史对话**每 5 次 AI 回复提炼为结构化记忆**（区分 user/character/shared 发言归属 + 主题标签），本地向量化入库；每轮对话按当前用户消息检索最相关的 4 条记忆，同时注入情感分析与对白生成两个阶段。
 
 > 本质是"检索"而不是"记住"：不把全部历史塞进上下文，而是需要时把相关旧信息捞回来当依据。
 
-**默认关闭**：向量模型需要额外下载或接入向量服务。模型未就绪时即使打开开关，系统也会自动禁用 RAG 并提示，对话只依赖历史上下文，不影响聊天。
+**默认关闭**。开启需要向量模型（BGE-M3）就绪。
 
 ### 开启步骤
 
-1. 准备向量模型（三选一）
-   - **自动下载**：`.env` 设 `RAG_ENABLED=1` 且 `RAG_AUTO_DOWNLOAD=1`，首次启动 daemon 自动联网下载 BGE-M3（数百 MB，需网络）；
-   - **手动下载**：`python -c "from modelscope import snapshot_download; snapshot_download('BAAI/bge-m3')"`；
-   - **本地目录**：下载/已有模型后，把 `.env` 的 `LOCAL_EMBEDDING_MODEL` 指向模型绝对路径（跳过下载）。
-2. `.env` 设 `RAG_ENABLED=1`。
-3. 重启服务，启动日志出现 `[RAG] daemon ready (local BGE-M3)` 即启用成功。
-4. 新对话从累计第 5 次 AI 回复起自动异步入库；想为已有角色立即建记忆，运行
-   `node scripts/rebuild_rag_character.js <characterId>`。
+1. `.env` 设 `RAG_ENABLED=1`
+2. 准备向量模型（三选一）：
+   - 自动下载：`RAG_AUTO_DOWNLOAD=1`，首次启动自动下载 BGE-M3
+   - 手动下载：`python -c "from modelscope import snapshot_download; snapshot_download('BAAI/bge-m3')"`
+   - 本地目录：`LOCAL_EMBEDDING_MODEL` 指向模型绝对路径
+3. 重启服务，日志出现 `[RAG] daemon ready (local BGE-M3)` 即成功
+4. 为已有角色重建记忆：`node scripts/rebuild_rag_character.js <characterId>`
 
-**模型未就绪的表现**：控制台打印"向量模型未找到，RAG 已禁用，对话仅使用历史上下文"，聊天正常、无长期记忆注入。
+**页面开关**：角色扮演页右上角「🧠 RAG」按钮可在前端开关。
 
-**页面开关**：角色扮演页右上角「🧠 RAG」按钮（AI 生图旁）可在前端开关本页对话是否接入 RAG——开启时会先查询服务端状态：`.env` 未开启或模型未就绪会弹窗说明原因，不会静默下载；关闭则该页请求不做向量检索。
-
-环境要求补充：RAG 需要 Python 环境与 `rag/requirements.txt` 依赖（sentence-transformers、chromadb、modelscope、torch），模型建议放 GPU 机器。
+环境要求：Python + `rag/requirements.txt`（sentence-transformers、chromadb、modelscope、torch）。
 
 ---
 
 ## 环境变量（.env）
 
-复制 `.env.example` 后按需修改：
-
 | 变量 | 说明 |
 |------|------|
-| `PORT` | 本服务端口，默认 `3000` |
+| `PORT` | 服务端口，默认 `3000` |
 | `COMFYUI_URL` | ComfyUI 地址，默认 `http://127.0.0.1:8188` |
 | `COMFYUI_TIMEOUT_MS` | 单次出图超时（毫秒） |
 | `COMFYUI_CHECKPOINT` | 默认 Checkpoint 文件名 |
-| `IMAGE_MIN_VRAM_MB` | Ollama 场景下出图前要求的最小空闲显存（MB） |
+| `IMAGE_MIN_VRAM_MB` | Ollama 场景下出图前最小空闲显存（MB） |
 | `VOLC_*` | 火山引擎 / Doubao |
 | `DEEPSEEK_*` | DeepSeek |
-| Ollama | 页面选 Local Ollama，Base URL 默认 `http://localhost:11434` |
-| `RAG_ENABLED` | RAG 长期记忆总开关，**默认 0=关**；需向量模型就绪（见上文章节） |
-| `RAG_AUTO_DOWNLOAD` | `1` 时允许模型缺失时自动联网下载（首次需网络） |
-| `LOCAL_EMBEDDING_MODEL` | 嵌入模型：`BAAI/bge-m3` 或本地模型绝对路径 |
+| `RAG_ENABLED` | RAG 总开关，默认 `0` |
+| `RAG_AUTO_DOWNLOAD` | `1` 时允许自动下载向量模型 |
+| `LOCAL_EMBEDDING_MODEL` | 嵌入模型路径 |
 | `RAG_EMBED_DEVICE` / `RAG_DATA_DIR` | 嵌入设备（cuda/cpu）与向量库目录 |
+| `RAG_INGEST_EVERY_ASSISTANT_REPLIES` | ingest 间隔轮次，默认 `5` |
+| `SKIP_TURN_BRIEF` | 是否跳过轮次摘要，默认 `1`（跳过） |
 
-**勿将 `.env`、真实 API Key、本地对话历史提交到 git。**
+**勿将 `.env`、API Key、本地对话历史提交到 git。**
 
 ---
 
-## 主要 API（角色扮演相关）
+## 主要 API
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -206,55 +142,50 @@ negative       ← 右侧负向提示词或 chat_image_config.negativePrompt
 | GET | `/api/chat-turn/:id/stream` | 订阅流式事件 |
 | POST | `/api/character-image` | 提交出图任务 |
 | GET | `/api/image-jobs/:id/stream` | 出图进度 |
-| GET | `/api/comfy/workflow-options` | Checkpoint / LoRA 列表与默认工作流参数 |
+| GET | `/api/comfy/workflow-options` | Checkpoint / LoRA 列表 |
 | GET | `/api/comfy/health` | ComfyUI 连通性 |
 
 ---
 
-## 项目结构（简要）
+## 项目结构
 
 ```text
 server.js              Express 入口，LAN 0.0.0.0
-ai_service.js          情感 / 对白 / 生图 tag 三阶段逻辑
-comfy_client.js        加载 character_bust.json 并注入参数
-chat_image_config.js   Comfy 默认采样与 LoRA
+ai_service.js          情感 / 对白 / 生图三阶段 + RAG 检索 + 冲突裁决
+comfy_client.js        加载工作流模板并注入参数
+chat_image_config.js    Comfy 默认采样与 LoRA
+rag/
+  store.py              ChromaDB 持久化 + MMR 检索
+  rag_daemon.py         BGE-M3 向量化 daemon
+  rag_service.js        Node↔Python 桥接 + ingest 调度
 workflows/
-  character_bust.json  角色出图 API 工作流模板
+  character_bust.json   角色出图 API 工作流模板
 public/
-  character.html       角色扮演 UI
-  styles/              贴纸风样式 + 手机布局
+  character.html        角色扮演 UI
+  index.html            首页导航
+  styles/               贴纸手帐风样式
 data/
-  characters.json      角色模板（可提交）
-  chat_history.json    本地对话（gitignore）
-gpu_scheduler/         出图队列、显存等待、SSE
+  characters.json       角色模板
+  chat_history.json     本地对话（gitignore）
+  rag/                  ChromaDB + ingest 水位
+gpu_scheduler/          出图队列、显存等待、SSE
 ```
-
----
-
-## 提示词生成（首页 / prompt.html）
-
-- 支持 Ollama 或 OpenAI 兼容 API
-- 输入主题，输出 JSON 数组形式的英文 SD 提示词
-- 与角色扮演独立，不经过 ComfyUI
 
 ---
 
 ## 常见问题
 
-**Q：手机打不开局域网地址？**  
-同一 Wi‑Fi、防火墙放行 3000、用控制台打印的 `http://192.168.x.x:3000/character.html`。
+**Q：手机打不开局域网地址？**
+同一 Wi-Fi、防火墙放行 3000、用控制台打印的 `http://192.168.x.x:3000/character.html`。
 
-**Q：有回复但没有图？**  
-检查 ComfyUI 是否运行、`COMFYUI_URL` 是否正确、是否安装 BatchPromptImageGenerator、Checkpoint/LoRA 文件名是否与 Comfy 的 models 目录一致。
+**Q：有回复但没有图？**
+检查 ComfyUI 是否运行、`COMFYUI_URL` 是否正确、BatchPromptImageGenerator 是否安装、Checkpoint/LoRA 文件名是否一致。
 
-**Q：能否拖自己的 Comfy 工作流 JSON？**  
-当前版本 **不支持**；仅使用 `workflows/character_bust.json` 固定拓扑（1 Checkpoint + 3 LoRA）。自定义工作流属于后续规划。
-
-**Q：README 和实际代码不一致？**  
-以仓库内 `ai_service.js`、`comfy_client.js`、`character.html` 为准；大改流程后请同步更新本文档。
+**Q：RAG 开了但记忆不准？**
+检查查询日志（对话页"查询日志"按钮）里的 RAG 检索结果，确认检索语句和命中记忆是否相关。记忆库小时结果会重复，随对话累积会改善。
 
 ---
 
 ## License
 
-Private / local use. 按你本地约定使用即可。
+Private / local use.

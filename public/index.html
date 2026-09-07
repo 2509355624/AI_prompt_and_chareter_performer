@@ -3,46 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 工具中心</title>
-    <link rel="stylesheet" href="styles/home-paper.css?v=2">
+    <title>Mnemosyne · AI 角色扮演引擎</title>
+    <link rel="stylesheet" href="styles/home-paper.css?v=3">
 </head>
 <body>
     <main class="home">
         <header class="brand-sheet">
             <span class="tape" aria-hidden="true"></span>
-            <span class="stamp" aria-hidden="true">手帐</span>
-            <h1 class="brand-title">AI 工具中心</h1>
-            <p class="brand-sub">贴纸手帐风入口 · 选一个工具开始创作</p>
+            <span class="stamp" aria-hidden="true">Mnemosyne</span>
+            <h1 class="brand-title">AI 角色扮演引擎</h1>
+            <p class="brand-sub">RAG 长期记忆 · 情感分析 · 自动生图 · 记忆冲突裁决</p>
         </header>
 
         <nav class="tool-grid" aria-label="工具列表">
-            <a href="prompt.html" class="tool-card">
-                <span class="tape" aria-hidden="true"></span>
-                <div class="tool-head">
-                    <span class="tool-icon" aria-hidden="true">🎨</span>
-                    <h2 class="tool-title">提示词生成</h2>
-                </div>
-                <p class="tool-desc">风格预设 + 场景描述，快速写出可用的绘画提示词。</p>
-                <span class="tool-go">打开 →</span>
-            </a>
-
-            <a href="character.html" class="tool-card">
+            <a href="character.html" class="tool-card tool-card--featured">
                 <span class="tape" aria-hidden="true"></span>
                 <div class="tool-head">
                     <span class="tool-icon" aria-hidden="true">🎭</span>
                     <h2 class="tool-title">AI 角色扮演</h2>
                 </div>
-                <p class="tool-desc">自定义角色对白与出图，沉浸式聊天联动分镜。</p>
-                <span class="tool-go">打开 →</span>
+                <p class="tool-desc">自定义角色、多轮对话、RAG 长期记忆、情感分析、ComfyUI 自动出图。</p>
+                <span class="tool-go">进入对话 →</span>
             </a>
 
-            <a href="split.html" class="tool-card">
+            <a href="generate.html" class="tool-card">
                 <span class="tape" aria-hidden="true"></span>
                 <div class="tool-head">
-                    <span class="tool-icon" aria-hidden="true">✂️</span>
-                    <h2 class="tool-title">图片切分</h2>
+                    <span class="tool-icon" aria-hidden="true">✨</span>
+                    <h2 class="tool-title">ComfyUI 图片生成</h2>
                 </div>
-                <p class="tool-desc">左右对半切开，方便做抖音式分屏素材。</p>
+                <p class="tool-desc">角色预设批量出图，AI 扩写，贴纸边框预览导出。</p>
                 <span class="tool-go">打开 →</span>
             </a>
 
@@ -56,18 +46,28 @@
                 <span class="tool-go">打开 →</span>
             </a>
 
-            <a href="generate.html" class="tool-card">
+            <a href="split.html" class="tool-card">
                 <span class="tape" aria-hidden="true"></span>
                 <div class="tool-head">
-                    <span class="tool-icon" aria-hidden="true">✨</span>
-                    <h2 class="tool-title">ComfyUI 图片生成</h2>
+                    <span class="tool-icon" aria-hidden="true">✂️</span>
+                    <h2 class="tool-title">图片切分</h2>
                 </div>
-                <p class="tool-desc">角色预设批量出图，AI 扩写，默认贴纸边框预览导出。</p>
+                <p class="tool-desc">左右对半切开，方便做抖音式分屏素材。</p>
+                <span class="tool-go">打开 →</span>
+            </a>
+
+            <a href="prompt.html" class="tool-card">
+                <span class="tape" aria-hidden="true"></span>
+                <div class="tool-head">
+                    <span class="tool-icon" aria-hidden="true">🎨</span>
+                    <h2 class="tool-title">提示词生成</h2>
+                </div>
+                <p class="tool-desc">风格预设 + 场景描述，快速写出可用绘画提示词。</p>
                 <span class="tool-go">打开 →</span>
             </a>
         </nav>
 
-        <p class="home-foot">© 2026 AI 工具中心</p>
+        <p class="home-foot">© 2026 Mnemosyne · AI 角色扮演引擎</p>
     </main>
 </body>
 </html>

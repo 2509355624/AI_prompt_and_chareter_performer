@@ -136,6 +136,30 @@ body {
 .tool-card:nth-child(4) { animation-delay: 0.2s; transform: rotate(1deg); grid-column: 2 / span 2; }
 .tool-card:nth-child(5) { animation-delay: 0.25s; transform: rotate(-0.8deg); grid-column: 4 / span 2; background: var(--card-warm); }
 
+/* —— featured card (角色扮演) —— */
+.tool-card--featured {
+  grid-column: span 3 !important;
+  min-height: 200px;
+  background: linear-gradient(135deg, #fffdf6 0%, #fff4e0 100%);
+  border-width: 3.5px;
+}
+.tool-card--featured .tool-icon {
+  width: 52px;
+  height: 52px;
+  font-size: 26px;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tool-card--featured .tool-title {
+  font-size: clamp(22px, 2.8vw, 28px);
+}
+.tool-card--featured .tool-desc {
+  font-size: 14px;
+}
+.tool-card--featured .tool-go {
+  font-size: 15px;
+}
+
 .tool-card .tape {
   position: absolute;
   width: 72px;
@@ -235,6 +259,9 @@ body {
   .tool-card:nth-child(4),
   .tool-card:nth-child(5) {
     grid-column: span 1;
+  }
+  .tool-card--featured {
+    grid-column: span 2 !important;
   }
   .tool-card:nth-child(n) {
     transform: none;

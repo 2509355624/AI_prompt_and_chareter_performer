@@ -1,11 +1,10 @@
-feat: add MMR diversity to RAG retrieval + RAG debug log in chat + extend context window to 6 rounds
+refactor: rebrand to Mnemosyne AI Persona Engine, elevate character roleplay as core
 
-- rag/store.py: MMR (lambda=0.5) selects top-k from candidate pool of 20,
-  reducing redundant hits when memory store is small
-- ai_service.js: add ragRetrieveLog to debugInfo (query text, retrieve ms,
-  hit count, per-doc rank/content/metadata); pass through finalizeChatReply
-- public/character.html: render RAG retrieval log section at top of debug modal
-- ai_service.js: RECENT_FULL_ROUNDS and EMOTION_CONTEXT_ROUNDS 4 to 6,
-  aligning with 5-round ingest interval to close the amnesia gap
-- server.js: move dotenv.config() to first line so RAG_ENABLED is set
-  before module requires
+- README.md: full rewrite — new project name, architecture diagram,
+  RAG/Memory conflict ruling as headline feature, tech stack table,
+  MMR/diversity retrieval, context window alignment, A/B toggle docs
+- public/index.html: title to "Mnemosyne", subtitle to RAG/emotion/auto-image,
+  character roleplay card as featured (first, larger, accent border),
+  other tools demoted to secondary
+- public/styles/home-paper.css: tool-card--featured style (3-col span,
+  gradient bg, larger icon/title), responsive span fix for mobile
