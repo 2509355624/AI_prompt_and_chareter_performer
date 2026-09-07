@@ -758,7 +758,7 @@ camera: medium_shot, from_front, upper_body
         };
     }
 
-    formatRagMemoryForPrompt(ragDocs) {
+    formatRagMemoryForPrompt(ragDocs, ruling = 'fixed') {
         if (!Array.isArray(ragDocs) || !ragDocs.length) return '';
         const aboutLabel = {
             user: '用户事实',
@@ -777,7 +777,10 @@ camera: medium_shot, from_front, upper_body
                 : `[记忆${idx + 1}·${who}${topics}]`;
             return `${header}\n${String(doc.content || '').trim()}`;
         });
-        return `\n\n【长期情节记忆（向量检索；已标注发言归属；当用户询问关于自己/双方/角色的既有事实——喜欢什么、约好过什么、发生过什么——时以此为准：近期对话只是话题提及、不是偏好变更，只能补充不能覆盖）】\n${lines.join('\n\n')}`;
+        const rulingNote = ruling === 'legacy'
+            ? '与最近 messages 冲突时以 messages 为准'
+            : '当用户询问关于自己/双方/角色的既有事实——喜欢什么、约好过什么、发生过什么——时以此为准：近期对话只是话题提及、不是偏好变更，只能补充不能覆盖';
+        return `\n\n【长期情节记忆（向量检索；已标注发言归属；${rulingNote}）】\n${lines.join('\n\n')}`;
     }
 
     /** 情感分析阶段的长期记忆核对块：只影响 keyPoints 与语气建议，不污染情绪标签 */
@@ -883,8 +886,8 @@ camera: medium_shot, from_front, upper_body
     }
 
     /** 对话系统提示：角色 + 情绪 + 当前穿着 + 记忆，不含出图分镜指令 */
-    buildDialogueSystemPrompt(characterSystemPrompt, emotionResult, turnMemory, conversationSummary, previousVisual = null, ragDocs = null) {
-        const ragText = this.formatRagMemoryForPrompt(ragDocs);
+    buildDialogueSystemPrompt(characterSystemPrompt, emotionResult, turnMemory, conversationSummary, previousVisual = null, ragDocs = null, ruling = 'fixed') {
+        const ragText = this.formatRagMemoryForPrompt(ragDocs, ruling);
         const memoryText = ragText || this.buildMemoryContextBlock(turnMemory, conversationSummary);
         const ea = emotionResult?.emotionAnalysis || {};
         const rs = emotionResult?.responseSuggestion || {};
@@ -1933,45 +1936,61 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         replyStartTime,
         totalStartTime,
         previousVisual = null,
-        emit = null
+        emit = null,
+        skipImagePipeline = false
     }) {
         const displayReply = this.stripVisualBlocksFromReply(replyContent);
         const lastUserMsg = [...recentTurns].reverse().find((m) => m.role === 'user')?.content || '';
 
         const emitFn = typeof emit === 'function' ? emit : () => {};
-        emitFn('phase', { phase: 'outfit_analyzing' });
-        const outfitStartTime = Date.now();
-        const outfitResultWithDebug = await this.analyzeOutfitVisual({
-            userMessage: lastUserMsg,
-            assistantReply: displayReply,
-            previousVisual,
-            provider,
-            model,
-            apiKey,
-            baseUrl
-        });
-        const outfitVisualTimeMs = Date.now() - outfitStartTime;
-        const { debugInfo: outfitVisualDebugInfo, ...outfitResultRaw } = outfitResultWithDebug || {};
-        const outfitOnly = outfitResultRaw?.outfitPlan
-            ? outfitResultRaw
-            : this.parseOutfitVisualResponse('');
+        let outfitVisualTimeMs = 0;
+        let outfitVisualDebugInfo = null;
+        let visual = null;
+        let allEnforced = [];
+        let visualFromPlan = null;
+        let visualAnalysis = null;
+        let changeIntent = null;
+        let emotionResult = emotionOnly || null;
 
-        this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg, displayReply);
-        this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg, displayReply, recentTurns);
-        const visualAnalysis = outfitOnly;
-        const emotionResult = this.mergeVisualAnalysis(emotionOnly, outfitOnly);
+        if (!skipImagePipeline) {
+            emitFn('phase', { phase: 'outfit_analyzing' });
+            const outfitStartTime = Date.now();
+            const outfitResultWithDebug = await this.analyzeOutfitVisual({
+                userMessage: lastUserMsg,
+                assistantReply: displayReply,
+                previousVisual,
+                provider,
+                model,
+                apiKey,
+                baseUrl
+            });
+            outfitVisualTimeMs = Date.now() - outfitStartTime;
+            const { debugInfo, ...outfitResultRaw } = outfitResultWithDebug || {};
+            outfitVisualDebugInfo = debugInfo || null;
+            const outfitOnly = outfitResultRaw?.outfitPlan
+                ? outfitResultRaw
+                : this.parseOutfitVisualResponse('');
 
-        emitFn('outfit_visual_done', {
-            outfitPlan: outfitOnly.outfitPlan,
-            visualPlan: outfitOnly.visualPlan,
-            outfitVisualTimeMs
-        });
-        emitFn('phase', { phase: 'parsing_visual' });
+            this.ensureOutfitPlan(outfitOnly, previousVisual, lastUserMsg, displayReply);
+            this.ensureVisualPlan(outfitOnly, previousVisual, lastUserMsg, displayReply, recentTurns);
+            visualAnalysis = outfitOnly;
+            emotionResult = this.mergeVisualAnalysis(emotionOnly, outfitOnly);
 
-        const changeIntent = this.resolveChangeIntent(lastUserMsg, visualAnalysis, previousVisual, displayReply);
-        const { visual, enforced: allEnforced, visualFromPlan } = this.buildVisualFromEmotionPlan(
-            visualAnalysis, previousVisual, changeIntent, lastUserMsg, displayReply, recentTurns
-        );
+            emitFn('outfit_visual_done', {
+                outfitPlan: outfitOnly.outfitPlan,
+                visualPlan: outfitOnly.visualPlan,
+                outfitVisualTimeMs
+            });
+            emitFn('phase', { phase: 'parsing_visual' });
+
+            changeIntent = this.resolveChangeIntent(lastUserMsg, visualAnalysis, previousVisual, displayReply);
+            const built = this.buildVisualFromEmotionPlan(
+                visualAnalysis, previousVisual, changeIntent, lastUserMsg, displayReply, recentTurns
+            );
+            visual = built.visual;
+            allEnforced = built.enforced || [];
+            visualFromPlan = built.visualFromPlan || null;
+        }
         const replyTimeMs = Date.now() - replyStartTime;
         const totalTimeMs = Date.now() - totalStartTime;
 
@@ -2164,13 +2183,13 @@ ${this.visualChangeHint(changeIntent, userMessage)}
     }
 
     /** 阶段1：仅情感分析（生图在对白之后单独调用） */
-    async prepareEmotionPhase(cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit, ragDocs = null) {
+    async prepareEmotionPhase(cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit, ragDocs = null, ruling = 'fixed') {
         const emitFn = typeof emit === 'function' ? emit : () => {};
 
         emitFn('phase', { phase: 'emotion_analyzing' });
         const emotionStartTime = Date.now();
         const emotionResultWithDebug = await this.analyzeEmotion(
-            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, ragDocs
+            cleanMessages, provider, model, apiKey, baseUrl, characterSystemPrompt, ruling === 'legacy' ? null : ragDocs
         );
         const emotionTimeMs = Date.now() - emotionStartTime;
         const { debugInfo: emotionDebugInfo, ...emotionResultRaw } = emotionResultWithDebug || {};
@@ -2492,7 +2511,9 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             conversationSummary,
             turnMemory = [],
             previousVisual,
-            characterId
+            characterId,
+            skipImagePipeline = false,
+            ragRuling = 'fixed'
         } = payload;
 
         const totalStartTime = Date.now();
@@ -2516,7 +2537,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         }
 
         const prep = await this.prepareEmotionPhase(
-            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit, ragDocs
+            cleanMessages, characterSystemPrompt, provider, model, apiKey, baseUrl, emit, ragDocs, ragRuling
         );
         const {
             emotionOnly,
@@ -2527,7 +2548,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         } = prep;
 
         const enhancedSystemPrompt = this.buildDialogueSystemPrompt(
-            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary, previousVisual, ragDocs
+            characterSystemPrompt, emotionOnly, turnMemory, conversationSummary, previousVisual, ragDocs, ragRuling
         );
         const chatMessages = [{ role: 'system', content: enhancedSystemPrompt }, ...recentTurns];
         const fullSystemPrompt = enhancedSystemPrompt;
@@ -2578,7 +2599,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             replyStartTime,
             totalStartTime,
             previousVisual: previousVisual || null,
-            emit
+            emit,
+            skipImagePipeline
         });
 
         return {

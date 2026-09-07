@@ -66,3 +66,6 @@ tests/*.webp
 
 # Local notes
 md_files/
+
+# Local eval spec (personal RAG eval standard, not for GitHub)
+scripts/eval/EVAL_SPEC.md
