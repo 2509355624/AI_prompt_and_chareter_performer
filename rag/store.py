@@ -62,20 +62,59 @@ class MemoryStore:
         col = self._collection(character_id)
         if col.count() == 0:
             return []
+
+        # MMR: 先取候选池（top-20 或全部），再按多样性选 k 条
+        fetch_n = min(max(k * 5, 20), col.count())
         result = col.query(
             query_embeddings=[query_embedding],
-            n_results=min(k, col.count()),
-            include=["documents", "metadatas", "distances"],
+            n_results=fetch_n,
+            include=["documents", "metadatas", "distances", "embeddings"],
         )
-        docs = []
+
+        candidates = []
         for i in range(len(result["ids"][0])):
-            docs.append({
+            candidates.append({
                 "id": result["ids"][0][i],
                 "content": result["documents"][0][i],
                 "metadata": result["metadatas"][0][i] or {},
                 "distance": result["distances"][0][i],
+                "embedding": result["embeddings"][0][i],
             })
-        return docs
+
+        if len(candidates) <= k:
+            return candidates
+
+        # MMR 选择
+        import numpy as np
+        lambda_param = 0.5
+        query_emb = np.array(query_embedding)
+
+        selected = [candidates[0]]  # 选相关度最高的
+        remaining = list(range(1, len(candidates)))
+
+        while len(selected) < k and remaining:
+            best_score = -1.0
+            best_idx = remaining[0]
+            for idx in remaining:
+                # relevance: 1 - cosine_distance
+                relevance = 1.0 - candidates[idx]["distance"]
+                # max similarity to already selected
+                max_sim = 0.0
+                for sel in selected:
+                    sim = float(np.dot(candidates[idx]["embedding"], sel["embedding"]))
+                    if sim > max_sim:
+                        max_sim = sim
+                mmr_score = lambda_param * relevance - (1.0 - lambda_param) * max_sim
+                if mmr_score > best_score:
+                    best_score = mmr_score
+                    best_idx = idx
+            selected.append(candidates[best_idx])
+            remaining.remove(best_idx)
+
+        # 清理 embedding 字段（不需要返回给调用方）
+        for s in selected:
+            s.pop("embedding", None)
+        return selected
 
     def delete_character(self, character_id: str) -> bool:
         name = safe_collection_name(character_id)

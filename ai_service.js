@@ -2,10 +2,10 @@ const axios = require('axios');
 const ragService = require('./rag_service');
 
 /** Recent verbatim rounds sent in messages; older context via turnMemory briefs */
-const RECENT_FULL_ROUNDS = 4;
+const RECENT_FULL_ROUNDS = 6;
 const TURN_MEMORY_STORE_MAX = 20;
 const TURN_MEMORY_PROMPT_MAX = 10;
-const EMOTION_CONTEXT_ROUNDS = 4;
+const EMOTION_CONTEXT_ROUNDS = 6;
 
 class AIService {
     constructor() {
@@ -303,6 +303,10 @@ class AIService {
     /** 统一纯文本分析调用（生图 ### 分段） */
     async callTextAnalysis(prompt, provider, model, apiKey, baseUrl) {
         const messages = [{ role: 'user', content: prompt }];
+        const label = `[LLM-TEXT] ${provider}/${model}`;
+        const t0 = Date.now();
+        console.log(`${label} start, prompt ${prompt.length} chars`);
+        try {
         if (provider === 'ollama') {
             const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
             const response = await axios.post(`${url}/api/chat`, {
@@ -311,6 +315,8 @@ class AIService {
                 stream: false,
                 keep_alive: 0
             }, { timeout: 600000 });
+            const t1 = Date.now();
+            console.log(`${label} done in ${t1 - t0}ms, resp ${response.data?.message?.content?.length || 0} chars`);
             return response.data?.message?.content || '';
         }
         if (provider === 'doubao') {
@@ -328,6 +334,8 @@ class AIService {
                 },
                 timeout: 60000
             });
+            const t1 = Date.now();
+            console.log(`${label} done in ${t1 - t0}ms, resp ${response.data?.choices?.[0]?.message?.content?.length || 0} chars`);
             return response.data?.choices?.[0]?.message?.content || '';
         }
         const isDeepseek = provider === 'deepseek';
@@ -345,12 +353,23 @@ class AIService {
             headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
             timeout: 600000
         });
+        const t1 = Date.now();
+        console.log(`${label} done in ${t1 - t0}ms, resp ${response.data?.choices?.[0]?.message?.content?.length || 0} chars`);
         return response.data?.choices?.[0]?.message?.content || '';
+        } catch (e) {
+            const t1 = Date.now();
+            console.error(`${label} FAILED in ${t1 - t0}ms: ${e.message}`);
+            throw e;
+        }
     }
 
     /** 统一 JSON 分析调用（情感） */
     async callJsonAnalysis(prompt, provider, model, apiKey, baseUrl) {
         const messages = [{ role: 'user', content: prompt }];
+        const label = `[LLM-JSON] ${provider}/${model}`;
+        const t0 = Date.now();
+        console.log(`${label} start, prompt ${prompt.length} chars`);
+        try {
         if (provider === 'ollama') {
             const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
             const response = await axios.post(`${url}/api/chat`, {
@@ -360,6 +379,8 @@ class AIService {
                 format: 'json',
                 keep_alive: 0
             }, { timeout: 600000 });
+            const t1 = Date.now();
+            console.log(`${label} done in ${t1 - t0}ms, resp ${response.data?.message?.content?.length || 0} chars`);
             return response.data?.message?.content || '';
         }
         if (provider === 'doubao') {
@@ -378,6 +399,8 @@ class AIService {
                 },
                 timeout: 60000
             });
+            const t1 = Date.now();
+            console.log(`${label} done in ${t1 - t0}ms, resp ${response.data?.choices?.[0]?.message?.content?.length || 0} chars`);
             return response.data?.choices?.[0]?.message?.content || '';
         }
         const isDeepseek = provider === 'deepseek';
@@ -400,7 +423,14 @@ class AIService {
             },
             timeout: 600000
         });
+        const t1 = Date.now();
+        console.log(`${label} done in ${t1 - t0}ms, resp ${response.data?.choices?.[0]?.message?.content?.length || 0} chars`);
         return response.data?.choices?.[0]?.message?.content || '';
+        } catch (e) {
+            const t1 = Date.now();
+            console.error(`${label} FAILED in ${t1 - t0}ms: ${e.message}`);
+            throw e;
+        }
     }
 
     /** Tags that belong in action (held items), not in scene background */
@@ -1937,7 +1967,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
         totalStartTime,
         previousVisual = null,
         emit = null,
-        skipImagePipeline = false
+        skipImagePipeline = false,
+        ragRetrieveLog = null
     }) {
         const displayReply = this.stripVisualBlocksFromReply(replyContent);
         const lastUserMsg = [...recentTurns].reverse().find((m) => m.role === 'user')?.content || '';
@@ -2040,6 +2071,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                 emotionMessages: emotionDebugInfo?.emotionMessages || [],
                 outfitVisualPrompt: outfitVisualDebugInfo?.outfitVisualPrompt || '',
                 outfitVisualMessages: outfitVisualDebugInfo?.outfitVisualMessages || [],
+                ragRetrieveLog: ragRetrieveLog || null,
                 sentPrompt: fullSystemPrompt,
                 sentMessages: chatMessages,
                 rawResponse: replyContent,
@@ -2524,6 +2556,7 @@ ${this.visualChangeHint(changeIntent, userMessage)}
 
         let ragDocs = [];
         let ragRetrieveMs = 0;
+        let ragRetrieveLog = null;
         if (ragService.isEnabled() && ragEnabled !== false && characterId) {
             const lastUserMsg = [...cleanMessages].reverse().find((m) => m.role === 'user')?.content || '';
             if (lastUserMsg) {
@@ -2531,6 +2564,16 @@ ${this.visualChangeHint(changeIntent, userMessage)}
                 const ragStart = Date.now();
                 ragDocs = await ragService.retrieve(characterId, lastUserMsg);
                 ragRetrieveMs = Date.now() - ragStart;
+                ragRetrieveLog = {
+                    query: lastUserMsg,
+                    retrieveMs: ragRetrieveMs,
+                    totalResults: ragDocs.length,
+                    docs: ragDocs.map((doc, idx) => ({
+                        rank: idx + 1,
+                        content: String(doc.content || '').slice(0, 500),
+                        metadata: doc.metadata || {}
+                    }))
+                };
                 if (ragDocs.length) {
                     console.log(`[RAG] retrieved ${ragDocs.length} docs for ${characterId} (${ragRetrieveMs}ms)`);
                 }
@@ -2601,7 +2644,8 @@ ${this.visualChangeHint(changeIntent, userMessage)}
             totalStartTime,
             previousVisual: previousVisual || null,
             emit,
-            skipImagePipeline
+            skipImagePipeline,
+            ragRetrieveLog
         });
 
         return {

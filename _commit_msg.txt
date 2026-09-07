@@ -1,0 +1,11 @@
+feat: add MMR diversity to RAG retrieval + RAG debug log in chat + extend context window to 6 rounds
+
+- rag/store.py: MMR (lambda=0.5) selects top-k from candidate pool of 20,
+  reducing redundant hits when memory store is small
+- ai_service.js: add ragRetrieveLog to debugInfo (query text, retrieve ms,
+  hit count, per-doc rank/content/metadata); pass through finalizeChatReply
+- public/character.html: render RAG retrieval log section at top of debug modal
+- ai_service.js: RECENT_FULL_ROUNDS and EMOTION_CONTEXT_ROUNDS 4 to 6,
+  aligning with 5-round ingest interval to close the amnesia gap
+- server.js: move dotenv.config() to first line so RAG_ENABLED is set
+  before module requires

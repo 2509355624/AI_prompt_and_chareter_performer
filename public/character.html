@@ -2954,6 +2954,27 @@
                     <button class="close-btn" onclick="this.parentElement.parentElement.parentElement.remove()">&times;</button>
                 </div>
                 <div class="debug-modal-body">
+                    ${debugInfo.ragRetrieveLog ? `
+                    <div class="debug-section">
+                        <h4>RAG 向量检索结果</h4>
+                        <div style="background:#f5f5f5;padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;">
+                            <strong>查询语句：</strong>${escapeHtml(debugInfo.ragRetrieveLog.query || '')}<br>
+                            <strong>检索耗时：</strong>${debugInfo.ragRetrieveLog.retrieveMs}ms<br>
+                            <strong>命中数量：</strong>${debugInfo.ragRetrieveLog.totalResults} 条（top-${debugInfo.ragRetrieveLog.docs.length}）
+                        </div>
+                        ${debugInfo.ragRetrieveLog.docs.length ? debugInfo.ragRetrieveLog.docs.map((doc, idx) => `
+                        <details ${idx === 0 ? 'open' : ''} style="margin-bottom:6px;border:1px solid #e0e0e0;border-radius:6px;padding:6px 10px;">
+                            <summary style="cursor:pointer;font-size:13px;">
+                                <strong>#${doc.rank}</strong>
+                                ${doc.metadata?.about ? `[${doc.metadata.about}]` : ''}
+                                ${doc.metadata?.assistantStart ? `第${doc.metadata.assistantStart}-${doc.metadata.assistantEnd}轮` : ''}
+                                ${doc.metadata?.topics ? `｜${doc.metadata.topics}` : ''}
+                            </summary>
+                            <pre style="margin:6px 0 0;font-size:12px;white-space:pre-wrap;">${escapeHtml(doc.content)}</pre>
+                        </details>
+                        `).join('') : '<pre style="color:#999;">无命中结果</pre>'}
+                    </div>
+                    ` : ''}
                     <div class="debug-section">
                         <h4>发送给AI的完整情感提示词messages</h4>
                         <pre>${escapeHtml(emotionMessagesText || 'N/A')}</pre>

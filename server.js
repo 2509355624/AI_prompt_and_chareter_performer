@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const aiService = require('./ai_service');
@@ -16,7 +17,6 @@ const matteService = require('./matte_service');
 const ragService = require('./rag_service');
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
