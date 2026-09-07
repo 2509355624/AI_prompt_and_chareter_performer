@@ -36,6 +36,10 @@ cp .env.example .env   # 填入 API Key、ComfyUI 地址等
 npm start
 ```
 
+**Windows 一键启动**：配置好 `.env` 后，双击项目根目录的 **`启动项目.bat`** 即可——它会先清理占用 3000 端口的旧进程，再启动服务（等价于 `npm start`）。注意该脚本只启动 Web 服务：
+- **ComfyUI**（8188）需另行启动；
+- **RAG 长期记忆** 是否启用由 `.env` 的 `RAG_ENABLED` 控制，脚本不干预（见下文 RAG 章节）。
+
 浏览器打开：
 
 - 本机：<http://localhost:3000>
